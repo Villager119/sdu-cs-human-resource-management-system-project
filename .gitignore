@@ -1,0 +1,22 @@
+# CMake 生成的构建目录
+build/
+build-*/
+out/
+cmake-build-*/
+
+# Qt Creator 产生的本地用户配置文件
+*.user
+*.user.*
+.qtc_clangd/
+
+# 编译产生的临时文件
+*.obj
+*.exe
+*.dll
+*.o
+*.a
+*.lib
+
+# 数据库文件
+*.db
+*.sqlite

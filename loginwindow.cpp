@@ -28,7 +28,7 @@ void LoginWindow::on_btnLogin_clicked()
     }
     //员工使用姓名或者手机号登录
     QSqlQuery query;
-    query.prepare("SELECT name,role FROM employees WHERE (name=:account OR phone = :account)AND password_hash= :password");
+    query.prepare("SELECT emp_id,name,role FROM employees WHERE (name=:account OR phone = :account)AND password_hash= :password");
     //安全绑定参数，防止SQL注入
     query.bindValue(":account",account);
     query.bindValue(":password",password);
@@ -40,11 +40,12 @@ void LoginWindow::on_btnLogin_clicked()
     //判断是否有结果
     if(query.next()){
         //查到了匹配到的账号密码
+        int empId=query.value("emp_id").toInt();
         QString empName=query.value("name").toString();
         QString role=query.value("role").toString();
         QMessageBox::information(this,"登录成功","欢迎回来"+empName+"!\n您的权限级别是:"+role);
         //跳转到主界面
-        MainWindow *mainWin=new MainWindow();
+        MainWindow *mainWin=new MainWindow(empId,role);
         //当主界面关闭时，自动释放它的内存
         mainWin->setAttribute(Qt::WA_DeleteOnClose);
         mainWin->show();

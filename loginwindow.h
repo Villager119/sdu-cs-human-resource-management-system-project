@@ -20,10 +20,19 @@ class LoginWindow : public QWidget
 public:
     explicit LoginWindow(QWidget *parent = nullptr);
     ~LoginWindow();
+
+    void setConfigPath(const QString &path);
+    void setDbConnected(bool ok);
+
 private slots:
     void on_btnLogin_clicked();
+    void on_btnServerSettings_clicked();
+    void tryReconnect();
+
 private:
     Ui::LoginWindow *ui;
+    QString m_configPath;
+    bool m_dbConnected = false;
 };
 
 #endif // LOGINWINDOW_H

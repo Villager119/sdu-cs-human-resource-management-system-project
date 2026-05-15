@@ -11,7 +11,7 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
 # 寻找 Qt6 的核心组件：Core(基础), Gui(图形), Widgets(窗口部件), Sql(数据库)
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Sql)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Sql Network)
 
 # 你的源文件列表（目前只有 main.cpp）
 set(PROJECT_SOURCES
@@ -22,17 +22,21 @@ set(PROJECT_SOURCES
     mainwindow.cpp
     mainwindow.h
     mainwindow.ui
+    serversettingsdialog.cpp
+    serversettingsdialog.h
 )
 
 # 生成可执行文件
 add_executable(HRMS ${PROJECT_SOURCES}
     loginwindow.h loginwindow.cpp loginwindow.ui
-    mainwindow.h mainwindow.cpp mainwindow.ui)
+    mainwindow.h mainwindow.cpp mainwindow.ui
+    serversettingsdialog.h serversettingsdialog.cpp)
 
 # 将 Qt 的库链接到我们的项目中
-target_link_libraries(HRMS PRIVATE 
-    Qt6::Core 
-    Qt6::Gui 
-    Qt6::Widgets 
+target_link_libraries(HRMS PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
     Qt6::Sql
+    Qt6::Network
 )

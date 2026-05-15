@@ -1,21 +1,23 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git *)",
-      "Bash(claude --version)",
-      "WebSearch",
-      "Bash(mysql --version)",
+      "Bash(git pull *)",
+      "Bash(cp CLAUDE.md CLAUDE.md.local.bak)",
+      "Bash(cp .claude/settings.local.json .claude/settings.local.json.bak)",
+      "Bash(mv CLAUDE.md CLAUDE.md.local.bak)",
+      "Bash(mv .claude/settings.local.json .claude/settings.local.json.bak)",
+      "Bash(odbcinst -q -d)",
+      "Bash(powershell -Command \"Get-OdbcDriver | Format-Table Name -HideTableHeaders\")",
       "Bash(sc query *)",
-      "Read(//c/ProgramData/MySQL/MySQL Server 8.0/**)",
-      "Read(//c/Program Files/MySQL/MySQL Server 8.0/**)",
-      "Bash(netstat -ano)",
-      "Bash(findstr \":3306\")",
-      "Bash(netsh advfirewall *)",
-      "Bash(mysql *)",
-      "Bash(findstr /i \"3306\")",
+      "Bash(powershell -Command \"Get-Service -Name 'MySQL*' -ErrorAction SilentlyContinue | Format-Table Name,Status\")",
+      "Bash(ping -n 1 SUNSHINE2021)",
+      "Bash(nslookup SUNSHINE2021)",
+      "Bash(ping *)",
+      "Bash(powershell -Command \"Test-NetConnection -ComputerName 172.25.215.161 -Port 3306 -InformationLevel Quiet -WarningAction SilentlyContinue\")",
       "Bash(ipconfig)",
-      "Bash(cmake --build build)",
-      "Bash(cmake *)"
+      "Bash(taskkill //f //im HRMS.exe)",
+      "Bash(cmake --build .)",
+      "Bash(PATH=/c/Qt/qtcommunity/Tools/mingw1310_64/bin:/c/Qt/qtcommunity/Tools/CMake_64/bin:/c/Qt/qtcommunity/Tools/Ninja:__TRACKED_VAR__ cmake --build .)"
     ]
   }
 }

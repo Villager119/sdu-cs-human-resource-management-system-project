@@ -51,11 +51,13 @@ int main(int argc, char *argv[]) {
 
     db.setDatabaseName(dsn);
 
-    if (!db.open()) {
+    bool dbOk = db.open();
+    if (!dbOk)
         qDebug() << "数据库连接失败！" << db.lastError().text();
-        return -1;
-    }
+
     LoginWindow loginWin;
+    loginWin.setConfigPath(configPath);
+    loginWin.setDbConnected(dbOk);
     loginWin.show();
 
     return app.exec();

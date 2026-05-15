@@ -35,10 +35,13 @@ private slots:
 
     void on_btnReject_clicked();
 
+    void on_btnCalculatePayroll_clicked();
+
 private:
     Ui::MainWindow *ui;
     QSqlTableModel *empModel;
     QSqlRelationalTableModel *leaveModel;
+    QSqlRelationalTableModel *payrollModel;
     int currentEmpId;
     QString currentRole;
 };

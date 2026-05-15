@@ -17,6 +17,9 @@ cmake-build-*/
 *.a
 *.lib
 
+# 数据库连接配置 (含密码)
+config.ini
+
 # 数据库文件
 *.db
 *.sqlite

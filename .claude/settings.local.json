@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Bash(claude --version)",
+      "WebSearch",
+      "Bash(mysql --version)",
+      "Bash(sc query *)",
+      "Read(//c/ProgramData/MySQL/MySQL Server 8.0/**)",
+      "Read(//c/Program Files/MySQL/MySQL Server 8.0/**)",
+      "Bash(netstat -ano)",
+      "Bash(findstr \":3306\")",
+      "Bash(netsh advfirewall *)",
+      "Bash(mysql *)",
+      "Bash(findstr /i \"3306\")",
+      "Bash(ipconfig)",
+      "Bash(cmake --build build)",
+      "Bash(cmake *)"
+    ]
+  }
+}

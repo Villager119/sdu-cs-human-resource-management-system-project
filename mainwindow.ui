@@ -18,7 +18,7 @@
     <item row="0" column="0">
      <widget class="QTabWidget" name="tabWidget">
       <property name="currentIndex">
-       <number>1</number>
+       <number>2</number>
       </property>
       <widget class="QWidget" name="widget">
        <attribute name="title">
@@ -144,6 +144,34 @@
           <y>440</y>
           <width>113</width>
           <height>20</height>
+         </rect>
+        </property>
+       </widget>
+      </widget>
+      <widget class="QWidget" name="tab">
+       <attribute name="title">
+        <string>薪酬管理</string>
+       </attribute>
+       <widget class="QPushButton" name="btnCalculatePayroll">
+        <property name="geometry">
+         <rect>
+          <x>160</x>
+          <y>300</y>
+          <width>56</width>
+          <height>18</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>一键核算本月工资</string>
+        </property>
+       </widget>
+       <widget class="QTableView" name="tableView_payroll">
+        <property name="geometry">
+         <rect>
+          <x>80</x>
+          <y>20</y>
+          <width>256</width>
+          <height>192</height>
          </rect>
         </property>
        </widget>

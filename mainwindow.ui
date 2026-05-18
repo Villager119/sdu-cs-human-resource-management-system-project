@@ -18,7 +18,7 @@
     <item row="0" column="0">
      <widget class="QTabWidget" name="tabWidget">
       <property name="currentIndex">
-       <number>2</number>
+       <number>0</number>
       </property>
       <widget class="QWidget" name="widget">
        <attribute name="title">
@@ -175,6 +175,60 @@
          </rect>
         </property>
        </widget>
+      </widget>
+      <widget class="QWidget" name="tab_audit">
+       <attribute name="title">
+        <string>操作日志</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="auditLayout">
+        <item>
+         <widget class="QTableView" name="tableView_audit"/>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="tab_reports">
+       <attribute name="title">
+        <string>统计报表</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="reportsLayout">
+        <item>
+         <widget class="QWidget" name="chartContainer"/>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="reportsControlRow">
+          <item>
+           <widget class="QLabel" name="label_chart">
+            <property name="text">
+             <string>图表类型:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QComboBox" name="comboChartType"/>
+          </item>
+          <item>
+           <spacer name="horizontalSpacer">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>40</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btnExportPDF">
+            <property name="text">
+             <string>导出PDF</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
       </widget>
      </widget>
     </item>

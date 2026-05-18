@@ -5,6 +5,12 @@
 #include<QSqlTableModel>
 #include<QSqlRelationalTableModel>
 #include<QSqlRelation>
+#include<QtCharts/QChartView>
+#include<QtCharts/QPieSeries>
+#include<QtCharts/QBarSeries>
+#include<QtCharts/QBarSet>
+#include<QtCharts/QBarCategoryAxis>
+#include<QtCharts/QValueAxis>
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -37,13 +43,32 @@ private slots:
 
     void on_btnCalculatePayroll_clicked();
 
+    void on_actionChangePassword_triggered();
+
+    void on_btnToggleStatus_clicked();
+
+    void on_btnSearch_clicked();
+    void on_btnResetFilter_clicked();
+
+    void on_actionLogout_triggered();
+
+    void on_comboChartType_currentIndexChanged(int index);
+    void on_btnExportPDF_clicked();
+
 private:
+    void logAction(const QString &action, const QString &target = QString());
+    void refreshChart();
+
     Ui::MainWindow *ui;
     QSqlTableModel *empModel;
     QSqlRelationalTableModel *leaveModel;
     QSqlRelationalTableModel *payrollModel;
+    QSqlTableModel *auditLogModel;
+    QChartView *chartView;
+    QChart *chart;
     int currentEmpId;
     QString currentRole;
+    QString currentEmpName;
 };
 
 #endif // MAINWINDOW_H

@@ -9,12 +9,14 @@
 #include<QLabel>
 #include<QHBoxLayout>
 #include<QVBoxLayout>
+#include<QFrame>
 #include<QSqlError>
 #include<QDate>
 #include<QSqlQuery>
 #include<QPainter>
 #include<QPdfWriter>
 #include<QFileDialog>
+#include<QTextStream>
 #include<QCryptographicHash>
 
 MainWindow::MainWindow(int empId,QString role,QWidget *parent)
@@ -39,6 +41,15 @@ MainWindow::MainWindow(int empId,QString role,QWidget *parent)
                "log_time DATETIME DEFAULT CURRENT_TIMESTAMP,"
                "FOREIGN KEY (emp_id) REFERENCES employees(emp_id)"
                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        // P4: 部门表初始化
+        q.exec("CREATE TABLE IF NOT EXISTS departments ("
+               "dept_id INT PRIMARY KEY AUTO_INCREMENT,"
+               "dept_name VARCHAR(50) NOT NULL UNIQUE"
+               ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        q.exec("INSERT IGNORE INTO departments (dept_name) "
+               "SELECT DISTINCT department FROM employees "
+               "WHERE department IS NOT NULL AND department != ''");
+
         // F11: 扩展字段迁移（检查列是否存在再添加）
         q.exec("SHOW COLUMNS FROM employees LIKE 'education'");
         if (q.size() == 0)
@@ -151,15 +162,18 @@ MainWindow::MainWindow(int empId,QString role,QWidget *parent)
     auto *calcRow = new QHBoxLayout;
     calcRow->addStretch();
     calcRow->addWidget(ui->btnCalculatePayroll);
+    auto *btnExportPayroll = new QPushButton("导出CSV");
+    calcRow->addWidget(btnExportPayroll);
     calcRow->addStretch();
     payrollTabLayout->addLayout(calcRow);
+    connect(btnExportPayroll, &QPushButton::clicked, this, &MainWindow::on_btnExportPayrollCSV_clicked);
 
     //===============权限隔离=================
     if(currentRole=="user"){
         ui->btnApprove->setVisible(false);
         ui->btnReject->setVisible(false);
         ui->btnCalculatePayroll->setVisible(false);
-        ui->tabWidget->setTabVisible(0,false);
+        ui->tabWidget->setTabVisible(1,false);  // 员工管理
         leaveModel->setFilter(QString("leave_requests.emp_id=%1").arg(currentEmpId));
         payrollModel->setFilter(QString("payroll.emp_id=%1").arg(currentEmpId));
     }
@@ -206,8 +220,8 @@ MainWindow::MainWindow(int empId,QString role,QWidget *parent)
     QPushButton *btnSearch = new QPushButton("查询");
     QPushButton *btnReset = new QPushButton("重置");
 
-    // 填充部门下拉框
-    QSqlQuery deptQuery("SELECT DISTINCT department FROM employees WHERE department IS NOT NULL AND department != ''");
+    // 填充部门下拉框（从 departments 表读取）
+    QSqlQuery deptQuery("SELECT dept_name FROM departments ORDER BY dept_id");
     while (deptQuery.next())
         deptCombo->addItem(deptQuery.value(0).toString());
 
@@ -227,8 +241,8 @@ MainWindow::MainWindow(int empId,QString role,QWidget *parent)
     QTableView *table = ui->tableView_employees;
     QPushButton *addBtn = ui->btnAdd;
     QPushButton *delBtn = ui->btnDelete;
-    QPushButton *revBtn = ui->binRevert;
-    QPushButton *saveBtn = ui->binSave;
+    QPushButton *revBtn = ui->btnRevert;
+    QPushButton *saveBtn = ui->btnSave;
 
     // 清空并重建
     while (grid->count() > 0)
@@ -241,6 +255,9 @@ MainWindow::MainWindow(int empId,QString role,QWidget *parent)
     grid->addWidget(revBtn, 2, 2);
     grid->addWidget(saveBtn, 2, 3);
     grid->addWidget(btnToggleStatus, 3, 0);
+    auto *btnExportEmp = new QPushButton("导出CSV");
+    grid->addWidget(btnExportEmp, 3, 1);
+    connect(btnExportEmp, &QPushButton::clicked, this, &MainWindow::on_btnExportEmpCSV_clicked);
 
     connect(btnSearch, &QPushButton::clicked, this, &MainWindow::on_btnSearch_clicked);
     connect(btnReset, &QPushButton::clicked, this, &MainWindow::on_btnResetFilter_clicked);
@@ -264,8 +281,8 @@ MainWindow::MainWindow(int empId,QString role,QWidget *parent)
 
     // 普通员工隐藏操作日志和统计报表
     if (currentRole == "user") {
-        ui->tabWidget->setTabVisible(3, false);
-        ui->tabWidget->setTabVisible(4, false);
+        ui->tabWidget->setTabVisible(4, false);  // 操作日志
+        ui->tabWidget->setTabVisible(5, false);  // 统计报表
     }
 
     //=================统计报表模块==================
@@ -280,6 +297,56 @@ MainWindow::MainWindow(int empId,QString role,QWidget *parent)
     connect(ui->btnExportPDF, &QPushButton::clicked,
             this, &MainWindow::on_btnExportPDF_clicked);
     refreshChart();
+
+    //===============仪表盘首页==================
+    auto *dashWidget = new QWidget;
+    auto *dashGrid = new QGridLayout(dashWidget);
+    dashGrid->setContentsMargins(20, 20, 20, 20);
+    dashGrid->setSpacing(15);
+
+    struct Card { QFrame *frame; QLabel *value; };
+    Card cards[6];
+    QString titles[] = {"总员工数", "在职人数", "离职人数", "本月请假", "待审批", "本月薪资总额"};
+    for (int i = 0; i < 6; i++) {
+        auto *frame = new QFrame;
+        frame->setFrameStyle(QFrame::Box | QFrame::Raised);
+        frame->setMinimumSize(200, 100);
+        frame->setStyleSheet("QFrame { background: #fff; border: 1px solid #ddd; border-radius: 6px; }");
+        auto *layout = new QVBoxLayout(frame);
+        auto *title = new QLabel(titles[i]);
+        title->setAlignment(Qt::AlignCenter);
+        title->setStyleSheet("font-size: 13px; color: #666; border: none;");
+        auto *value = new QLabel("-");
+        value->setAlignment(Qt::AlignCenter);
+        value->setStyleSheet("font-size: 28px; font-weight: bold; color: #333; border: none;");
+        value->setObjectName("dash_" + QString::number(i));
+        layout->addWidget(title);
+        layout->addWidget(value);
+        dashGrid->addWidget(frame, i / 3, i % 3);
+        cards[i] = {frame, value};
+    }
+
+    ui->tabWidget->insertTab(0, dashWidget, "首页");
+    if (currentRole == "user")
+        ui->tabWidget->setTabVisible(0, false);
+
+    // 状态栏随 Tab 切换动态更新 + 仪表盘刷新
+    connect(ui->tabWidget, &QTabWidget::currentChanged, this, [this](int idx) {
+        if (idx == 0) refreshDashboard();
+        QString tabName = ui->tabWidget->tabText(idx);
+        QString info;
+        if (idx == 1)
+            info = QString(" | 共 %1 条记录").arg(empModel->rowCount());
+        else if (idx == 2)
+            info = QString(" | 共 %1 条记录").arg(leaveModel->rowCount());
+        else if (idx == 3)
+            info = QString(" | 共 %1 条记录").arg(payrollModel->rowCount());
+        else if (idx == 4)
+            info = QString(" | 共 %1 条记录").arg(auditLogModel->rowCount());
+        ui->statusbar->showMessage(QString("当前用户: %1 | %2 | %3")
+            .arg(currentEmpName, (currentRole == "admin") ? "管理员" : "普通员工", tabName + info));
+    });
+    refreshDashboard();
 
     payrollModel->select();
     leaveModel->select();
@@ -314,7 +381,7 @@ void MainWindow::on_btnDelete_clicked()
 }
 
 
-void MainWindow::on_binSave_clicked()
+void MainWindow::on_btnSave_clicked()
 {
     //将所有修改一次性提交给MySQL
     if(empModel->submitAll()){
@@ -326,7 +393,7 @@ void MainWindow::on_binSave_clicked()
 }
 
 
-void MainWindow::on_binRevert_clicked()
+void MainWindow::on_btnRevert_clicked()
 {
     //放弃所有为保存的修改
     empModel->revertAll();
@@ -689,5 +756,99 @@ void MainWindow::on_btnExportPDF_clicked()
     painter.end();
 
     QMessageBox::information(this, "导出成功", "报表已成功导出至:\n" + filePath);
+}
+
+void MainWindow::on_btnExportEmpCSV_clicked()
+{
+    QString path = QFileDialog::getSaveFileName(this, "导出员工表", "员工信息.csv", "CSV文件 (*.csv)");
+    if (path.isEmpty()) return;
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return;
+    QTextStream out(&file);
+    out.setEncoding(QStringConverter::Utf8);
+    out << "\xEF\xBB\xBF"; // BOM for Excel
+    // 表头
+    for (int c = 0; c < empModel->columnCount(); c++) {
+        if (c == 6) continue; // 跳过密码列
+        out << "\"" << empModel->headerData(c, Qt::Horizontal).toString() << "\"";
+        if (c < empModel->columnCount() - 1) out << ",";
+    }
+    out << "\n";
+    // 数据行
+    for (int r = 0; r < empModel->rowCount(); r++) {
+        for (int c = 0; c < empModel->columnCount(); c++) {
+            if (c == 6) continue;
+            out << "\"" << empModel->data(empModel->index(r, c)).toString().replace("\"", "\"\"") << "\"";
+            if (c < empModel->columnCount() - 1) out << ",";
+        }
+        out << "\n";
+    }
+    file.close();
+    QMessageBox::information(this, "导出成功", "员工信息已导出至:\n" + path);
+}
+
+void MainWindow::refreshDashboard()
+{
+    QSqlQuery q;
+    // 总员工数
+    q.exec("SELECT COUNT(*) FROM employees");
+    int total = q.next() ? q.value(0).toInt() : 0;
+    // 在职/离职
+    q.exec("SELECT COUNT(*) FROM employees WHERE status='在职'");
+    int active = q.next() ? q.value(0).toInt() : 0;
+    q.exec("SELECT COUNT(*) FROM employees WHERE status='离职'");
+    int inactive = q.next() ? q.value(0).toInt() : 0;
+    // 本月请假
+    QString month = QDate::currentDate().toString("yyyy-MM");
+    q.prepare("SELECT COUNT(*) FROM leave_requests WHERE start_date LIKE ?");
+    q.addBindValue(month + "%");
+    q.exec();
+    int leaves = q.next() ? q.value(0).toInt() : 0;
+    // 待审批
+    q.exec("SELECT COUNT(*) FROM leave_requests WHERE status='待审批'");
+    int pending = q.next() ? q.value(0).toInt() : 0;
+    // 本月薪资总额
+    q.prepare("SELECT SUM(net_salary) FROM payroll WHERE month = ?");
+    q.addBindValue(month);
+    q.exec();
+    double salary = q.next() ? q.value(0).toDouble() : 0;
+
+    for (int i = 0; i < 6; i++) {
+        auto *label = findChild<QLabel *>("dash_" + QString::number(i));
+        if (!label) continue;
+        switch (i) {
+        case 0: label->setText(QString::number(total)); break;
+        case 1: label->setText(QString::number(active)); break;
+        case 2: label->setText(QString::number(inactive)); break;
+        case 3: label->setText(QString::number(leaves)); break;
+        case 4: label->setText(QString::number(pending)); break;
+        case 5: label->setText(QString::number(salary, 'f', 2) + " 元"); break;
+        }
+    }
+}
+
+void MainWindow::on_btnExportPayrollCSV_clicked()
+{
+    QString path = QFileDialog::getSaveFileName(this, "导出工资表", "薪酬数据.csv", "CSV文件 (*.csv)");
+    if (path.isEmpty()) return;
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return;
+    QTextStream out(&file);
+    out.setEncoding(QStringConverter::Utf8);
+    out << "\xEF\xBB\xBF";
+    for (int c = 0; c < payrollModel->columnCount(); c++) {
+        out << "\"" << payrollModel->headerData(c, Qt::Horizontal).toString() << "\"";
+        if (c < payrollModel->columnCount() - 1) out << ",";
+    }
+    out << "\n";
+    for (int r = 0; r < payrollModel->rowCount(); r++) {
+        for (int c = 0; c < payrollModel->columnCount(); c++) {
+            out << "\"" << payrollModel->data(payrollModel->index(r, c)).toString().replace("\"", "\"\"") << "\"";
+            if (c < payrollModel->columnCount() - 1) out << ",";
+        }
+        out << "\n";
+    }
+    file.close();
+    QMessageBox::information(this, "导出成功", "薪酬数据已导出至:\n" + path);
 }
 

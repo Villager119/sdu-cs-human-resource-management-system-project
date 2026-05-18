@@ -31,9 +31,9 @@ private slots:
 
     void on_btnDelete_clicked();
 
-    void on_binSave_clicked();
+    void on_btnSave_clicked();
 
-    void on_binRevert_clicked();
+    void on_btnRevert_clicked();
 
     void on_btnApplyLeave_clicked();
 
@@ -54,10 +54,13 @@ private slots:
 
     void on_comboChartType_currentIndexChanged(int index);
     void on_btnExportPDF_clicked();
+    void on_btnExportEmpCSV_clicked();
+    void on_btnExportPayrollCSV_clicked();
 
 private:
     void logAction(const QString &action, const QString &target = QString());
     void refreshChart();
+    void refreshDashboard();
 
     Ui::MainWindow *ui;
     QSqlTableModel *empModel;

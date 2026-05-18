@@ -9,6 +9,9 @@ cmake-build-*/
 *.user.*
 .qtc_clangd/
 
+# Claude Code 本地配置
+.claude/settings.local.json
+
 # 编译产生的临时文件
 *.obj
 *.exe

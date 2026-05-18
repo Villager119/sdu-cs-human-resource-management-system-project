@@ -2,76 +2,44 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
-#include<QSqlTableModel>
-#include<QSqlRelationalTableModel>
-#include<QSqlRelation>
-#include<QtCharts/QChartView>
-#include<QtCharts/QPieSeries>
-#include<QtCharts/QBarSeries>
-#include<QtCharts/QBarSet>
-#include<QtCharts/QBarCategoryAxis>
-#include<QtCharts/QValueAxis>
+#include <functional>
 
 QT_BEGIN_NAMESPACE
-namespace Ui {
-class MainWindow;
-}
+namespace Ui { class MainWindow; }
 QT_END_NAMESPACE
+
+class EmployeeTab;
+class LeaveTab;
+class PayrollTab;
+class AuditTab;
+class ReportsTab;
+class DashboardTab;
 
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
 
 public:
-    explicit MainWindow(int empId,QString role,QWidget *parent=nullptr);
+    explicit MainWindow(int empId, QString role, QWidget *parent = nullptr);
     ~MainWindow();
 
 private slots:
-    void on_btnAdd_clicked();
-
-    void on_btnDelete_clicked();
-
-    void on_btnSave_clicked();
-
-    void on_btnRevert_clicked();
-
-    void on_btnApplyLeave_clicked();
-
-    void on_btnApprove_clicked();
-
-    void on_btnReject_clicked();
-
-    void on_btnCalculatePayroll_clicked();
-
     void on_actionChangePassword_triggered();
-
-    void on_btnToggleStatus_clicked();
-
-    void on_btnSearch_clicked();
-    void on_btnResetFilter_clicked();
-
     void on_actionLogout_triggered();
 
-    void on_comboChartType_currentIndexChanged(int index);
-    void on_btnExportPDF_clicked();
-    void on_btnExportEmpCSV_clicked();
-    void on_btnExportPayrollCSV_clicked();
-
 private:
-    void logAction(const QString &action, const QString &target = QString());
-    void refreshChart();
-    void refreshDashboard();
-
     Ui::MainWindow *ui;
-    QSqlTableModel *empModel;
-    QSqlRelationalTableModel *leaveModel;
-    QSqlRelationalTableModel *payrollModel;
-    QSqlTableModel *auditLogModel;
-    QChartView *chartView;
-    QChart *chart;
-    int currentEmpId;
-    QString currentRole;
-    QString currentEmpName;
+    void logAction(const QString &action, const QString &target = QString());
+
+    DashboardTab *m_dashboard;
+    EmployeeTab *m_empTab;
+    LeaveTab *m_leaveTab;
+    PayrollTab *m_payrollTab;
+    AuditTab *m_auditTab;
+    ReportsTab *m_reportsTab;
+    int m_empId;
+    QString m_role;
+    QString m_empName;
 };
 
-#endif // MAINWINDOW_H
+#endif

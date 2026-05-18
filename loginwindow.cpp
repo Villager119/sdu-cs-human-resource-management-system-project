@@ -2,6 +2,7 @@
 #include "ui_loginwindow.h"
 #include "mainwindow.h"
 #include "serversettingsdialog.h"
+#include <QCryptographicHash>
 #include <QDebug>
 #include <QSqlDatabase>
 #include <QSqlError>
@@ -90,12 +91,14 @@ void LoginWindow::on_btnLogin_clicked()
         QMessageBox::warning(this,"提示","账号或密码不能为空！");
         return;
     }
+    // SHA-256 哈希密码
+    QString passwordHash = QString(QCryptographicHash::hash(password.toUtf8(), QCryptographicHash::Sha256).toHex());
     //员工使用姓名或者手机号登录
     QSqlQuery query;
     query.prepare("SELECT emp_id,name,role FROM employees WHERE (name=:account OR phone = :account)AND password_hash= :password");
     //安全绑定参数，防止SQL注入
     query.bindValue(":account",account);
-    query.bindValue(":password",password);
+    query.bindValue(":password",passwordHash);
     //执行查询
     if(!query.exec()){
         QMessageBox::critical(this,"数据库错误",query.lastError().text());

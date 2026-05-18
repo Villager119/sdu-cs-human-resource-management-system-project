@@ -15,6 +15,7 @@
 #include<QPainter>
 #include<QPdfWriter>
 #include<QFileDialog>
+#include<QCryptographicHash>
 
 MainWindow::MainWindow(int empId,QString role,QWidget *parent)
     : QMainWindow(parent)
@@ -318,7 +319,7 @@ void MainWindow::on_binSave_clicked()
     //将所有修改一次性提交给MySQL
     if(empModel->submitAll()){
         logAction("保存员工信息修改");
-        QMessageBox::critical(this,"成功","所有数据修改已成功");
+        QMessageBox::information(this,"成功","所有数据修改已成功");
     }else{
         QMessageBox::critical(this,"失败","保存失败: \n"+empModel->lastError().text());
     }
@@ -340,7 +341,7 @@ void MainWindow::on_btnApplyLeave_clicked()
     QString reason=ui->lineEdit_reason->text();
     //基础逻辑校验
     if(startDate>endDate){
-        QMessageBox::warning(this,"填写错误","结束日期大于开始日期，何意味");
+        QMessageBox::warning(this,"填写错误","结束日期不能早于开始日期，请重新选择");
         return;
     }
     if(reason.isEmpty()){
@@ -498,15 +499,17 @@ void MainWindow::on_actionChangePassword_triggered()
     query.addBindValue(currentEmpId);
     query.exec();
     if (query.next()) {
-        if (query.value("password_hash").toString() != dlg.oldPassword()) {
+        QString oldHash = QString(QCryptographicHash::hash(dlg.oldPassword().toUtf8(), QCryptographicHash::Sha256).toHex());
+        if (query.value("password_hash").toString() != oldHash) {
             QMessageBox::warning(this, "修改失败", "旧密码错误！");
             return;
         }
     }
 
-    // 更新密码
+    // 更新密码（SHA-256 哈希存储）
+    QString newHash = QString(QCryptographicHash::hash(dlg.newPassword().toUtf8(), QCryptographicHash::Sha256).toHex());
     query.prepare("UPDATE employees SET password_hash = ? WHERE emp_id = ?");
-    query.addBindValue(dlg.newPassword());
+    query.addBindValue(newHash);
     query.addBindValue(currentEmpId);
     if (query.exec()) {
         QMessageBox::information(this, "成功", "密码修改成功！");

@@ -1,17 +1,19 @@
-#include "mainwindow.h"
-#include "ui_mainwindow.h"
-#include "changepassworddialog.h"
-#include "loginwindow.h"
-#include "tabs/EmployeeTab.h"
-#include "tabs/LeaveTab.h"
-#include "tabs/PayrollTab.h"
-#include "tabs/AuditTab.h"
-#include "tabs/ReportsTab.h"
-#include "tabs/DashboardTab.h"
-#include "tabs/PerformanceTab.h"
-#include "tabs/OrgTab.h"
-#include "tabs/ProfileChangeTab.h"
-#include "tabs/AttendTaxTab.h"
+#include "MainWindow.h"
+#include "ui_MainWindow.h"
+#include "ChangePasswordDialog.h"
+#include "LoginWindow.h"
+#include "../tabs/EmployeeTab.h"
+#include "../tabs/LeaveTab.h"
+#include "../tabs/PayrollTab.h"
+#include "../tabs/AuditTab.h"
+#include "../tabs/ReportsTab.h"
+#include "../tabs/DashboardTab.h"
+#include "../tabs/PerformanceTab.h"
+#include "../tabs/OrgTab.h"
+#include "../tabs/ProfileChangeTab.h"
+#include "../tabs/AttendTaxTab.h"
+#include "../core/SessionManager.h"
+#include "../core/GlobalEvents.h"
 #include <QMenu>
 #include <QMessageBox>
 #include <QSqlQuery>
@@ -35,11 +37,14 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
         if (q.exec() && q.next()) m_empName = q.value(0).toString();
     }
 
+    SessionManager::init(m_empId, m_role, m_empName);
     auto logFn = [this](const QString &action, const QString &target) { logAction(action, target); };
     auto notifyFn = [this](int toEmpId, const QString &title, const QString &content) {
         if (toEmpId == 0) notifyAdmins(title, content);
         else notifyUser(toEmpId, title, content);
     };
+    SessionManager::instance()->logFn = logFn;
+    SessionManager::instance()->notifyFn = notifyFn;
 
     // 创建所有 Tab
     m_dashboard = new DashboardTab;
@@ -111,6 +116,10 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
         ui->statusbar->showMessage(QString("当前用户: %1 | %2 | %3%4")
             .arg(m_empName, (m_role == "admin") ? "管理员" : "普通员工", tab, info));
     });
+
+    // 事件驱动 — Dashboard 监听数据变化
+    connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_dashboard, &DashboardTab::refresh);
+    connect(GlobalEvents::instance(), &GlobalEvents::auditRefresh, m_auditTab, &AuditTab::refresh);
 
     // 登录日志
     logAction("用户登录");

@@ -1,5 +1,7 @@
 #include "EmployeeTab.h"
 #include "../widgets/PaginationBar.h"
+#include "../core/Constants.h"
+#include "../core/GlobalEvents.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -64,7 +66,7 @@ EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> log
     filter->addWidget(new QLabel("部门:"));
     filter->addWidget(m_deptCombo);
     m_statusCombo = new QComboBox;
-    m_statusCombo->addItems({"全部状态", "在职", "离职"});
+    m_statusCombo->addItems({"全部状态", HR::EmpStatus::ACTIVE, HR::EmpStatus::INACTIVE});
     filter->addWidget(new QLabel("状态:"));
     filter->addWidget(m_statusCombo);
     m_nameSearch = new QLineEdit;
@@ -112,7 +114,7 @@ EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> log
             this, [this](const QModelIndex &cur, const QModelIndex &) {
         if (!cur.isValid()) { m_btnToggleStatus->setText("标记离职"); m_btnToggleStatus->setEnabled(false); return; }
         m_btnToggleStatus->setEnabled(true);
-        m_btnToggleStatus->setText(m_model->data(m_model->index(cur.row(), 9)).toString()=="在职" ? "标记离职" : "标记在职");
+        m_btnToggleStatus->setText(m_model->data(m_model->index(cur.row(), 9)).toString()==HR::EmpStatus::ACTIVE ? "标记离职" : "标记在职");
     });
 
     connect(btnAdd, &QPushButton::clicked, this, &EmployeeTab::add);
@@ -148,12 +150,12 @@ void EmployeeTab::remove()
 void EmployeeTab::save()
 {
     // 新员工无密码时自动注入默认密码 123456 的 SHA-256 哈希
-    static const QString defaultPwdHash = QString(QCryptographicHash::hash("123456", QCryptographicHash::Sha256).toHex());
+    static const QString defaultPwdHash = QString(QCryptographicHash::hash(HR::DEFAULT_PASSWORD.toUtf8(), QCryptographicHash::Sha256).toHex());
     for (int r = 0; r < m_model->rowCount(); r++) {
         if (m_model->data(m_model->index(r, 6)).toString().isEmpty())
             m_model->setData(m_model->index(r, 6), defaultPwdHash);
     }
-    if (m_model->submitAll()) { m_log("保存员工信息修改", ""); QMessageBox::information(this, "成功", "所有数据修改已成功"); }
+    if (m_model->submitAll()) { m_log("保存员工信息修改", ""); QMessageBox::information(this, "成功", "所有数据修改已成功"); GlobalEvents::instance()->dataChanged(); }
     else QMessageBox::critical(this, "失败", "保存失败: " + m_model->lastError().text());
 }
 
@@ -164,11 +166,11 @@ void EmployeeTab::toggleStatus()
     int row = m_table->currentIndex().row();
     if (row < 0) { QMessageBox::warning(this, "提示", "请先在表格中选中员工！"); return; }
     QString s = m_model->data(m_model->index(row, 9)).toString();
-    QString ns = (s == "在职") ? "离职" : "在职";
+    QString ns = (s == HR::EmpStatus::ACTIVE) ? HR::EmpStatus::INACTIVE : HR::EmpStatus::ACTIVE;
     m_model->setData(m_model->index(row, 9), ns);
     QString name = m_model->data(m_model->index(row, 1)).toString();
     m_log("变更员工状态", name + " → " + ns);
-    m_btnToggleStatus->setText(ns == "在职" ? "标记离职" : "标记在职");
+    m_btnToggleStatus->setText(ns == HR::EmpStatus::ACTIVE ? "标记离职" : "标记在职");
 }
 
 void EmployeeTab::search()

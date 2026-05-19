@@ -1,7 +1,7 @@
-#include "loginwindow.h"
-#include "ui_loginwindow.h"
-#include "mainwindow.h"
-#include "serversettingsdialog.h"
+#include "LoginWindow.h"
+#include "ui_LoginWindow.h"
+#include "MainWindow.h"
+#include "ServerSettingsDialog.h"
 #include <QCryptographicHash>
 #include <QDebug>
 #include <QSqlDatabase>

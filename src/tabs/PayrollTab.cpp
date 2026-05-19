@@ -1,4 +1,5 @@
 #include "PayrollTab.h"
+#include "../core/Constants.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QPushButton>
@@ -11,15 +12,17 @@
 #include <QTextStream>
 #include <QSqlError>
 
-static constexpr double kWorkDaysPerMonth = 21.75;
-
 PayrollTab::PayrollTab(int empId, const QString &role,
                        std::function<void(const QString&, const QString&)> logFn,
                        QWidget *parent)
     : QWidget(parent), m_empId(empId), m_role(role), m_log(logFn)
 {
-    // 扩展 payroll 表
+    // system_settings 表
     QSqlQuery q;
+    q.exec("CREATE TABLE IF NOT EXISTS system_settings (key_name VARCHAR(50) PRIMARY KEY, value VARCHAR(200) NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    q.exec("INSERT IGNORE INTO system_settings VALUES('work_days_per_month','21.75'),('tax_threshold','5000')");
+
+    // 扩展 payroll 表
     struct Col { QString name, after; };
     for (auto &c : {Col{"performance_bonus","leave_deduction"},
                     Col{"pension","performance_bonus"},
@@ -49,7 +52,7 @@ PayrollTab::PayrollTab(int empId, const QString &role,
     m_model->setHeaderData(11, Qt::Horizontal, "实发最终工资");
     m_model->setHeaderData(12, Qt::Horizontal, "结算发薪日期");
 
-    if (m_role == "user")
+    if (m_role == HR::Role::USER)
         m_model->setFilter(QString("payroll.emp_id=%1").arg(m_empId));
 
     m_table = new QTableView;
@@ -64,7 +67,7 @@ PayrollTab::PayrollTab(int empId, const QString &role,
     auto *row = new QHBoxLayout;
     row->addStretch();
     m_btnCalc = new QPushButton("一键核算本月工资");
-    if (m_role == "user") m_btnCalc->setVisible(false);
+    if (m_role == HR::Role::USER) m_btnCalc->setVisible(false);
     row->addWidget(m_btnCalc);
     auto *btnCSV = new QPushButton("导出CSV");
     row->addWidget(btnCSV);
@@ -105,7 +108,10 @@ void PayrollTab::calculate()
         QSqlQuery lv; lv.prepare("SELECT SUM(DATEDIFF(end_date, start_date)+1) FROM leave_requests WHERE emp_id=? AND status='已同意' AND start_date LIKE ?");
         lv.addBindValue(eid); lv.addBindValue(month + "%"); lv.exec();
         int days = (lv.next()) ? lv.value(0).toInt() : 0;
-        double ded = (bs / kWorkDaysPerMonth) * days;
+        double wd = 21.75;
+        QSqlQuery sq; sq.exec("SELECT value FROM system_settings WHERE key_name='work_days_per_month'");
+        if (sq.next()) wd = sq.value(0).toDouble();
+        double ded = (bs / wd) * days;
         // 绩效奖金：>=90 分 10%，>=70 分 5%
         double perf = 0.0;
         QSqlQuery pq; pq.prepare("SELECT score FROM performance_scores WHERE emp_id=? AND eval_month=?");
@@ -128,7 +134,10 @@ void PayrollTab::calculate()
             else if (name == "住房公积金") housing = val;
         }
         // 个税（阶梯税率）
-        double taxable = bs - ded + perf - pension - medical - unemployment - housing - 5000;
+        double threshold = 5000;
+        QSqlQuery tq; tq.exec("SELECT value FROM system_settings WHERE key_name='tax_threshold'");
+        if (tq.next()) threshold = tq.value(0).toDouble();
+        double taxable = bs - ded + perf - pension - medical - unemployment - housing - threshold;
         double tax = 0;
         if (taxable > 25000) tax = taxable * 0.25 - 2660;
         else if (taxable > 12000) tax = taxable * 0.20 - 1410;

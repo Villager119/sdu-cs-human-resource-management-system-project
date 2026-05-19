@@ -1,4 +1,4 @@
-#include "changepassworddialog.h"
+#include "ChangePasswordDialog.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>

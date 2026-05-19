@@ -1,4 +1,4 @@
-#include "serversettingsdialog.h"
+#include "ServerSettingsDialog.h"
 #include <QFormLayout>
 #include <QVBoxLayout>
 #include <QHBoxLayout>

@@ -7,8 +7,8 @@
 #include <QFileInfo>
 #include <QFile>
 #include <QTextStream>
-#include "loginwindow.h"
-#include "common/Logger.h"
+#include "ui/LoginWindow.h"
+#include "core/Logger.h"
 
 static QString findFile(const QString &name)
 {

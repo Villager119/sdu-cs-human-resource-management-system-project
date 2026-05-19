@@ -11,23 +11,25 @@ set(CMAKE_AUTORCC ON)
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Sql Network Charts)
 
 set(PROJECT_SOURCES
-    main.cpp
-    loginwindow.cpp loginwindow.h loginwindow.ui
-    mainwindow.cpp mainwindow.h mainwindow.ui
-    serversettingsdialog.cpp serversettingsdialog.h
-    changepassworddialog.cpp changepassworddialog.h
-    tabs/EmployeeTab.cpp tabs/EmployeeTab.h
-    tabs/LeaveTab.cpp tabs/LeaveTab.h
-    tabs/PayrollTab.cpp tabs/PayrollTab.h
-    tabs/AuditTab.cpp tabs/AuditTab.h
-    tabs/ReportsTab.cpp tabs/ReportsTab.h
-    tabs/DashboardTab.cpp tabs/DashboardTab.h
-    tabs/PerformanceTab.cpp tabs/PerformanceTab.h
-    tabs/OrgTab.cpp tabs/OrgTab.h
-    tabs/ProfileChangeTab.cpp tabs/ProfileChangeTab.h
-    tabs/AttendTaxTab.cpp tabs/AttendTaxTab.h
-    widgets/PaginationBar.cpp widgets/PaginationBar.h
-    common/Logger.cpp common/Logger.h
+    src/main.cpp
+    src/ui/LoginWindow.cpp src/ui/LoginWindow.h src/ui/LoginWindow.ui
+    src/ui/MainWindow.cpp src/ui/MainWindow.h src/ui/MainWindow.ui
+    src/ui/ServerSettingsDialog.cpp src/ui/ServerSettingsDialog.h
+    src/ui/ChangePasswordDialog.cpp src/ui/ChangePasswordDialog.h
+    src/tabs/EmployeeTab.cpp src/tabs/EmployeeTab.h
+    src/tabs/LeaveTab.cpp src/tabs/LeaveTab.h
+    src/tabs/PayrollTab.cpp src/tabs/PayrollTab.h
+    src/tabs/AuditTab.cpp src/tabs/AuditTab.h
+    src/tabs/ReportsTab.cpp src/tabs/ReportsTab.h
+    src/tabs/DashboardTab.cpp src/tabs/DashboardTab.h
+    src/tabs/PerformanceTab.cpp src/tabs/PerformanceTab.h
+    src/tabs/ProfileChangeTab.cpp src/tabs/ProfileChangeTab.h
+    src/tabs/AttendTaxTab.cpp src/tabs/AttendTaxTab.h
+    src/tabs/OrgTab.cpp src/tabs/OrgTab.h
+    src/widgets/PaginationBar.cpp src/widgets/PaginationBar.h
+    src/core/Logger.cpp src/core/Logger.h
+    src/core/SessionManager.cpp src/core/SessionManager.h
+    src/core/GlobalEvents.cpp src/core/GlobalEvents.h
 )
 
 add_executable(HRMS ${PROJECT_SOURCES})

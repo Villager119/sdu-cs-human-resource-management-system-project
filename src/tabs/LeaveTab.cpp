@@ -1,4 +1,6 @@
 #include "LeaveTab.h"
+#include "../core/Constants.h"
+#include "../core/GlobalEvents.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -58,7 +60,7 @@ LeaveTab::LeaveTab(int empId, const QString &role,
     approveRow->addWidget(m_btnReject);
     layout->addLayout(approveRow);
 
-    if (m_role == "user") {
+    if (m_role == HR::Role::USER) {
         m_model->setFilter(QString("leave_requests.emp_id=%1").arg(m_empId));
         m_btnApprove->setVisible(false);
         m_btnReject->setVisible(false);
@@ -79,7 +81,7 @@ void LeaveTab::applyLeave()
     if (r.isEmpty()) { QMessageBox::warning(this, "填写错误", "请假理由不能为空"); return; }
 
     QSqlQuery q;
-    q.prepare("INSERT INTO leave_requests(emp_id,start_date,end_date,reason,status) VALUES(:e,:s,:e2,:r,'待审批')");
+    q.prepare(QString("INSERT INTO leave_requests(emp_id,start_date,end_date,reason,status) VALUES(:e,:s,:e2,:r,'%1')").arg(HR::LeaveStatus::PENDING));
     q.bindValue(":e", m_empId);
     q.bindValue(":s", s.toString("yyyy-MM-dd"));
     q.bindValue(":e2", e.toString("yyyy-MM-dd"));
@@ -90,6 +92,7 @@ void LeaveTab::applyLeave()
         m_notify(0, "请假申请", QString("员工提交了请假申请 %1~%2").arg(s.toString("MM-dd"), e.toString("MM-dd")));
         m_model->select();
         m_reason->clear();
+        GlobalEvents::instance()->dataChanged();
     } else {
         QMessageBox::critical(this, "数据库错误", "提交失败: " + q.lastError().text());
     }
@@ -101,7 +104,7 @@ void LeaveTab::approve()
     if (row < 0) { QMessageBox::warning(this, "提示", "请选中请假单"); return; }
     int id = m_model->data(m_model->index(row, 0)).toInt();
     QSqlQuery q;
-    q.prepare("UPDATE leave_requests SET status='已同意' WHERE request_id=?");
+    q.prepare(QString("UPDATE leave_requests SET status='%1' WHERE request_id=?").arg(HR::LeaveStatus::APPROVED));
     q.addBindValue(id);
     if (q.exec()) {
         QMessageBox::information(this, "审批成功", "已成功批改请假申请");
@@ -119,7 +122,7 @@ void LeaveTab::reject()
     if (row < 0) { QMessageBox::warning(this, "提示", "请选中请假单"); return; }
     int id = m_model->data(m_model->index(row, 0)).toInt();
     QSqlQuery q;
-    q.prepare("UPDATE leave_requests SET status='已拒绝' WHERE request_id=?");
+    q.prepare(QString("UPDATE leave_requests SET status='%1' WHERE request_id=?").arg(HR::LeaveStatus::REJECTED));
     q.addBindValue(id);
     if (q.exec()) {
         QMessageBox::information(this, "审批成功", "已拒绝请假申请");

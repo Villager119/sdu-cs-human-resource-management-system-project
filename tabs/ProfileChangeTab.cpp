@@ -12,8 +12,9 @@
 
 ProfileChangeTab::ProfileChangeTab(int empId, const QString &role,
                                    std::function<void(const QString&, const QString&)> logFn,
+                                   std::function<void(int, const QString&, const QString&)> notifyFn,
                                    QWidget *parent)
-    : QWidget(parent), m_empId(empId), m_role(role), m_log(logFn)
+    : QWidget(parent), m_empId(empId), m_role(role), m_log(logFn), m_notify(notifyFn)
 {
     QSqlQuery q;
     q.exec("CREATE TABLE IF NOT EXISTS profile_change_requests ("
@@ -116,6 +117,7 @@ void ProfileChangeTab::submitRequest()
     if (q.exec()) {
         QMessageBox::information(this, "成功", "你的修改申请已提交，请等待管理员审批");
         m_log("提交信息修改申请", field + " → " + nv);
+        m_notify(0, "信息修改申请", QString("员工申请修改%1为%2").arg(field, nv));
         m_model->select();
         m_newValueEdit->clear(); m_reasonEdit->clear();
     } else {
@@ -130,15 +132,18 @@ void ProfileChangeTab::approve()
     int id = m_model->data(m_model->index(row, 0)).toInt();
     QString field = m_model->data(m_model->index(row, 2)).toString();
     QString nv = m_model->data(m_model->index(row, 4)).toString();
+    // 从关联模型获取原始 emp_id
+    int eid = m_model->index(row, 1).data(Qt::EditRole).toInt();
 
     QSqlQuery q;
-    q.prepare("UPDATE employees SET " + field + "=? WHERE emp_id=(SELECT emp_id FROM profile_change_requests WHERE request_id=?)");
-    q.addBindValue(nv); q.addBindValue(id);
+    q.prepare("UPDATE employees SET " + field + "=? WHERE emp_id=?");
+    q.addBindValue(nv); q.addBindValue(eid);
     if (!q.exec()) { QMessageBox::critical(this, "失败", q.lastError().text()); return; }
 
     q.prepare("UPDATE profile_change_requests SET status='已同意' WHERE request_id=?");
     q.addBindValue(id); q.exec();
     m_log("同意信息修改", QString("申请#%1 %2→%3").arg(id).arg(field, nv));
+    m_notify(eid, "信息修改已批准", QString("你的%1修改申请已通过审批").arg(field));
     QMessageBox::information(this, "成功", "已批准，数据已更新");
     m_model->select();
 }
@@ -148,11 +153,13 @@ void ProfileChangeTab::reject()
     int row = m_table->currentIndex().row();
     if (row < 0) { QMessageBox::warning(this, "提示", "请选中一条申请"); return; }
     int id = m_model->data(m_model->index(row, 0)).toInt();
+    int eid = m_model->index(row, 1).data(Qt::EditRole).toInt();
     QSqlQuery q;
     q.prepare("UPDATE profile_change_requests SET status='已拒绝' WHERE request_id=?");
     q.addBindValue(id);
     if (q.exec()) {
         m_log("拒绝信息修改", QString("申请#%1").arg(id));
+        m_notify(eid, "信息修改已拒绝", "你的信息修改申请未通过审批");
         QMessageBox::information(this, "成功", "已拒绝该申请");
         m_model->select();
     } else {

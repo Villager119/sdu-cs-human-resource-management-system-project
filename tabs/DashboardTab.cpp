@@ -8,9 +8,18 @@
 DashboardTab::DashboardTab(QWidget *parent)
     : QWidget(parent)
 {
-    auto *grid = new QGridLayout(this);
-    grid->setContentsMargins(20, 20, 20, 20);
+    auto *mainLayout = new QVBoxLayout(this);
+    mainLayout->setContentsMargins(20, 20, 20, 20);
+
+    m_alertLabel = new QLabel;
+    m_alertLabel->setVisible(false);
+    m_alertLabel->setStyleSheet("background: #fff7e6; border: 1px solid #ffd591; border-radius: 6px; padding: 10px 16px; color: #d46b08; font-size: 13px;");
+    m_alertLabel->setWordWrap(true);
+    mainLayout->addWidget(m_alertLabel);
+
+    auto *grid = new QGridLayout;
     grid->setSpacing(15);
+    mainLayout->addLayout(grid);
 
     QString titles[] = {"总员工数", "在职人数", "离职人数", "本月请假", "待审批", "本月薪资总额"};
     QString icons[] = {"👥", "✅", "🚪", "📋", "⏳", "💰"};
@@ -69,4 +78,14 @@ void DashboardTab::refresh()
     m_labels[3]->setText(QString::number(leaves));
     m_labels[4]->setText(QString::number(pending));
     m_labels[5]->setText(QString::number(salary, 'f', 2) + " 元");
+
+    // 合同到期提醒
+    q.exec("SELECT COUNT(*), GROUP_CONCAT(name SEPARATOR '、') FROM employees WHERE contract_end_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)");
+    if (q.next() && q.value(0).toInt() > 0) {
+        m_alertLabel->setText(QString("⚠ 合同到期提醒：%1 等 %2 名员工劳动合同将在30天内到期，请及时续签！")
+            .arg(q.value(1).toString()).arg(q.value(0).toInt()));
+        m_alertLabel->setVisible(true);
+    } else {
+        m_alertLabel->setVisible(false);
+    }
 }

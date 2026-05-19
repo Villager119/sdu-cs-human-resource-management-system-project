@@ -15,6 +15,7 @@ public slots:
 
 private:
     QLabel *m_labels[6];
+    QLabel *m_alertLabel;
 };
 
 #endif

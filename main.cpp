@@ -8,6 +8,7 @@
 #include <QFile>
 #include <QTextStream>
 #include "loginwindow.h"
+#include "common/Logger.h"
 
 static QString findFile(const QString &name)
 {
@@ -25,6 +26,10 @@ static QString findFile(const QString &name)
 
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
+
+    // 初始化日志
+    Logger::init(QApplication::applicationDirPath() + "/hrms.log");
+    LOG_INFO("HRMS 启动");
 
     // 加载全局样式表
     QString qssPath = findFile("style.qss");

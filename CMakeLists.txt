@@ -26,6 +26,8 @@ set(PROJECT_SOURCES
     tabs/OrgTab.cpp tabs/OrgTab.h
     tabs/ProfileChangeTab.cpp tabs/ProfileChangeTab.h
     tabs/AttendTaxTab.cpp tabs/AttendTaxTab.h
+    widgets/PaginationBar.cpp widgets/PaginationBar.h
+    common/Logger.cpp common/Logger.h
 )
 
 add_executable(HRMS ${PROJECT_SOURCES})

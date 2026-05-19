@@ -2,6 +2,7 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
+#include <QPushButton>
 #include <functional>
 
 QT_BEGIN_NAMESPACE
@@ -33,7 +34,12 @@ private slots:
 
 private:
     Ui::MainWindow *ui;
+    QPushButton *m_bellBtn;
     void logAction(const QString &action, const QString &target = QString());
+    void notifyUser(int empId, const QString &title, const QString &content);
+    void notifyAdmins(const QString &title, const QString &content);
+    void refreshBell();
+    void showNotifications();
 
     DashboardTab *m_dashboard;
     EmployeeTab *m_empTab;

@@ -14,8 +14,9 @@
 
 AttendTaxTab::AttendTaxTab(int empId, const QString &role,
                            std::function<void(const QString&, const QString&)> logFn,
+                           std::function<void(int, const QString&, const QString&)> notifyFn,
                            QWidget *parent)
-    : QWidget(parent), m_empId(empId), m_role(role), m_log(logFn)
+    : QWidget(parent), m_empId(empId), m_role(role), m_log(logFn), m_notify(notifyFn)
 {
     initTables();
 
@@ -327,6 +328,7 @@ void AttendTaxTab::approveMakeup()
     q.prepare("UPDATE makeup_requests SET status='已同意' WHERE makeup_id=?");
     q.addBindValue(mid); q.exec();
     m_log("同意补卡", date);
+    m_notify(eid, "补卡已批准", QString("你%1的补卡申请已通过").arg(date));
     m_makeupModel->select();
     m_attModel->select();
     QMessageBox::information(this, "成功", "补卡已批准");
@@ -341,7 +343,9 @@ void AttendTaxTab::rejectMakeup()
     q.prepare("UPDATE makeup_requests SET status='已拒绝' WHERE makeup_id=?");
     q.addBindValue(mid);
     if (q.exec()) {
+        int eid = m_makeupModel->index(row, 1).data(Qt::EditRole).toInt();
         m_log("拒绝补卡", QString::number(mid));
+        m_notify(eid, "补卡已拒绝", "你的补卡申请未通过审批");
         m_makeupModel->select();
         QMessageBox::information(this, "成功", "已拒绝");
     }

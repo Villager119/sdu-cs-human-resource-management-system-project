@@ -9,8 +9,9 @@
 
 LeaveTab::LeaveTab(int empId, const QString &role,
                    std::function<void(const QString&, const QString&)> logFn,
+                   std::function<void(int, const QString&, const QString&)> notifyFn,
                    QWidget *parent)
-    : QWidget(parent), m_empId(empId), m_role(role), m_log(logFn)
+    : QWidget(parent), m_empId(empId), m_role(role), m_log(logFn), m_notify(notifyFn)
 {
     m_model = new QSqlRelationalTableModel(this);
     m_model->setTable("leave_requests");
@@ -86,6 +87,7 @@ void LeaveTab::applyLeave()
     if (q.exec()) {
         QMessageBox::information(this, "成功", "你的请假申请已成功提交，请等待管理员审批");
         m_log("提交请假申请", s.toString("MM-dd") + " ~ " + e.toString("MM-dd"));
+        m_notify(0, "请假申请", QString("员工提交了请假申请 %1~%2").arg(s.toString("MM-dd"), e.toString("MM-dd")));
         m_model->select();
         m_reason->clear();
     } else {
@@ -104,6 +106,7 @@ void LeaveTab::approve()
     if (q.exec()) {
         QMessageBox::information(this, "审批成功", "已成功批改请假申请");
         m_log("同意请假", "请假单号: " + QString::number(id));
+        m_notify(m_model->index(row, 1).data(Qt::EditRole).toInt(), "请假已批准", "你的请假申请已通过审批");
         m_model->select();
     } else {
         QMessageBox::critical(this, "审批失败", "审批失败: " + q.lastError().text());
@@ -121,6 +124,7 @@ void LeaveTab::reject()
     if (q.exec()) {
         QMessageBox::information(this, "审批成功", "已拒绝请假申请");
         m_log("拒绝请假", "请假单号: " + QString::number(id));
+        m_notify(m_model->index(row, 1).data(Qt::EditRole).toInt(), "请假已拒绝", "你的请假申请未通过审批");
         m_model->select();
     } else {
         QMessageBox::critical(this, "审批失败", "审批失败: " + q.lastError().text());

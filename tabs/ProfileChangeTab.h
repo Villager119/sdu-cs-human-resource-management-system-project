@@ -16,6 +16,7 @@ class ProfileChangeTab : public QWidget
 public:
     ProfileChangeTab(int empId, const QString &role,
                      std::function<void(const QString&, const QString&)> logFn,
+                     std::function<void(int, const QString&, const QString&)> notifyFn,
                      QWidget *parent = nullptr);
 
 private slots:
@@ -32,6 +33,7 @@ private:
     int m_empId;
     QString m_role;
     std::function<void(const QString&, const QString&)> m_log;
+    std::function<void(int, const QString&, const QString&)> m_notify;
 };
 
 #endif

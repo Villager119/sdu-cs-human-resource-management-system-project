@@ -1,4 +1,5 @@
 #include "EmployeeTab.h"
+#include "../widgets/PaginationBar.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -22,6 +23,9 @@ EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> log
         if (q.size() == 0)
             q.exec(QString("ALTER TABLE employees ADD COLUMN %1 VARCHAR(50) DEFAULT '' AFTER status").arg(col));
     }
+    q.exec("SHOW COLUMNS FROM employees LIKE 'contract_end_date'");
+    if (q.size() == 0)
+        q.exec("ALTER TABLE employees ADD COLUMN contract_end_date DATE DEFAULT NULL AFTER hire_date");
 
     // 部门表
     q.exec("CREATE TABLE IF NOT EXISTS departments (dept_id INT PRIMARY KEY AUTO_INCREMENT, dept_name VARCHAR(50) NOT NULL UNIQUE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
@@ -37,6 +41,7 @@ EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> log
     m_model->setHeaderData(5, Qt::Horizontal, "系统角色");
     m_model->setHeaderData(7, Qt::Horizontal, "基础薪资");
     m_model->setHeaderData(8, Qt::Horizontal, "入职日期");
+    m_model->setHeaderData(13, Qt::Horizontal, "合同到期");
     m_model->setHeaderData(9, Qt::Horizontal, "在职状态");
     m_model->setHeaderData(10, Qt::Horizontal, "学历");
     m_model->setHeaderData(11, Qt::Horizontal, "婚姻状况");
@@ -73,6 +78,13 @@ EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> log
     layout->addLayout(filter);
 
     layout->addWidget(m_table, 1);
+
+    m_pagination = new PaginationBar(20, this);
+    layout->addWidget(m_pagination);
+    connect(m_pagination, &PaginationBar::pageChanged, this, [this](int page) {
+        Q_UNUSED(page);
+        m_table->scrollToTop();
+    });
 
     // 操作按钮行
     auto *btnRow = new QGridLayout;
@@ -113,6 +125,7 @@ EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> log
     connect(btnCSV, &QPushButton::clicked, this, &EmployeeTab::exportCSV);
 
     m_model->select();
+    m_pagination->setTotalRecords(m_model->rowCount());
 }
 
 void EmployeeTab::add()
@@ -170,6 +183,8 @@ void EmployeeTab::search()
     }
     m_model->setFilter(cond.isEmpty() ? "" : cond.join(" AND "));
     m_model->select();
+    m_pagination->refresh();
+    m_pagination->setTotalRecords(m_model->rowCount());
 }
 
 void EmployeeTab::resetFilter()
@@ -179,6 +194,8 @@ void EmployeeTab::resetFilter()
     m_nameSearch->clear();
     m_model->setFilter("");
     m_model->select();
+    m_pagination->refresh();
+    m_pagination->setTotalRecords(m_model->rowCount());
 }
 
 void EmployeeTab::exportCSV()

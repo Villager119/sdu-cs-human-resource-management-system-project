@@ -9,6 +9,8 @@
 #include <QPushButton>
 #include <functional>
 
+class PaginationBar;
+
 class EmployeeTab : public QWidget
 {
     Q_OBJECT
@@ -32,6 +34,7 @@ private:
     QComboBox *m_deptCombo, *m_statusCombo;
     QLineEdit *m_nameSearch;
     QPushButton *m_btnToggleStatus;
+    PaginationBar *m_pagination;
     std::function<void(const QString&, const QString&)> m_log;
 };
 

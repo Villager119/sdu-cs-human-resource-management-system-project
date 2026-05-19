@@ -5,16 +5,33 @@
 #include <QMessageBox>
 #include <QSqlQuery>
 #include <QSqlRelation>
+#include <QSqlDatabase>
 #include <QDate>
 #include <QFileDialog>
 #include <QTextStream>
 #include <QSqlError>
+
+static constexpr double kWorkDaysPerMonth = 21.75;
 
 PayrollTab::PayrollTab(int empId, const QString &role,
                        std::function<void(const QString&, const QString&)> logFn,
                        QWidget *parent)
     : QWidget(parent), m_empId(empId), m_role(role), m_log(logFn)
 {
+    // 扩展 payroll 表
+    QSqlQuery q;
+    struct Col { QString name, after; };
+    for (auto &c : {Col{"performance_bonus","leave_deduction"},
+                    Col{"pension","performance_bonus"},
+                    Col{"medical","pension"},
+                    Col{"unemployment","medical"},
+                    Col{"housing_fund","unemployment"},
+                    Col{"income_tax","housing_fund"}}) {
+        q.exec(QString("SHOW COLUMNS FROM payroll LIKE '%1'").arg(c.name));
+        if (q.size() == 0)
+            q.exec(QString("ALTER TABLE payroll ADD COLUMN %1 DECIMAL(10,2) DEFAULT 0.00 AFTER %2").arg(c.name, c.after));
+    }
+
     m_model = new QSqlRelationalTableModel(this);
     m_model->setTable("payroll");
     m_model->setRelation(1, QSqlRelation("employees", "emp_id", "name"));
@@ -23,8 +40,14 @@ PayrollTab::PayrollTab(int empId, const QString &role,
     m_model->setHeaderData(2, Qt::Horizontal, "薪资月份");
     m_model->setHeaderData(3, Qt::Horizontal, "基础工资");
     m_model->setHeaderData(4, Qt::Horizontal, "请假扣款");
-    m_model->setHeaderData(5, Qt::Horizontal, "实发最终工资");
-    m_model->setHeaderData(6, Qt::Horizontal, "结算发薪日期");
+    m_model->setHeaderData(5, Qt::Horizontal, "绩效奖金");
+    m_model->setHeaderData(6, Qt::Horizontal, "养老保险");
+    m_model->setHeaderData(7, Qt::Horizontal, "医疗保险");
+    m_model->setHeaderData(8, Qt::Horizontal, "失业保险");
+    m_model->setHeaderData(9, Qt::Horizontal, "住房公积金");
+    m_model->setHeaderData(10, Qt::Horizontal, "个人所得税");
+    m_model->setHeaderData(11, Qt::Horizontal, "实发最终工资");
+    m_model->setHeaderData(12, Qt::Horizontal, "结算发薪日期");
 
     if (m_role == "user")
         m_model->setFilter(QString("payroll.emp_id=%1").arg(m_empId));
@@ -71,6 +94,9 @@ void PayrollTab::calculate()
         QSqlQuery del; del.prepare("DELETE FROM payroll WHERE month=?"); del.addBindValue(month); del.exec();
     }
 
+    QSqlDatabase db = QSqlDatabase::database();
+    db.transaction();
+
     QSqlQuery emp("SELECT emp_id, base_salary FROM employees");
     int ok = 0;
     while (emp.next()) {
@@ -79,13 +105,51 @@ void PayrollTab::calculate()
         QSqlQuery lv; lv.prepare("SELECT SUM(DATEDIFF(end_date, start_date)+1) FROM leave_requests WHERE emp_id=? AND status='已同意' AND start_date LIKE ?");
         lv.addBindValue(eid); lv.addBindValue(month + "%"); lv.exec();
         int days = (lv.next()) ? lv.value(0).toInt() : 0;
-        double ded = (bs / 21.75) * days;
-        double net = bs - ded;
-        QSqlQuery ins; ins.prepare("INSERT INTO payroll(emp_id,month,base_salary,leave_deduction,net_salary,issue_date) VALUES(?,?,?,?,?,?)");
+        double ded = (bs / kWorkDaysPerMonth) * days;
+        // 绩效奖金：>=90 分 10%，>=70 分 5%
+        double perf = 0.0;
+        QSqlQuery pq; pq.prepare("SELECT score FROM performance_scores WHERE emp_id=? AND eval_month=?");
+        pq.addBindValue(eid); pq.addBindValue(month); pq.exec();
+        if (pq.next()) {
+            double s = pq.value(0).toDouble();
+            if (s >= 90) perf = bs * 0.10;
+            else if (s >= 70) perf = bs * 0.05;
+        }
+        // 五险一金
+        double pension = 0, medical = 0, unemployment = 0, housing = 0;
+        QSqlQuery sc("SELECT item_name, rate_personal FROM salary_config WHERE enabled=1");
+        while (sc.next()) {
+            QString name = sc.value(0).toString();
+            double rate = sc.value(1).toDouble();
+            double val = bs * rate;
+            if (name == "养老保险") pension = val;
+            else if (name == "医疗保险") medical = val;
+            else if (name == "失业保险") unemployment = val;
+            else if (name == "住房公积金") housing = val;
+        }
+        // 个税（阶梯税率）
+        double taxable = bs - ded + perf - pension - medical - unemployment - housing - 5000;
+        double tax = 0;
+        if (taxable > 25000) tax = taxable * 0.25 - 2660;
+        else if (taxable > 12000) tax = taxable * 0.20 - 1410;
+        else if (taxable > 3000) tax = taxable * 0.10 - 210;
+        else if (taxable > 0) tax = taxable * 0.03;
+        if (tax < 0) tax = 0;
+
+        double net = bs - ded + perf - pension - medical - unemployment - housing - tax;
+        QSqlQuery ins; ins.prepare("INSERT INTO payroll(emp_id,month,base_salary,leave_deduction,performance_bonus,pension,medical,unemployment,housing_fund,income_tax,net_salary,issue_date) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)");
         ins.addBindValue(eid); ins.addBindValue(month); ins.addBindValue(bs);
-        ins.addBindValue(ded); ins.addBindValue(net); ins.addBindValue(today);
-        if (ins.exec()) ok++;
+        ins.addBindValue(ded); ins.addBindValue(perf);
+        ins.addBindValue(pension); ins.addBindValue(medical); ins.addBindValue(unemployment); ins.addBindValue(housing); ins.addBindValue(tax);
+        ins.addBindValue(net); ins.addBindValue(today);
+        if (!ins.exec()) {
+            db.rollback();
+            QMessageBox::critical(this, "核算失败", "写入工资条时出错: " + ins.lastError().text());
+            return;
+        }
+        ok++;
     }
+    db.commit();
     QMessageBox::information(this, "核算完成", QString("一键核算完毕！\n成功生成了 %1 名员工的 %2 月份工资单。").arg(ok).arg(month));
     m_log("核算工资", month + " (" + QString::number(ok) + "人)");
     m_model->select();

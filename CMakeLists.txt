@@ -22,6 +22,10 @@ set(PROJECT_SOURCES
     tabs/AuditTab.cpp tabs/AuditTab.h
     tabs/ReportsTab.cpp tabs/ReportsTab.h
     tabs/DashboardTab.cpp tabs/DashboardTab.h
+    tabs/PerformanceTab.cpp tabs/PerformanceTab.h
+    tabs/OrgTab.cpp tabs/OrgTab.h
+    tabs/ProfileChangeTab.cpp tabs/ProfileChangeTab.h
+    tabs/AttendTaxTab.cpp tabs/AttendTaxTab.h
 )
 
 add_executable(HRMS ${PROJECT_SOURCES})

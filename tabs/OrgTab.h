@@ -1,0 +1,35 @@
+#ifndef ORGTAB_H
+#define ORGTAB_H
+
+#include <QWidget>
+#include <QTreeView>
+#include <QStandardItemModel>
+#include <QLineEdit>
+#include <QComboBox>
+#include <functional>
+
+class OrgTab : public QWidget
+{
+    Q_OBJECT
+public:
+    OrgTab(std::function<void(const QString&, const QString&)> logFn,
+           QWidget *parent = nullptr);
+
+public slots:
+    void refresh();
+
+private slots:
+    void onTreeSelectionChanged();
+    void saveDepartment();
+    void removeDepartment();
+
+private:
+    QTreeView *m_tree;
+    QStandardItemModel *m_treeModel;
+    QLineEdit *m_nameEdit;
+    QComboBox *m_parentCombo, *m_managerCombo;
+    int m_selectedDeptId = -1;
+    std::function<void(const QString&, const QString&)> m_log;
+};
+
+#endif

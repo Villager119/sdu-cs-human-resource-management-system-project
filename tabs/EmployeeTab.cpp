@@ -8,6 +8,7 @@
 #include <QSqlError>
 #include <QItemSelectionModel>
 #include <QFileDialog>
+#include <QCryptographicHash>
 #include <QTextStream>
 
 EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> logFn,
@@ -133,6 +134,12 @@ void EmployeeTab::remove()
 
 void EmployeeTab::save()
 {
+    // 新员工无密码时自动注入默认密码 123456 的 SHA-256 哈希
+    static const QString defaultPwdHash = QString(QCryptographicHash::hash("123456", QCryptographicHash::Sha256).toHex());
+    for (int r = 0; r < m_model->rowCount(); r++) {
+        if (m_model->data(m_model->index(r, 6)).toString().isEmpty())
+            m_model->setData(m_model->index(r, 6), defaultPwdHash);
+    }
     if (m_model->submitAll()) { m_log("保存员工信息修改", ""); QMessageBox::information(this, "成功", "所有数据修改已成功"); }
     else QMessageBox::critical(this, "失败", "保存失败: " + m_model->lastError().text());
 }
@@ -156,7 +163,11 @@ void EmployeeTab::search()
     QStringList cond;
     if (m_deptCombo->currentIndex() > 1) cond << QString("department='%1'").arg(m_deptCombo->currentText());
     if (m_statusCombo->currentIndex() > 0) cond << QString("status='%1'").arg(m_statusCombo->currentText());
-    if (!m_nameSearch->text().isEmpty()) cond << QString("name LIKE '%%1%'").arg(m_nameSearch->text());
+    if (!m_nameSearch->text().isEmpty()) {
+        QString escaped = m_nameSearch->text();
+        escaped.replace("'", "''"); // 防 SQL 注入：转义单引号
+        cond << QString("name LIKE '%%1%'").arg(escaped);
+    }
     m_model->setFilter(cond.isEmpty() ? "" : cond.join(" AND "));
     m_model->select();
 }

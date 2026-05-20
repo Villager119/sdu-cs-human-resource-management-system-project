@@ -15,6 +15,9 @@
 #include <QFileDialog>
 #include <QCryptographicHash>
 #include <QTextStream>
+#include <QShortcut>
+#include <QInputDialog>
+#include <QRegularExpression>
 
 EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> logFn,
                          QWidget *parent)
@@ -135,6 +138,16 @@ EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> log
     connect(btnReset, &QPushButton::clicked, this, &EmployeeTab::resetFilter);
     connect(btnCSV, &QPushButton::clicked, this, &EmployeeTab::exportCSV);
 
+    // 快捷键
+    new QShortcut(QKeySequence("Ctrl+S"), this, SLOT(save()));
+    new QShortcut(QKeySequence(Qt::Key_Delete), this, SLOT(remove()));
+
+    // 批量操作
+    m_table->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    auto *btnBatchDept = new QPushButton("批量调部门");
+    btnRow->addWidget(btnBatchDept, 1, 0);
+    connect(btnBatchDept, &QPushButton::clicked, this, &EmployeeTab::batchChangeDept);
+
     m_model->select();
     m_pagination->setTotalRecords(m_model->rowCount());
 }
@@ -169,8 +182,30 @@ void EmployeeTab::save()
         if (m_model->data(m_model->index(r, 6)).toString().isEmpty())
             m_model->setData(m_model->index(r, 6), defaultPwdHash);
     }
+    // 输入校验
+    for (int r = 0; r < m_model->rowCount(); r++) {
+        QString phone = m_model->data(m_model->index(r, 3)).toString().trimmed();
+        if (!phone.isEmpty() && !QRegularExpression("^\\d{11}$").match(phone).hasMatch()) {
+            QMessageBox::warning(this, "校验失败", QString("第%1行 手机号格式不正确(需11位数字)").arg(r+1)); return;
+        }
+        double salary = m_model->data(m_model->index(r, 7)).toDouble();
+        if (salary < 0) { QMessageBox::warning(this, "校验失败", QString("第%1行 薪资不能为负数").arg(r+1)); return; }
+    }
     if (m_model->submitAll()) { m_log("保存员工信息修改", ""); QMessageBox::information(this, "成功", "所有数据修改已成功"); GlobalEvents::instance()->dataChanged(); }
     else QMessageBox::critical(this, "失败", "保存失败: " + m_model->lastError().text());
+}
+
+void EmployeeTab::batchChangeDept()
+{
+    auto sel = m_table->selectionModel()->selectedRows();
+    if (sel.isEmpty()) { QMessageBox::warning(this, "提示", "请先选中要调整的员工(可Ctrl多选)"); return; }
+    QString dept = QInputDialog::getText(this, "批量调部门", "请输入目标部门名称:");
+    if (dept.isEmpty()) return;
+    for (auto &idx : sel)
+        m_model->setData(m_model->index(idx.row(), 4), dept);
+    QSqlQuery q; q.prepare("INSERT IGNORE INTO departments(dept_name) VALUES(?)"); q.addBindValue(dept); q.exec();
+    QMessageBox::information(this, "完成", QString("已为 %1 名员工设置部门: %2\n记得点击保存修改").arg(sel.size()).arg(dept));
+    m_log("批量调部门", QString("%1人 → %2").arg(sel.size()).arg(dept));
 }
 
 void EmployeeTab::revert() { m_model->revertAll(); }

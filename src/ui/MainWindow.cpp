@@ -14,6 +14,7 @@
 #include "../tabs/AttendTaxTab.h"
 #include "../core/GlobalEvents.h"
 #include <QMenu>
+#include <QTabWidget>
 #include <QMessageBox>
 #include <QSqlQuery>
 #include <QCryptographicHash>
@@ -30,6 +31,7 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
     auto logFn = [this](const QString &a, const QString &t) { logAction(a, t); };
     auto notifyFn = [this](int e, const QString &t, const QString &c) { notifyUser(e, t, c); };
 
+    // 创建所有原生页面
     m_dashboard = new DashboardTab;
     m_empTab    = new EmployeeTab(logFn);
     m_leaveTab  = new LeaveTab(m_empId, m_role, logFn, notifyFn);
@@ -41,18 +43,44 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
     m_profileTab= new ProfileChangeTab(m_empId, m_role, logFn, notifyFn);
     m_attTaxTab = new AttendTaxTab(m_empId, m_role, logFn, notifyFn);
 
+    auto makeWrapper = [](QWidget *a, QWidget *b = nullptr, QWidget *c = nullptr) -> QWidget * {
+        auto *w = new QWidget;
+        auto *l = new QVBoxLayout(w);
+        l->setContentsMargins(0, 0, 0, 0);
+        if (b) {
+            auto *tabs = new QTabWidget;
+            tabs->addTab(a, a->objectName().isEmpty() ? "Tab1" : a->objectName());
+            tabs->addTab(b, b->objectName().isEmpty() ? "Tab2" : b->objectName());
+            if (c) tabs->addTab(c, c->objectName().isEmpty() ? "Tab3" : c->objectName());
+            l->addWidget(tabs);
+        } else {
+            l->addWidget(a);
+        }
+        return w;
+    };
+
+    m_dashboard->setObjectName("仪表盘");
+    m_reportsTab->setObjectName("统计图表");
+    m_empTab->setObjectName("员工管理");
+    m_profileTab->setObjectName("信息变更");
+    m_attTaxTab->setObjectName("打卡补卡");
+    m_leaveTab->setObjectName("请假审批");
+    m_payrollTab->setObjectName("工资条");
+    m_perfTab->setObjectName("绩效评分");
+
+    QWidget *homePage    = makeWrapper(m_dashboard, m_reportsTab);
+    QWidget *empPage     = makeWrapper(m_empTab, m_profileTab);
+    QWidget *attPage     = makeWrapper(m_attTaxTab, m_leaveTab);
+    QWidget *payPage     = makeWrapper(m_payrollTab, m_perfTab);
+
     bool adm = (m_role == "admin");
     ui->sidebar->setIconSize(QSize(20, 20));
-    addNavItem("🏠", "首页",    m_dashboard,    adm);
-    addNavItem("👥", "员工",    m_empTab,       adm);
-    addNavItem("📋", "请假",    m_leaveTab,     true);
-    addNavItem("⏰", "考勤",    m_attTaxTab,    true);
-    addNavItem("💰", "薪酬",    m_payrollTab,   true);
-    addNavItem("✏️", "变更",    m_profileTab,   true);
-    addNavItem("🏢", "组织",    m_orgTab,       adm);
-    addNavItem("📊", "绩效",    m_perfTab,      adm);
-    addNavItem("📈", "报表",    m_reportsTab,   adm);
-    addNavItem("📜", "日志",    m_auditTab,     adm);
+    addNavItem("🏠", "首页",    homePage,    adm);
+    addNavItem("👥", "员工",    empPage,     adm);
+    addNavItem("⏰", "考勤",    attPage,     true);
+    addNavItem("💰", "薪酬",    payPage,     true);
+    addNavItem("🏢", "组织",    m_orgTab,   adm);
+    addNavItem("📜", "日志",    m_auditTab, adm);
 
     connect(ui->sidebar, &QListWidget::currentRowChanged, this, [this](int r) {
         ui->stackedWidget->setCurrentIndex(r);

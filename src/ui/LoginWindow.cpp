@@ -17,6 +17,8 @@ LoginWindow::LoginWindow(QWidget *parent)
     ui->setupUi(this);
     this->setWindowTitle("HRMS - 系统登录");
     ui->label_status->setVisible(false);
+    // 回车登录
+    connect(ui->lineEdit_password, &QLineEdit::returnPressed, this, &LoginWindow::on_btnLogin_clicked);
 }
 
 LoginWindow::~LoginWindow()

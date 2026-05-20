@@ -26,6 +26,7 @@ private slots:
     void toggleStatus();
     void search();
     void resetFilter();
+    void batchChangeDept();
     void exportCSV();
 
 private:

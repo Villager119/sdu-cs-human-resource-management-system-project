@@ -8,6 +8,7 @@
 #include <QPainter>
 #include <QMessageBox>
 #include <QSqlQuery>
+#include <QLineSeries>
 #include <QChart>
 
 ReportsTab::ReportsTab(QWidget *parent)
@@ -23,7 +24,7 @@ ReportsTab::ReportsTab(QWidget *parent)
     auto *row = new QHBoxLayout;
     row->addWidget(new QLabel("图表类型:"));
     m_combo = new QComboBox;
-    m_combo->addItems({"部门人数分布", "在职/离职比例", "各部门平均薪资", "月度请假统计"});
+    m_combo->addItems({"部门人数分布", "在职/离职比例", "各部门平均薪资", "月度请假统计", "月度薪资趋势"});
     row->addWidget(m_combo);
     row->addStretch();
     auto *btn = new QPushButton("导出PDF");
@@ -92,6 +93,20 @@ void ReportsTab::refreshChart()
         auto *ay = new QValueAxis; ay->setTitleText("人次");
         chart->addAxis(ay, Qt::AlignLeft); s->attachAxis(ay);
         chart->setTitle("月度请假统计");
+        break;
+    }
+    case 4: {
+        q.exec("SELECT month, SUM(net_salary) FROM payroll GROUP BY month ORDER BY month");
+        auto *s = new QLineSeries;
+        s->setName("薪资总额");
+        QStringList cats;
+        while (q.next()) { cats << q.value(0).toString(); s->append(cats.size()-1, q.value(1).toDouble()); }
+        chart->addSeries(s);
+        auto *ax = new QBarCategoryAxis; ax->append(cats);
+        chart->addAxis(ax, Qt::AlignBottom); s->attachAxis(ax);
+        auto *ay = new QValueAxis; ay->setTitleText("元");
+        chart->addAxis(ay, Qt::AlignLeft); s->attachAxis(ay);
+        chart->setTitle("月度薪资趋势");
         break;
     }
     }

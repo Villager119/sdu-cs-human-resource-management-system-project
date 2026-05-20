@@ -3,15 +3,27 @@
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
   <property name="geometry">
-   <rect><x>0</x><y>0</y><width>960</width><height>640</height></rect>
+   <rect><x>0</x><y>0</y><width>1100</width><height>680</height></rect>
   </property>
   <property name="windowTitle">
    <string>MainWindow</string>
   </property>
   <widget class="QWidget" name="centralwidget">
-   <layout class="QGridLayout" name="gridLayout">
-    <item row="0" column="0">
-     <widget class="QTabWidget" name="tabWidget"/>
+   <layout class="QHBoxLayout" name="mainLayout">
+    <property name="spacing"><number>0</number></property>
+    <property name="leftMargin"><number>0</number></property>
+    <property name="rightMargin"><number>0</number></property>
+    <property name="topMargin"><number>0</number></property>
+    <property name="bottomMargin"><number>0</number></property>
+    <item>
+     <widget class="QListWidget" name="sidebar">
+      <property name="minimumSize"><size><width>68</width><height>0</height></size></property>
+      <property name="maximumSize"><size><width>68</width><height>16777215</height></size></property>
+      <property name="font"><font><pointsize>10</pointsize></font></property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QStackedWidget" name="stackedWidget"/>
     </item>
    </layout>
   </widget>

@@ -1,5 +1,6 @@
 #include "EmployeeTab.h"
 #include "../widgets/PaginationBar.h"
+#include "../widgets/ComboDelegate.h"
 #include "../core/Constants.h"
 #include "../core/GlobalEvents.h"
 #include <QVBoxLayout>
@@ -9,6 +10,7 @@
 #include <QMessageBox>
 #include <QSqlQuery>
 #include <QSqlError>
+#include <QDate>
 #include <QItemSelectionModel>
 #include <QFileDialog>
 #include <QCryptographicHash>
@@ -22,11 +24,11 @@ EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> log
     QSqlQuery q;
     for (auto &col : {"education", "marital_status", "position"}) {
         q.exec(QString("SHOW COLUMNS FROM employees LIKE '%1'").arg(col));
-        if (q.size() == 0)
+        if (!q.next())
             q.exec(QString("ALTER TABLE employees ADD COLUMN %1 VARCHAR(50) DEFAULT '' AFTER status").arg(col));
     }
     q.exec("SHOW COLUMNS FROM employees LIKE 'contract_end_date'");
-    if (q.size() == 0)
+    if (!q.next())
         q.exec("ALTER TABLE employees ADD COLUMN contract_end_date DATE DEFAULT NULL AFTER hire_date");
 
     // 部门表
@@ -43,11 +45,11 @@ EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> log
     m_model->setHeaderData(5, Qt::Horizontal, "系统角色");
     m_model->setHeaderData(7, Qt::Horizontal, "基础薪资");
     m_model->setHeaderData(8, Qt::Horizontal, "入职日期");
-    m_model->setHeaderData(13, Qt::Horizontal, "合同到期");
-    m_model->setHeaderData(9, Qt::Horizontal, "在职状态");
-    m_model->setHeaderData(10, Qt::Horizontal, "学历");
-    m_model->setHeaderData(11, Qt::Horizontal, "婚姻状况");
-    m_model->setHeaderData(12, Qt::Horizontal, "岗位");
+    m_model->setHeaderData(9, Qt::Horizontal, "合同到期");
+    m_model->setHeaderData(10, Qt::Horizontal, "在职状态");
+    m_model->setHeaderData(11, Qt::Horizontal, "学历");
+    m_model->setHeaderData(12, Qt::Horizontal, "婚姻状况");
+    m_model->setHeaderData(13, Qt::Horizontal, "岗位");
     m_model->setEditStrategy(QSqlTableModel::OnManualSubmit);
 
     m_table = new QTableView;
@@ -55,6 +57,13 @@ EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> log
     m_table->hideColumn(6);
     m_table->setEditTriggers(QAbstractItemView::DoubleClicked);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
+
+    // 下拉选择委托
+    m_table->setItemDelegateForColumn(2, new ComboDelegate({"男", "女"}, this));                // 性别
+    m_table->setItemDelegateForColumn(5, new ComboDelegate({"admin", "user"}, this));           // 角色
+    m_table->setItemDelegateForColumn(10, new ComboDelegate({"在职", "离职"}, this));           // 状态
+    m_table->setItemDelegateForColumn(11, new ComboDelegate({"大专", "本科", "硕士", "博士"}, this)); // 学历
+    m_table->setItemDelegateForColumn(12, new ComboDelegate({"未婚", "已婚", "离异"}, this));   // 婚姻
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -114,7 +123,7 @@ EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> log
             this, [this](const QModelIndex &cur, const QModelIndex &) {
         if (!cur.isValid()) { m_btnToggleStatus->setText("标记离职"); m_btnToggleStatus->setEnabled(false); return; }
         m_btnToggleStatus->setEnabled(true);
-        m_btnToggleStatus->setText(m_model->data(m_model->index(cur.row(), 9)).toString()==HR::EmpStatus::ACTIVE ? "标记离职" : "标记在职");
+        m_btnToggleStatus->setText(m_model->data(m_model->index(cur.row(), 10)).toString()==HR::EmpStatus::ACTIVE ? "标记离职" : "标记在职");
     });
 
     connect(btnAdd, &QPushButton::clicked, this, &EmployeeTab::add);
@@ -134,6 +143,11 @@ void EmployeeTab::add()
 {
     int rc = m_model->rowCount();
     m_model->insertRow(rc);
+    QString today = QDate::currentDate().toString("yyyy-MM-dd");
+    m_model->setData(m_model->index(rc, 8), today);              // 入职日期默认今天
+    m_model->setData(m_model->index(rc, 9), QDate::currentDate().addYears(3).toString("yyyy-MM-dd")); // 合同到期默认3年后
+    m_model->setData(m_model->index(rc, 10), HR::EmpStatus::ACTIVE);
+    m_model->setData(m_model->index(rc, 5), "user");
     m_table->setCurrentIndex(m_model->index(rc, 1));
     m_log("新增员工记录", "");
 }
@@ -165,9 +179,9 @@ void EmployeeTab::toggleStatus()
 {
     int row = m_table->currentIndex().row();
     if (row < 0) { QMessageBox::warning(this, "提示", "请先在表格中选中员工！"); return; }
-    QString s = m_model->data(m_model->index(row, 9)).toString();
+    QString s = m_model->data(m_model->index(row, 10)).toString();
     QString ns = (s == HR::EmpStatus::ACTIVE) ? HR::EmpStatus::INACTIVE : HR::EmpStatus::ACTIVE;
-    m_model->setData(m_model->index(row, 9), ns);
+    m_model->setData(m_model->index(row, 10), ns);
     QString name = m_model->data(m_model->index(row, 1)).toString();
     m_log("变更员工状态", name + " → " + ns);
     m_btnToggleStatus->setText(ns == HR::EmpStatus::ACTIVE ? "标记离职" : "标记在职");

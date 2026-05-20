@@ -3,7 +3,10 @@
 
 #include <QWidget>
 #include <QTreeView>
+#include <QTableView>
 #include <QStandardItemModel>
+#include <QSqlTableModel>
+#include <QSplitter>
 #include <QLineEdit>
 #include <QComboBox>
 #include <functional>
@@ -30,6 +33,9 @@ private:
     QComboBox *m_parentCombo, *m_managerCombo;
     int m_selectedDeptId = -1;
     std::function<void(const QString&, const QString&)> m_log;
+    QTableView *m_empTable;
+    QSqlTableModel *m_empModel;
+    QSplitter *m_splitter;
 };
 
 #endif

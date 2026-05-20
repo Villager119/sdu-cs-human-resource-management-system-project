@@ -28,6 +28,7 @@ private slots:
     void on_btnLogin_clicked();
     void on_btnServerSettings_clicked();
     void tryReconnect();
+    void tryAutoLogin();
 
 private:
     Ui::LoginWindow *ui;

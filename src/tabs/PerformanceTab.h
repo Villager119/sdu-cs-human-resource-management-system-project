@@ -7,6 +7,7 @@
 #include <QComboBox>
 #include <QSpinBox>
 #include <QTextEdit>
+#include <QLabel>
 #include <functional>
 
 class PerformanceTab : public QWidget
@@ -20,12 +21,14 @@ public:
 private slots:
     void submitScore();
     void refresh();
+    void updateTotal();
 
 private:
     QSqlTableModel *m_model;
     QTableView *m_table;
     QComboBox *m_empCombo, *m_monthCombo;
-    QSpinBox *m_scoreSpin;
+    QSpinBox *m_s1, *m_s2, *m_s3, *m_s4;
+    QLabel *m_totalLabel;
     QTextEdit *m_commentEdit;
     QWidget *m_scorePanel;
     int m_empId;

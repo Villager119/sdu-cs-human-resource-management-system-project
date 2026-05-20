@@ -8,6 +8,7 @@
 #include <QSqlError>
 #include <QSettings>
 #include <QFileInfo>
+#include <QTimer>
 
 LoginWindow::LoginWindow(QWidget *parent)
     : QWidget(parent)
@@ -35,6 +36,8 @@ void LoginWindow::setDbConnected(bool ok)
         ui->label_status->setText("数据库未连接 - 请点击\"服务器设置\"配置连接");
         ui->label_status->setStyleSheet("color: red;");
         ui->label_status->setVisible(true);
+    } else {
+        QTimer::singleShot(500, this, &LoginWindow::tryAutoLogin);
     }
 }
 
@@ -108,9 +111,35 @@ void LoginWindow::on_btnLogin_clicked()
     int empId=query.value("emp_id").toInt();
     QString empName=query.value("name").toString();
     QString role=query.value("role").toString();
+    // 记住密码
+    if (ui->checkRemember->isChecked()) {
+        QSettings settings(m_configPath, QSettings::IniFormat);
+        settings.setValue("AutoLogin/Account", account);
+        settings.setValue("AutoLogin/Password", QString(password.toUtf8().toBase64()));
+    } else {
+        QSettings settings(m_configPath, QSettings::IniFormat);
+        settings.remove("AutoLogin/Account");
+        settings.remove("AutoLogin/Password");
+    }
+
     QMessageBox::information(this,"登录成功","欢迎回来"+empName+"!\n您的权限级别是:"+role);
     MainWindow *mainWin=new MainWindow(empId,role);
     mainWin->setAttribute(Qt::WA_DeleteOnClose);
     mainWin->show();
     this->close();
+}
+
+void LoginWindow::tryAutoLogin()
+{
+    if (!m_dbConnected) return;
+
+    QSettings settings(m_configPath, QSettings::IniFormat);
+    QString account = settings.value("AutoLogin/Account").toString();
+    QString password = QString(QByteArray::fromBase64(settings.value("AutoLogin/Password").toString().toUtf8()));
+    if (account.isEmpty() || password.isEmpty()) return;
+
+    ui->lineEdit_account->setText(account);
+    ui->lineEdit_password->setText(password);
+    ui->checkRemember->setChecked(true);
+    on_btnLogin_clicked();
 }

@@ -114,6 +114,12 @@
        </layout>
       </item>
       <item>
+       <widget class="QCheckBox" name="checkRemember">
+        <property name="text"><string>记住密码，下次自动登录</string></property>
+        <property name="styleSheet"><string>color:#8893a4;font-size:11px;</string></property>
+       </widget>
+      </item>
+      <item>
        <layout class="QHBoxLayout" name="btnRow">
         <item>
          <spacer><property name="orientation"><enum>Qt::Horizontal</enum></property></spacer>

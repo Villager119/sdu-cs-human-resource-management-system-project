@@ -17,6 +17,7 @@ public:
              std::function<void(const QString&, const QString&)> logFn,
              std::function<void(int, const QString&, const QString&)> notifyFn,
              QWidget *parent = nullptr);
+    void refresh();
 
 private slots:
     void applyLeave();

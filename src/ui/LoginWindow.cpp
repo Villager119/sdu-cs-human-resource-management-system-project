@@ -3,6 +3,7 @@
 #include "MainWindow.h"
 #include "ServerSettingsDialog.h"
 #include "../utils/DbUtils.h"
+#include "../core/SessionManager.h"
 #include <QCryptographicHash>
 #include <QDebug>
 #include <QMessageBox>
@@ -20,6 +21,45 @@ LoginWindow::LoginWindow(QWidget *parent)
     ui->setupUi(this);
     this->setWindowTitle("HRMS - 系统登录");
     ui->label_status->setVisible(false);
+
+    // Resolve config path dynamically
+    QString exeDir = QApplication::applicationDirPath();
+    QStringList paths = {
+        exeDir + "/config.ini",
+        exeDir + "/../../config.ini",
+        exeDir + "/../config.ini",
+        "config.ini"
+    };
+    m_configPath = paths.first();
+    for (const auto &p : paths) {
+        if (QFileInfo::exists(p)) {
+            m_configPath = p;
+            break;
+        }
+    }
+
+    // Connect checkboxes
+    connect(ui->checkAutoLogin, &QCheckBox::toggled, this, [this](bool checked) {
+        if (checked) {
+            ui->checkRemember->setChecked(true);
+        }
+    });
+    connect(ui->checkRemember, &QCheckBox::toggled, this, [this](bool checked) {
+        if (!checked) {
+            ui->checkAutoLogin->setChecked(false);
+        }
+    });
+
+    // Check database connection
+    m_dbConnected = QSqlDatabase::database().isOpen();
+    if (!m_dbConnected) {
+        ui->label_status->setText("数据库未连接 - 请点击\"服务器设置\"配置连接");
+        ui->label_status->setStyleSheet("color: red;");
+        ui->label_status->setVisible(true);
+    } else {
+        QTimer::singleShot(500, this, &LoginWindow::tryAutoLogin);
+    }
+
     // 回车登录
     connect(ui->lineEdit_password, &QLineEdit::returnPressed, this, &LoginWindow::on_btnLogin_clicked);
 }
@@ -111,18 +151,20 @@ void LoginWindow::on_btnLogin_clicked()
     int empId=query.value("emp_id").toInt();
     QString empName=query.value("name").toString();
     QString role=query.value("role").toString();
-    // 记住密码
+    // 记住密码与自动登录
+    QSettings settings(m_configPath, QSettings::IniFormat);
     if (ui->checkRemember->isChecked()) {
-        QSettings settings(m_configPath, QSettings::IniFormat);
         settings.setValue("AutoLogin/Account", account);
         settings.setValue("AutoLogin/Password", QString(password.toUtf8().toBase64()));
+        settings.setValue("AutoLogin/Enable", ui->checkAutoLogin->isChecked());
     } else {
-        QSettings settings(m_configPath, QSettings::IniFormat);
         settings.remove("AutoLogin/Account");
         settings.remove("AutoLogin/Password");
+        settings.remove("AutoLogin/Enable");
     }
 
     QMessageBox::information(this,"登录成功","欢迎回来"+empName+"!\n您的权限级别是:"+role);
+    SessionManager::init(empId, role, empName);
     MainWindow *mainWin=new MainWindow(empId,role);
     mainWin->setAttribute(Qt::WA_DeleteOnClose);
     mainWin->show();
@@ -132,14 +174,22 @@ void LoginWindow::on_btnLogin_clicked()
 void LoginWindow::tryAutoLogin()
 {
     if (!m_dbConnected) return;
+    if (m_autoLoginTried) return;
+    m_autoLoginTried = true;
 
     QSettings settings(m_configPath, QSettings::IniFormat);
     QString account = settings.value("AutoLogin/Account").toString();
     QString password = QString(QByteArray::fromBase64(settings.value("AutoLogin/Password").toString().toUtf8()));
+    bool autoLogin = settings.value("AutoLogin/Enable", false).toBool();
+
     if (account.isEmpty() || password.isEmpty()) return;
 
     ui->lineEdit_account->setText(account);
     ui->lineEdit_password->setText(password);
     ui->checkRemember->setChecked(true);
-    on_btnLogin_clicked();
+    ui->checkAutoLogin->setChecked(autoLogin);
+
+    if (autoLogin) {
+        on_btnLogin_clicked();
+    }
 }

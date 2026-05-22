@@ -11,7 +11,7 @@ QT_END_NAMESPACE
 
 class EmployeeTab; class LeaveTab; class PayrollTab; class AuditTab;
 class ReportsTab; class DashboardTab; class PerformanceTab;
-class OrgTab; class ProfileChangeTab; class AttendTaxTab;
+class OrgTab; class ProfileChangeTab; class AttendTaxTab; class RbacTab;
 
 class MainWindow : public QMainWindow
 {
@@ -33,6 +33,7 @@ private:
     void showNotifications();
     void addNavItem(const QString &icon, const QString &label, QWidget *page, bool visible = true);
     void updateStatusBar();
+    void refreshActiveTab();
 
     Ui::MainWindow *ui;
     QPushButton *m_bellBtn;
@@ -40,7 +41,7 @@ private:
     DashboardTab *m_dashboard; EmployeeTab *m_empTab; LeaveTab *m_leaveTab;
     PayrollTab *m_payrollTab; AuditTab *m_auditTab; ReportsTab *m_reportsTab;
     PerformanceTab *m_perfTab; ProfileChangeTab *m_profileTab;
-    AttendTaxTab *m_attTaxTab; OrgTab *m_orgTab;
+    AttendTaxTab *m_attTaxTab; OrgTab *m_orgTab; RbacTab *m_rbacTab;
 
     int m_empId; QString m_role; QString m_empName;
 };

@@ -1,5 +1,6 @@
 #include "ProfileChangeTab.h"
 #include "../core/GlobalEvents.h"
+#include "../core/SessionManager.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFormLayout>
@@ -52,7 +53,7 @@ ProfileChangeTab::ProfileChangeTab(int empId, const QString &role,
     m_model->setHeaderData(6, Qt::Horizontal, "理由");
     m_model->setHeaderData(7, Qt::Horizontal, "提交时间");
 
-    if (m_role == "user")
+    if (!SessionManager::instance()->hasPermission("approve_profile_change"))
         m_model->setFilter(QString("emp_id=%1").arg(m_empId));
 
     m_table = new QTableView;
@@ -96,10 +97,27 @@ ProfileChangeTab::ProfileChangeTab(int empId, const QString &role,
     approveRow->addWidget(m_btnApprove);
     approveRow->addWidget(m_btnReject);
 
-    if (m_role == "user") {
+    if (!SessionManager::instance()->hasPermission("approve_profile_change")) {
         m_btnApprove->setVisible(false);
         m_btnReject->setVisible(false);
     }
+
+    m_btnApprove->setEnabled(false);
+    m_btnReject->setEnabled(false);
+
+    connect(m_table->selectionModel(), &QItemSelectionModel::selectionChanged, this, [this]() {
+        auto selected = m_table->selectionModel()->selectedRows();
+        if (selected.size() == 1) {
+            int row = selected.first().row();
+            QString status = m_model->data(m_model->index(row, 5)).toString();
+            bool isPending = (status == "待审批");
+            m_btnApprove->setEnabled(isPending);
+            m_btnReject->setEnabled(isPending);
+        } else {
+            m_btnApprove->setEnabled(false);
+            m_btnReject->setEnabled(false);
+        }
+    });
 
     layout->addWidget(panel);
     layout->addLayout(approveRow);
@@ -181,3 +199,9 @@ void ProfileChangeTab::reject()
         QMessageBox::critical(this, "失败", q.lastError().text());
     }
 }
+
+void ProfileChangeTab::refresh()
+{
+    m_model->select();
+}
+

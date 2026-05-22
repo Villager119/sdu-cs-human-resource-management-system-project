@@ -39,7 +39,6 @@ int main(int argc, char *argv[]) {
         app.setStyleSheet(QTextStream(&qssFile).readAll());
         qssFile.close();
     }
-
     // 从 config.ini 读取数据库连接配置
     QString configPath = findFile("config.ini");
     QSettings settings(configPath, QSettings::IniFormat);

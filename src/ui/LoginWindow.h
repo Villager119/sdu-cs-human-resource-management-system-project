@@ -30,6 +30,7 @@ private:
     Ui::LoginWindow *ui;
     QString m_configPath;
     bool m_dbConnected = false;
+    bool m_autoLoginTried = false;
 };
 
 #endif // LOGINWINDOW_H

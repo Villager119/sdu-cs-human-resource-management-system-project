@@ -1,5 +1,6 @@
 #include "PerformanceTab.h"
 #include <QVBoxLayout>
+#include "../core/SessionManager.h"
 #include <QHBoxLayout>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -21,7 +22,7 @@ PerformanceTab::PerformanceTab(int empId, const QString &role,
            "emp_id INT NOT NULL, eval_month VARCHAR(7) NOT NULL,"
            "attitude DECIMAL(5,2) DEFAULT 0, capability DECIMAL(5,2) DEFAULT 0,"
            "teamwork DECIMAL(5,2) DEFAULT 0, innovation DECIMAL(5,2) DEFAULT 0,"
-           "score DECIMAL(5,2) NOT NULL, comment TEXT DEFAULT '',"
+           "score DECIMAL(5,2) NOT NULL, comment TEXT,"
            "created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
            "FOREIGN KEY(emp_id) REFERENCES employees(emp_id)"
            ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
@@ -43,7 +44,7 @@ PerformanceTab::PerformanceTab(int empId, const QString &role,
     m_model->setHeaderData(7, Qt::Horizontal, "总分");
     m_model->setHeaderData(8, Qt::Horizontal, "评语");
     m_model->setHeaderData(9, Qt::Horizontal, "时间");
-    if (m_role == "user") m_model->setFilter(QString("emp_id=%1").arg(m_empId));
+    if (!SessionManager::instance()->hasPermission("evaluate_performance")) m_model->setFilter(QString("emp_id=%1").arg(m_empId));
 
     m_table = new QTableView;
     m_table->setModel(m_model);
@@ -55,7 +56,7 @@ PerformanceTab::PerformanceTab(int empId, const QString &role,
     layout->addWidget(m_table, 1);
 
     m_scorePanel = new QGroupBox("绩效评分 (4维度 × 25分 = 100分)");
-    if (m_role == "user") m_scorePanel->setVisible(false);
+    if (!SessionManager::instance()->hasPermission("evaluate_performance")) m_scorePanel->setVisible(false);
     auto *form = new QFormLayout(m_scorePanel);
 
     m_empCombo = new QComboBox;

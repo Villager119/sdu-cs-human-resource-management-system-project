@@ -1,6 +1,7 @@
 #include "LeaveTab.h"
 #include "../core/Constants.h"
 #include "../core/GlobalEvents.h"
+#include "../core/SessionManager.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -37,11 +38,11 @@ LeaveTab::LeaveTab(int empId, const QString &role,
     // 请假表单行
     auto *form = new QHBoxLayout;
     form->addWidget(new QLabel("开始日期:"));
-    m_start = new QDateEdit;
+    m_start = new QDateEdit(QDate::currentDate());
     m_start->setCalendarPopup(true);
     form->addWidget(m_start);
     form->addWidget(new QLabel("结束日期:"));
-    m_end = new QDateEdit;
+    m_end = new QDateEdit(QDate::currentDate());
     m_end->setCalendarPopup(true);
     form->addWidget(m_end);
     form->addWidget(new QLabel("事由:"));
@@ -60,11 +61,28 @@ LeaveTab::LeaveTab(int empId, const QString &role,
     approveRow->addWidget(m_btnReject);
     layout->addLayout(approveRow);
 
-    if (m_role == HR::Role::USER) {
+    if (!SessionManager::instance()->hasPermission("approve_leave")) {
         m_model->setFilter(QString("leave_requests.emp_id=%1").arg(m_empId));
         m_btnApprove->setVisible(false);
         m_btnReject->setVisible(false);
     }
+
+    m_btnApprove->setEnabled(false);
+    m_btnReject->setEnabled(false);
+
+    connect(m_table->selectionModel(), &QItemSelectionModel::selectionChanged, this, [this]() {
+        auto selected = m_table->selectionModel()->selectedRows();
+        if (selected.size() == 1) {
+            int row = selected.first().row();
+            QString status = m_model->data(m_model->index(row, 5)).toString();
+            bool isPending = (status == HR::LeaveStatus::PENDING);
+            m_btnApprove->setEnabled(isPending);
+            m_btnReject->setEnabled(isPending);
+        } else {
+            m_btnApprove->setEnabled(false);
+            m_btnReject->setEnabled(false);
+        }
+    });
 
     connect(btnApply, &QPushButton::clicked, this, &LeaveTab::applyLeave);
     connect(m_btnApprove, &QPushButton::clicked, this, &LeaveTab::approve);
@@ -92,6 +110,8 @@ void LeaveTab::applyLeave()
         m_notify(0, "请假申请", QString("员工提交了请假申请 %1~%2").arg(s.toString("MM-dd"), e.toString("MM-dd")));
         m_model->select();
         m_reason->clear();
+        m_start->setDate(QDate::currentDate());
+        m_end->setDate(QDate::currentDate());
         GlobalEvents::instance()->dataChanged();
     } else {
         QMessageBox::critical(this, "数据库错误", "提交失败: " + q.lastError().text());
@@ -135,3 +155,9 @@ void LeaveTab::reject()
         QMessageBox::critical(this, "审批失败", "审批失败: " + q.lastError().text());
     }
 }
+
+void LeaveTab::refresh()
+{
+    m_model->select();
+}
+

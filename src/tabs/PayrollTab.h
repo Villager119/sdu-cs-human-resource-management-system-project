@@ -5,6 +5,8 @@
 #include <QSqlRelationalTableModel>
 #include <QTableView>
 #include <QPushButton>
+#include <QComboBox>
+#include <QLabel>
 #include <functional>
 
 class PayrollTab : public QWidget
@@ -15,17 +17,28 @@ public:
                std::function<void(const QString&, const QString&)> logFn,
                QWidget *parent = nullptr);
 
+public slots:
+    void refresh();
+
 private slots:
     void calculate();
     void exportCSV();
+    void filterPayroll();
 
 private:
+    void refreshMonthCombo();
+
     QSqlRelationalTableModel *m_model;
     QTableView *m_table;
     QPushButton *m_btnCalc;
+    QComboBox *m_monthCombo;
+    QPushButton *m_btnSearch;
+    QPushButton *m_btnReset;
+
     int m_empId;
     QString m_role;
     std::function<void(const QString&, const QString&)> m_log;
 };
 
 #endif
+

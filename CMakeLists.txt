@@ -26,8 +26,10 @@ set(PROJECT_SOURCES
     src/tabs/ProfileChangeTab.cpp src/tabs/ProfileChangeTab.h
     src/tabs/AttendTaxTab.cpp src/tabs/AttendTaxTab.h
     src/tabs/OrgTab.cpp src/tabs/OrgTab.h
+    src/tabs/RbacTab.cpp src/tabs/RbacTab.h
     src/widgets/PaginationBar.cpp src/widgets/PaginationBar.h
     src/widgets/ComboDelegate.cpp src/widgets/ComboDelegate.h
+    src/widgets/SafeEditDelegate.h
     src/widgets/TaxConfigPanel.cpp src/widgets/TaxConfigPanel.h
     src/utils/CsvExport.cpp src/utils/CsvExport.h
     src/utils/DbUtils.cpp src/utils/DbUtils.h

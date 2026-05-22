@@ -1,5 +1,7 @@
 #include "AttendTaxTab.h"
 #include "../core/GlobalEvents.h"
+#include "../core/Constants.h"
+#include "../core/SessionManager.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFormLayout>
@@ -92,16 +94,65 @@ QWidget *AttendTaxTab::createAttendancePanel()
     m_attModel->setHeaderData(4, Qt::Horizontal, "签退");
     m_attModel->setHeaderData(5, Qt::Horizontal, "状态");
     m_attModel->setHeaderData(6, Qt::Horizontal, "备注");
-    if (m_role == "user")
-        m_attModel->setFilter(QString("emp_id=%1").arg(m_empId));
+    if (!SessionManager::instance()->hasPermission("approve_makeup"))
+        m_attModel->setFilter(QString("attendances.emp_id=%1").arg(m_empId));
 
     m_attTable = new QTableView;
     m_attTable->setModel(m_attModel);
     m_attTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
 
+    // 筛选布局
+    auto *filterLayout = new QHBoxLayout;
+    m_chkDateFilter = new QCheckBox("启用日期筛选", this);
+    m_attDateFilter = new QDateEdit(QDate::currentDate(), this);
+    m_attDateFilter->setCalendarPopup(true);
+    m_attDateFilter->setEnabled(false);
+    connect(m_chkDateFilter, &QCheckBox::toggled, m_attDateFilter, &QDateEdit::setEnabled);
+
+    filterLayout->addWidget(m_chkDateFilter);
+    filterLayout->addWidget(m_attDateFilter);
+
+    if (SessionManager::instance()->hasPermission("approve_makeup")) {
+        m_attNameFilter = new QLineEdit(this);
+        m_attNameFilter->setPlaceholderText("搜索员工姓名...");
+        m_attNameFilter->setFixedWidth(120);
+        filterLayout->addWidget(new QLabel("姓名:", this));
+        filterLayout->addWidget(m_attNameFilter);
+    } else {
+        m_attNameFilter = nullptr;
+    }
+
+    m_attStatusCombo = new QComboBox(this);
+    m_attStatusCombo->addItems({
+        "全部状态",
+        HR::AttStatus::NORMAL,
+        HR::AttStatus::LATE,
+        HR::AttStatus::EARLY,
+        HR::AttStatus::MISSING,
+        HR::AttStatus::LEAVE
+    });
+    filterLayout->addWidget(new QLabel("状态:", this));
+    filterLayout->addWidget(m_attStatusCombo);
+
+    m_btnSearchAtt = new QPushButton("查询", this);
+    m_btnResetAtt = new QPushButton("重置", this);
+    filterLayout->addWidget(m_btnSearchAtt);
+    filterLayout->addWidget(m_btnResetAtt);
+    filterLayout->addStretch();
+
+    connect(m_btnSearchAtt, &QPushButton::clicked, this, &AttendTaxTab::filterAttendance);
+    connect(m_btnResetAtt, &QPushButton::clicked, this, [this]() {
+        m_chkDateFilter->setChecked(false);
+        m_attDateFilter->setDate(QDate::currentDate());
+        if (m_attNameFilter) m_attNameFilter->clear();
+        m_attStatusCombo->setCurrentIndex(0);
+        filterAttendance();
+    });
+
     auto *w = new QWidget;
     auto *l = new QVBoxLayout(w);
     l->setContentsMargins(0, 0, 0, 0);
+    l->addLayout(filterLayout);
     l->addWidget(m_attTable, 1);
 
     auto *row = new QHBoxLayout;
@@ -132,7 +183,7 @@ QWidget *AttendTaxTab::createMakeupPanel()
     m_makeupModel->setHeaderData(4, Qt::Horizontal, "时间");
     m_makeupModel->setHeaderData(5, Qt::Horizontal, "理由");
     m_makeupModel->setHeaderData(6, Qt::Horizontal, "状态");
-    if (m_role == "user")
+    if (!SessionManager::instance()->hasPermission("approve_makeup"))
         m_makeupModel->setFilter(QString("emp_id=%1").arg(m_empId));
 
     m_makeupTable = new QTableView;
@@ -169,10 +220,27 @@ QWidget *AttendTaxTab::createMakeupPanel()
     approveRow->addStretch();
     approveRow->addWidget(m_btnApproveMakeup);
     approveRow->addWidget(m_btnRejectMakeup);
-    if (m_role == "user") {
+    if (!SessionManager::instance()->hasPermission("approve_makeup")) {
         m_btnApproveMakeup->setVisible(false);
         m_btnRejectMakeup->setVisible(false);
     }
+
+    m_btnApproveMakeup->setEnabled(false);
+    m_btnRejectMakeup->setEnabled(false);
+
+    connect(m_makeupTable->selectionModel(), &QItemSelectionModel::selectionChanged, this, [this]() {
+        auto selected = m_makeupTable->selectionModel()->selectedRows();
+        if (selected.size() == 1) {
+            int row = selected.first().row();
+            QString status = m_makeupModel->data(m_makeupModel->index(row, 6)).toString();
+            bool isPending = (status == "待审批");
+            m_btnApproveMakeup->setEnabled(isPending);
+            m_btnRejectMakeup->setEnabled(isPending);
+        } else {
+            m_btnApproveMakeup->setEnabled(false);
+            m_btnRejectMakeup->setEnabled(false);
+        }
+    });
 
     l->addWidget(panel);
     l->addLayout(approveRow);
@@ -322,4 +390,44 @@ void AttendTaxTab::rejectMakeup()
         QMessageBox::information(this, "成功", "已拒绝");
     }
 }
+
+void AttendTaxTab::filterAttendance()
+{
+    QStringList conds;
+
+    // 角色基础过滤
+    if (!SessionManager::instance()->hasPermission("approve_makeup")) {
+        conds << QString("attendances.emp_id = %1").arg(m_empId);
+    } else {
+        if (m_attNameFilter && !m_attNameFilter->text().trimmed().isEmpty()) {
+            QString namePattern = m_attNameFilter->text().trimmed();
+            namePattern.replace("'", "''");
+            conds << QString("attendances.emp_id IN (SELECT emp_id FROM employees WHERE name LIKE '%%1%')").arg(namePattern);
+        }
+    }
+
+    // 日期过滤
+    if (m_chkDateFilter->isChecked()) {
+        QString dateStr = m_attDateFilter->date().toString("yyyy-MM-dd");
+        conds << QString("attendances.att_date = '%1'").arg(dateStr);
+    }
+
+    // 状态过滤
+    if (m_attStatusCombo->currentIndex() > 0) {
+        QString status = m_attStatusCombo->currentText();
+        status.replace("'", "''");
+        conds << QString("attendances.status = '%1'").arg(status);
+    }
+
+    m_attModel->setFilter(conds.isEmpty() ? "" : conds.join(" AND "));
+    m_attModel->select();
+}
+
+void AttendTaxTab::refresh()
+{
+    m_attModel->select();
+    m_makeupModel->select();
+}
+
+
 

@@ -7,6 +7,7 @@
 #include <QMessageBox>
 #include <QSqlQuery>
 #include <QSqlError>
+#include "SafeEditDelegate.h"
 
 TaxConfigPanel::TaxConfigPanel(std::function<void(const QString&, const QString&)> logFn,
                                QWidget *parent)
@@ -51,6 +52,7 @@ TaxConfigPanel::TaxConfigPanel(std::function<void(const QString&, const QString&
 
     m_table = new QTableView;
     m_table->setModel(m_model);
+    m_table->setItemDelegate(new SafeEditDelegate(this));
     m_table->hideColumn(0);
     m_table->setEditTriggers(QAbstractItemView::DoubleClicked);
 

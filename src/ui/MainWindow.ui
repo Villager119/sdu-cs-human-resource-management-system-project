@@ -17,8 +17,8 @@
     <property name="bottomMargin"><number>0</number></property>
     <item>
      <widget class="QListWidget" name="sidebar">
-      <property name="minimumSize"><size><width>68</width><height>0</height></size></property>
-      <property name="maximumSize"><size><width>68</width><height>16777215</height></size></property>
+      <property name="minimumSize"><size><width>110</width><height>0</height></size></property>
+      <property name="maximumSize"><size><width>110</width><height>16777215</height></size></property>
       <property name="font"><font><pointsize>10</pointsize></font></property>
      </widget>
     </item>

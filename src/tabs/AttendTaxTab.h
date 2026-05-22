@@ -10,6 +10,7 @@
 #include <QPushButton>
 #include <QDateEdit>
 #include <QTimeEdit>
+#include <QCheckBox>
 #include <functional>
 
 class AttendTaxTab : public QWidget
@@ -20,6 +21,7 @@ public:
                  std::function<void(const QString&, const QString&)> logFn,
                  std::function<void(int, const QString&, const QString&)> notifyFn,
                  QWidget *parent = nullptr);
+    void refresh();
 
 private slots:
     // 打卡
@@ -31,6 +33,8 @@ private slots:
     void rejectMakeup();
     // 切换视图
     void switchView(int idx);
+    // 过滤考勤
+    void filterAttendance();
 
 private:
     void initTables();
@@ -45,6 +49,13 @@ private:
     // 考勤
     QTableView *m_attTable;
     QSqlRelationalTableModel *m_attModel;
+    QCheckBox *m_chkDateFilter;
+    QDateEdit *m_attDateFilter;
+    QLineEdit *m_attNameFilter;
+    QComboBox *m_attStatusCombo;
+    QPushButton *m_btnSearchAtt;
+    QPushButton *m_btnResetAtt;
+
     // 补卡
     QTableView *m_makeupTable;
     QSqlRelationalTableModel *m_makeupModel;
@@ -58,3 +69,4 @@ private:
 };
 
 #endif
+

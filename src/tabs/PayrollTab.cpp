@@ -2,6 +2,7 @@
 #include "../utils/CsvExport.h"
 #include "../core/Constants.h"
 #include "../core/GlobalEvents.h"
+#include "../core/SessionManager.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QPushButton>
@@ -54,7 +55,7 @@ PayrollTab::PayrollTab(int empId, const QString &role,
     m_model->setHeaderData(11, Qt::Horizontal, "实发最终工资");
     m_model->setHeaderData(12, Qt::Horizontal, "结算发薪日期");
 
-    if (m_role == HR::Role::USER)
+    if (!SessionManager::instance()->hasPermission("calculate_payroll"))
         m_model->setFilter(QString("payroll.emp_id=%1").arg(m_empId));
 
     m_table = new QTableView;
@@ -64,12 +65,26 @@ PayrollTab::PayrollTab(int empId, const QString &role,
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
+
+    // 筛选栏
+    auto *filterRow = new QHBoxLayout;
+    filterRow->addWidget(new QLabel("选择月份:"));
+    m_monthCombo = new QComboBox;
+    filterRow->addWidget(m_monthCombo);
+
+    m_btnSearch = new QPushButton("查询");
+    m_btnReset = new QPushButton("重置");
+    filterRow->addWidget(m_btnSearch);
+    filterRow->addWidget(m_btnReset);
+    filterRow->addStretch();
+    layout->addLayout(filterRow);
+
     layout->addWidget(m_table, 1);
 
     auto *row = new QHBoxLayout;
     row->addStretch();
     m_btnCalc = new QPushButton("一键核算本月工资");
-    if (m_role == HR::Role::USER) m_btnCalc->setVisible(false);
+    if (!SessionManager::instance()->hasPermission("calculate_payroll")) m_btnCalc->setVisible(false);
     row->addWidget(m_btnCalc);
     auto *btnCSV = new QPushButton("导出CSV");
     row->addWidget(btnCSV);
@@ -78,7 +93,13 @@ PayrollTab::PayrollTab(int empId, const QString &role,
 
     connect(m_btnCalc, &QPushButton::clicked, this, &PayrollTab::calculate);
     connect(btnCSV, &QPushButton::clicked, this, &PayrollTab::exportCSV);
+    connect(m_btnSearch, &QPushButton::clicked, this, &PayrollTab::filterPayroll);
+    connect(m_btnReset, &QPushButton::clicked, this, [this]() {
+        m_monthCombo->setCurrentIndex(0);
+        filterPayroll();
+    });
 
+    refreshMonthCombo();
     m_model->select();
 }
 
@@ -87,16 +108,30 @@ void PayrollTab::calculate()
     QString month = QDate::currentDate().toString("yyyy-MM");
     QString today = QDate::currentDate().toString("yyyy-MM-dd");
 
-    QSqlQuery check;
-    check.prepare("SELECT COUNT(*) FROM payroll WHERE month=?");
-    check.addBindValue(month);
-    check.exec();
-    if (check.next() && check.value(0).toInt() > 0) {
+    bool exists = false;
+    {
+        QSqlQuery check;
+        check.prepare("SELECT COUNT(*) FROM payroll WHERE month=?");
+        check.addBindValue(month);
+        check.exec();
+        if (check.next() && check.value(0).toInt() > 0) {
+            exists = true;
+        }
+    }
+
+    if (exists) {
         int r = QMessageBox::question(this, "重新核算警告",
             month + " 月份的工资已经核算过了！\n再次核算将覆盖原有数据，确定要继续吗？",
             QMessageBox::Yes | QMessageBox::No);
         if (r == QMessageBox::No) return;
-        QSqlQuery del; del.prepare("DELETE FROM payroll WHERE month=?"); del.addBindValue(month); del.exec();
+
+        QSqlQuery del;
+        del.prepare("DELETE FROM payroll WHERE month=?");
+        del.addBindValue(month);
+        if (!del.exec()) {
+            QMessageBox::critical(this, "删除失败", "删除原有工资条失败: " + del.lastError().text());
+            return;
+        }
     }
 
     // 获取全局配置（所有员工共用，查询提前到循环外）
@@ -183,3 +218,42 @@ void PayrollTab::exportCSV()
     if (path.isEmpty()) return;
     exportModelToCSV(m_model, path);
 }
+
+void PayrollTab::refresh()
+{
+    refreshMonthCombo();
+    filterPayroll();
+}
+
+void PayrollTab::filterPayroll()
+{
+    QStringList conds;
+    if (!SessionManager::instance()->hasPermission("calculate_payroll")) {
+        conds << QString("payroll.emp_id = %1").arg(m_empId);
+    }
+    if (m_monthCombo->currentIndex() > 0) {
+        QString month = m_monthCombo->currentText();
+        month.replace("'", "''");
+        conds << QString("payroll.month = '%1'").arg(month);
+    }
+    m_model->setFilter(conds.isEmpty() ? "" : conds.join(" AND "));
+    m_model->select();
+}
+
+void PayrollTab::refreshMonthCombo()
+{
+    m_monthCombo->blockSignals(true);
+    QString curMonth = m_monthCombo->currentText();
+    m_monthCombo->clear();
+    m_monthCombo->addItem("全部月份");
+    
+    QSqlQuery q("SELECT DISTINCT month FROM payroll ORDER BY month DESC");
+    while (q.next()) {
+        m_monthCombo->addItem(q.value(0).toString());
+    }
+    
+    int idx = m_monthCombo->findText(curMonth);
+    m_monthCombo->setCurrentIndex(idx >= 0 ? idx : 0);
+    m_monthCombo->blockSignals(false);
+}
+

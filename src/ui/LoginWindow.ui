@@ -114,10 +114,21 @@
        </layout>
       </item>
       <item>
-       <widget class="QCheckBox" name="checkRemember">
-        <property name="text"><string>记住密码，下次自动登录</string></property>
-        <property name="styleSheet"><string>color:#8893a4;font-size:11px;</string></property>
-       </widget>
+       <layout class="QHBoxLayout" name="checkRow">
+        <property name="spacing"><number>20</number></property>
+        <item>
+         <widget class="QCheckBox" name="checkRemember">
+          <property name="text"><string>记住密码</string></property>
+          <property name="styleSheet"><string>color:#8893a4;font-size:11px;</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="checkAutoLogin">
+          <property name="text"><string>自动登录</string></property>
+          <property name="styleSheet"><string>color:#8893a4;font-size:11px;</string></property>
+         </widget>
+        </item>
+       </layout>
       </item>
       <item>
        <layout class="QHBoxLayout" name="btnRow">

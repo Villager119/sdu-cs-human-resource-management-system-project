@@ -13,7 +13,7 @@ DashboardTab::DashboardTab(QWidget *parent)
 
     m_alertLabel = new QLabel;
     m_alertLabel->setVisible(false);
-    m_alertLabel->setStyleSheet("background: #fff7e6; border: 1px solid #ffd591; border-radius: 6px; padding: 10px 16px; color: #d46b08; font-size: 13px;");
+    m_alertLabel->setStyleSheet("background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 12px 18px; color: #b45309; font-size: 13px; font-weight: bold;");
     m_alertLabel->setWordWrap(true);
     mainLayout->addWidget(m_alertLabel);
 
@@ -26,7 +26,7 @@ DashboardTab::DashboardTab(QWidget *parent)
     for (int i = 0; i < 6; i++) {
         auto *frame = new QFrame;
         frame->setMinimumSize(200, 110);
-        frame->setStyleSheet("QFrame { background: #fff; border: 1px solid #e2e5ea; border-radius: 10px; }");
+        frame->setStyleSheet("QFrame { background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; } QFrame:hover { border: 1px solid #3b82f6; }");
 
         auto *l = new QVBoxLayout(frame);
         l->setSpacing(4);
@@ -34,15 +34,15 @@ DashboardTab::DashboardTab(QWidget *parent)
 
         auto *icon = new QLabel(icons[i]);
         icon->setAlignment(Qt::AlignLeft);
-        icon->setStyleSheet("font-size: 22px; border: none;");
+        icon->setStyleSheet("font-size: 22px; border: none; background: transparent;");
 
         auto *t = new QLabel(titles[i]);
         t->setAlignment(Qt::AlignLeft);
-        t->setStyleSheet("font-size: 12px; color: #8893a4; border: none;");
+        t->setStyleSheet("font-size: 12px; color: #64748b; border: none; background: transparent;");
 
         m_labels[i] = new QLabel("-");
         m_labels[i]->setAlignment(Qt::AlignRight | Qt::AlignBottom);
-        m_labels[i]->setStyleSheet("font-size: 32px; font-weight: 700; color: #1e3a5f; border: none;");
+        m_labels[i]->setStyleSheet("font-size: 30px; font-weight: 700; color: #2563eb; border: none; background: transparent;");
 
         l->addWidget(icon);
         l->addWidget(t);

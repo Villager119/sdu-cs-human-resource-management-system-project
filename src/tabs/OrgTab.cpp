@@ -22,18 +22,39 @@ OrgTab::OrgTab(std::function<void(const QString&, const QString&)> logFn,
 
     // 右侧员工列表
     m_empModel = new QSqlTableModel(this);
-    m_empModel->setHeaderData(1, Qt::Horizontal, "姓名");
-    m_empModel->setHeaderData(3, Qt::Horizontal, "电话");
-    m_empModel->setHeaderData(4, Qt::Horizontal, "部门");
-    m_empModel->setHeaderData(7, Qt::Horizontal, "薪资");
-    m_empModel->setHeaderData(10, Qt::Horizontal, "状态");
+    m_empModel->setTable("employees");
+
+    // 解析动态列索引
+    int idxName = m_empModel->fieldIndex("name");
+    int idxPhone = m_empModel->fieldIndex("phone");
+    int idxDept = m_empModel->fieldIndex("department");
+    int idxSalary = m_empModel->fieldIndex("base_salary");
+    int idxStatus = m_empModel->fieldIndex("status");
+
+    if (idxName >= 0) m_empModel->setHeaderData(idxName, Qt::Horizontal, "姓名");
+    if (idxPhone >= 0) m_empModel->setHeaderData(idxPhone, Qt::Horizontal, "电话");
+    if (idxDept >= 0) m_empModel->setHeaderData(idxDept, Qt::Horizontal, "部门");
+    if (idxSalary >= 0) m_empModel->setHeaderData(idxSalary, Qt::Horizontal, "薪资");
+    if (idxStatus >= 0) m_empModel->setHeaderData(idxStatus, Qt::Horizontal, "状态");
+
     m_empTable = new QTableView;
     m_empTable->setModel(m_empModel);
     m_empTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_empTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_empTable->hideColumn(0); m_empTable->hideColumn(2); m_empTable->hideColumn(5);
-    m_empTable->hideColumn(6); m_empTable->hideColumn(8); m_empTable->hideColumn(9);
-    m_empTable->hideColumn(11); m_empTable->hideColumn(12); m_empTable->hideColumn(13);
+
+    // 动态隐藏除了 姓名、电话、部门、薪资、状态 以外的所有列
+    QList<int> visibleCols;
+    if (idxName >= 0) visibleCols.append(idxName);
+    if (idxPhone >= 0) visibleCols.append(idxPhone);
+    if (idxDept >= 0) visibleCols.append(idxDept);
+    if (idxSalary >= 0) visibleCols.append(idxSalary);
+    if (idxStatus >= 0) visibleCols.append(idxStatus);
+
+    for (int i = 0; i < m_empModel->columnCount(); ++i) {
+        if (!visibleCols.contains(i)) {
+            m_empTable->hideColumn(i);
+        }
+    }
 
     // 左侧部门树
     m_tree = new QTreeView;
@@ -63,15 +84,32 @@ OrgTab::OrgTab(std::function<void(const QString&, const QString&)> logFn,
     auto *btnRow = new QHBoxLayout;
     auto *btnSave = new QPushButton("保存部门");
     btnSave->setStyleSheet("QPushButton{background:#1a2233;color:#fff;} QPushButton:hover{background:#2a3a55;}");
-    auto *btnDel = new QPushButton("删除");
-    btnDel->setStyleSheet("QPushButton{color:#d14343;} QPushButton:hover{background:#d14343;color:#fff;}");
-    btnRow->addWidget(btnSave); btnRow->addWidget(btnDel);
+    m_btnDel = new QPushButton("删除");
+    m_btnDel->setStyleSheet(
+        "QPushButton {"
+        "  background-color: #fee2e2;"
+        "  color: #dc2626;"
+        "  border: 1px solid #fca5a5;"
+        "}"
+        "QPushButton:hover {"
+        "  background-color: #dc2626;"
+        "  color: #ffffff;"
+        "  border-color: #b91c1c;"
+        "}"
+        "QPushButton:disabled {"
+        "  background-color: #f1f5f9;"
+        "  color: #94a3b8;"
+        "  border: 1px solid #e2e8f0;"
+        "}"
+    );
+    m_btnDel->setEnabled(false);
+    btnRow->addWidget(btnSave); btnRow->addWidget(m_btnDel);
     form->addRow(btnRow);
     layout->addWidget(panel);
 
     connect(m_tree->selectionModel(), &QItemSelectionModel::currentChanged, this, &OrgTab::onTreeSelectionChanged);
     connect(btnSave, &QPushButton::clicked, this, &OrgTab::saveDepartment);
-    connect(btnDel, &QPushButton::clicked, this, &OrgTab::removeDepartment);
+    connect(m_btnDel, &QPushButton::clicked, this, &OrgTab::removeDepartment);
 
     refresh();
 }
@@ -120,8 +158,14 @@ void OrgTab::refresh()
 void OrgTab::onTreeSelectionChanged()
 {
     auto *item = m_treeModel->itemFromIndex(m_tree->currentIndex());
-    if (!item) { m_selectedDeptId = -1; m_empTable->setModel(nullptr); return; }
+    if (!item) {
+        m_selectedDeptId = -1;
+        m_empTable->setModel(nullptr);
+        m_btnDel->setEnabled(false);
+        return;
+    }
     m_selectedDeptId = item->data(Qt::UserRole).toInt();
+    m_btnDel->setEnabled(m_selectedDeptId > 0);
 
     QSqlQuery q; q.prepare("SELECT dept_name, parent_id, manager_id FROM departments WHERE dept_id=?");
     q.addBindValue(m_selectedDeptId); q.exec();
@@ -133,7 +177,6 @@ void OrgTab::onTreeSelectionChanged()
         int mid = q.value(2).isNull() ? 0 : m_managerCombo->findData(q.value(2).toInt());
         m_managerCombo->setCurrentIndex(mid > 0 ? mid : 0);
         // 显示该部门员工
-        m_empModel->setTable("employees");
         m_empModel->setFilter(QString("department='%1'").arg(name.replace("'", "''")));
         m_empModel->select();
         m_empTable->setModel(m_empModel);
@@ -163,7 +206,7 @@ void OrgTab::saveDepartment()
         m_log("新增部门", name);
     }
     QMessageBox::information(this,"成功","部门信息已保存");
-    m_selectedDeptId = -1; m_nameEdit->clear(); refresh();
+    m_selectedDeptId = -1; m_nameEdit->clear(); m_btnDel->setEnabled(false); refresh();
 }
 
 void OrgTab::removeDepartment()
@@ -175,5 +218,5 @@ void OrgTab::removeDepartment()
     q.prepare("UPDATE departments SET parent_id=NULL WHERE parent_id=?"); q.addBindValue(m_selectedDeptId); q.exec();
     q.prepare("DELETE FROM departments WHERE dept_id=?"); q.addBindValue(m_selectedDeptId); q.exec();
     m_log("删除部门", m_nameEdit->text());
-    m_selectedDeptId = -1; m_nameEdit->clear(); refresh();
+    m_selectedDeptId = -1; m_nameEdit->clear(); m_btnDel->setEnabled(false); refresh();
 }

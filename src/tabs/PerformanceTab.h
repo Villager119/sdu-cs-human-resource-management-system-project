@@ -17,10 +17,10 @@ public:
     PerformanceTab(int empId, const QString &role,
                    std::function<void(const QString&, const QString&)> logFn,
                    QWidget *parent = nullptr);
+    void refresh();
 
 private slots:
     void submitScore();
-    void refresh();
     void updateTotal();
 
 private:

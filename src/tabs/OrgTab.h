@@ -11,6 +11,8 @@
 #include <QComboBox>
 #include <functional>
 
+class QPushButton;
+
 class OrgTab : public QWidget
 {
     Q_OBJECT
@@ -29,6 +31,7 @@ private slots:
 private:
     QTreeView *m_tree;
     QStandardItemModel *m_treeModel;
+    QPushButton *m_btnDel;
     QLineEdit *m_nameEdit;
     QComboBox *m_parentCombo, *m_managerCombo;
     int m_selectedDeptId = -1;

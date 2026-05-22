@@ -59,6 +59,7 @@ void ReportsTab::refreshChart()
     int type = m_combo->currentIndex();
     auto *old = m_chartView->chart();
     auto *chart = new QChart;
+    chart->setTheme(QChart::ChartThemeLight);
     chart->setAnimationOptions(QChart::SeriesAnimations);
     QSqlQuery q;
 

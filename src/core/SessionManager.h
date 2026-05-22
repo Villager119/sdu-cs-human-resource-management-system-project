@@ -2,6 +2,7 @@
 #define SESSIONMANAGER_H
 
 #include <QString>
+#include <QSet>
 #include <functional>
 
 class SessionManager
@@ -14,9 +15,15 @@ public:
     QString role;
     QString empName;
 
+    QSet<QString> permissionsSet;
+
+    bool hasPermission(const QString &permKey) const;
+    void reloadPermissions();
+
 private:
     SessionManager() = default;
     static SessionManager *s_inst;
 };
 
 #endif
+

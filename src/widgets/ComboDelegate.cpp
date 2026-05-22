@@ -10,6 +10,14 @@ ComboDelegate::ComboDelegate(QAbstractItemModel *model, int valueColumn, QObject
 QWidget *ComboDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem &, const QModelIndex &) const
 {
     auto *cb = new QComboBox(parent);
+    cb->setStyleSheet(
+        "color: #0f172a !important;"
+        "background-color: #ffffff !important;"
+        "selection-color: #ffffff !important;"
+        "selection-background-color: #2563eb !important;"
+        "border: 1px solid #3b82f6 !important;"
+        "border-radius: 4px !important;"
+    );
     if (m_lookupModel) {
         cb->setModel(m_lookupModel);
         cb->setModelColumn(m_lookupColumn);

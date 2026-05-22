@@ -111,6 +111,7 @@ void LeaveTab::approve()
         m_log("同意请假", "请假单号: " + QString::number(id));
         m_notify(m_model->index(row, 1).data(Qt::EditRole).toInt(), "请假已批准", "你的请假申请已通过审批");
         m_model->select();
+        GlobalEvents::instance()->dataChanged();
     } else {
         QMessageBox::critical(this, "审批失败", "审批失败: " + q.lastError().text());
     }
@@ -129,6 +130,7 @@ void LeaveTab::reject()
         m_log("拒绝请假", "请假单号: " + QString::number(id));
         m_notify(m_model->index(row, 1).data(Qt::EditRole).toInt(), "请假已拒绝", "你的请假申请未通过审批");
         m_model->select();
+        GlobalEvents::instance()->dataChanged();
     } else {
         QMessageBox::critical(this, "审批失败", "审批失败: " + q.lastError().text());
     }

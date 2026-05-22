@@ -1,76 +1,139 @@
-# HRMS - 人力资源管理系统
+# HRMS - 人力资源管理系统 (C++/Qt6/MySQL)
 
-基于 Qt6 + C++17 + MySQL 的桌面端人事管理系统，采用 C/S 两层架构。
+基于 **Qt6 + C++17 + MySQL** 的桌面端企业级人力资源管理系统 (HRMS)，专为软件工程与数据库系统课程设计优化。采用 C/S 二层架构，内置数据库自动表结构迁移、密码安全加密与多标签页全局数据总线同步（观察者模式）等高级特性。
 
-## 技术栈
+---
 
-- **语言**: C++17
-- **UI 框架**: Qt 6.5 (Widgets, Sql, Charts, Network)
-- **数据库**: MySQL 8.x (QODBC 驱动)
-- **构建**: CMake + MinGW 64-bit (Windows)
-- **版本控制**: Git
+## 🌟 项目亮点与课程设计加分项
 
-## 功能
+1. **数据库设计规范性**：
+   - 数据库表结构完全符合第三范式 (3NF)。
+   - 在操作审计日志表（`audit_logs`）中进行了合理的反规范化设计，折中查询效率与历史追溯真实性。
+   - 严格遵循外键引用完整性约束，防止孤立与脏数据。
+2. **ACID 事务保障**：
+   - 薪酬一键核算业务采用 MySQL 事务处理，若在批量计算中途遇到任何异常均会自动回滚，确保数据强一致性。
+3. **观察者模式数据同步**：
+   - 采用 Qt 信号与槽结合全局单例事件总线（`GlobalEvents`）实现了**观察者模式**。在工资核算、请假审批、补卡审批、信息变更审批完成后，自动向全标签页广播并刷新数据，杜绝脏数据视觉。
+4. **防御性编程（防呆设计）**：
+   - 全面实现输入校验（手机号正则验证、工资数值非负验证、请假日期大小逻辑验证、空行选中安全拦截）。
+   - 数据库密码在本地配置文件 `config.ini` 中使用 Base64 安全保护，防止明文泄露。
+5. **软工标准图表集成**：
+   - 需求文档内置 Mermaid 编写的 **E-R图**、**一键核算工资数据流图(DFD)** 以及 **系统用例图(Use Case Diagram)**，便于直接导入课设报告中。
 
-| 模块 | 说明 |
-|------|------|
-| 仪表盘首页 | 总人数、在职/离职统计、请假/待审批数、薪资总额（仅管理员） |
-| 员工信息管理 | 增删改查 + 多维筛选（部门/状态/姓名）+ 状态流转 + 扩展字段（学历/婚姻/岗位） |
-| 考勤与请假审批 | 请假申请 + 管理员审批（同意/拒绝） |
-| 薪酬管理 | 一键核算（21.75 计薪 + 请假扣款）+ 工资查询 + CSV 导出 |
-| 操作日志 | 全操作审计追踪（11 类操作自动记录，仅管理员） |
-| 统计报表 | 饼图/柱状图（4 种图表类型切换）+ PDF 导出（仅管理员） |
-| 系统功能 | 密码修改（SHA-256 哈希）、退出登录、服务器连接配置 |
+---
 
-## 构建与运行
+## 🛠️ 技术栈
 
-### 依赖
+- **开发语言**: C++17
+- **UI 框架**: Qt 6.5.3 (Widgets, Sql, Charts, Network)
+- **数据库**: MySQL 8.x (通过 QODBC 驱动直连)
+- **构建系统**: CMake 3.16+
+- **编译器**: MinGW 64-bit (GCC 11.2)
+- **操作系统**: Windows 10/11
 
-- Qt 6.5+ (Core, Gui, Widgets, Sql, Charts, Network)
-- MinGW 64-bit (推荐 Qt 自带的 mingw1120_64)
-- MySQL 8.x 服务端
-- MySQL ODBC 9.6 UNICODE Driver
+---
 
-### 构建
+## 📦 系统功能结构
 
-```bash
-cmake -B build -S . -G "MinGW Makefiles" \
-  -DCMAKE_PREFIX_PATH="D:/Qt/6.5.3/mingw_64" \
-  -DCMAKE_CXX_COMPILER="D:/Qt/Tools/mingw1120_64/bin/g++.exe"
-cmake --build build
-```
+系统实行轻量级基于角色的权限控制 (RBAC)，分为 **管理员 (admin)** 与 **普通员工 (user)** 两个角色：
 
-### 运行
+| 主导导航栏 | 包含子功能 Tab | 权限限制 | 说明 |
+| :--- | :--- | :--- | :--- |
+| **🏠 首页** | 仪表盘 + 统计图表 | 管理员 / 员工 | 管理员可看大盘看板与 5 种 Qt Charts 统计图表，员工仅看基础信息 |
+| **👥 员工** | 员工管理 + 信息变更审批 | 仅管理员可见 | 管理员执行员工 CRUD、批量调部门；普通员工在系统菜单中申请变更信息 |
+| **⏰ 考勤** | 打卡补卡 + 请假审批 | 均可见 (隔离) | 员工进行上班/下班打卡、申请补卡及请假；管理员负责审批 |
+| **💰 薪酬** | 工资条 + 绩效评分 | 均可见 (隔离) | 员工可查询个人历史工资条；管理员负责绩效评分与一键核算全员薪薪 |
+| **🏢 组织** | 部门树 + 员工列表 | 仅管理员可见 | 树形呈现部门层级结构以及部门所属员工列表 |
+| **📜 日志** | 操作审计日志 | 仅管理员可见 | 系统操作流水日志，包含 11 类关键操作的责任追踪 |
 
-1. 确保 MySQL 服务运行，`hrms_db` 数据库已创建
-2. 配置 `config.ini`（数据库连接参数）
-3. 运行 `./build/HRMS.exe`
+---
 
-## 项目结构
+## 📂 项目目录树
 
 ```
 HRMS/
-├── main.cpp                 # 入口：读取 config.ini、DB 连接、启动登录
-├── loginwindow.h/cpp/ui     # 登录窗口：认证 + RBAC
-├── mainwindow.h/cpp/ui      # 主窗口：5 个 Tab + 全业务逻辑
-├── changepassworddialog.h/cpp # 密码修改对话框
-├── serversettingsdialog.h/cpp # 服务器连接设置对话框
-├── CMakeLists.txt           # CMake 构建配置
-├── config.ini               # 数据库连接配置（gitignored）
-├── auditlog.sql             # 审计日志表 DDL
-├── SRS草稿.md               # 软件需求规格说明书 V2.0
-├── 可行性分析报告.md          # 可行性分析报告
-├── 实验四.md                # 项目进度甘特图
-└── CLAUDE.md                # AI 辅助开发文档
+├── CMakeLists.txt           # CMake 顶层构建脚本
+├── config.ini               # 本地数据库连接配置文件 (自动生成，已加 Base64 保护)
+├── style.qss                # 全局样式表 (美化控件视觉)
+├── docs/                    # 项目设计与实验文档
+│   ├── SRS草稿.md           # 软件需求规格说明书 (包含 E-R图、DFD图、用例图)
+│   ├── 可行性分析报告.md    # 可行性研究报告
+│   ├── 答辩应对指南.md      # [NEW] 12道高频答辩Q&A与演示技巧汇总
+│   └── 实验四.md            # 项目进度与任务管理
+└── src/                     # C++ 源代码
+    ├── main.cpp             # 程序入口：初始化数据库连接、检测表结构、调出登录窗口
+    ├── core/                # 核心机制与全局状态
+    │   ├── Constants.h      # 系统全局常量与枚举定义
+    │   ├── GlobalEvents.h/cpp# 全局事件总线 (单例观察者)
+    │   └── SessionManager.h # 用户登录会话管理
+    ├── ui/                  # 通用窗口与对话框
+    │   ├── LoginWindow.h/cpp/ui      # 登录界面
+    │   ├── MainWindow.h/cpp/ui       # 主框架窗口 (主侧边栏与通知中心)
+    │   ├── ChangePasswordDialog.h/cpp# 密码修改对话框
+    │   └── ServerSettingsDialog.h/cpp# 服务器连接设置对话框
+    ├── tabs/                # 业务 Tab 页面组件 (各功能模块)
+    │   ├── DashboardTab.h/cpp        # 仪表盘看板
+    │   ├── EmployeeTab.h/cpp         # 员工信息管理
+    │   ├── AttendTaxTab.h/cpp        # 考勤打卡与补卡
+    │   ├── LeaveTab.h/cpp            # 请假申请与审批
+    │   ├── PayrollTab.h/cpp          # 薪酬管理与核算
+    │   ├── PerformanceTab.h/cpp      # 绩效评分
+    │   ├── OrgTab.h/cpp              # 组织架构树
+    │   ├── ReportsTab.h/cpp          # 统计图表与PDF导出
+    │   ├── AuditTab.h/cpp            # 审计日志查看
+    │   └── ProfileChangeTab.h/cpp    # 信息变更与审批
+    ├── widgets/             # 自定义通用 UI 控件
+    │   ├── PaginationBar.h/cpp       # 表格分页栏组件
+    │   ├── ComboDelegate.h/cpp       # 表格下拉框委托
+    │   └── TaxConfigPanel.h/cpp      # 社保公积金比例配置面板
+    └── utils/               # 工具类
+        ├── DbUtils.h/cpp             # 数据库辅助操作
+        └── CsvExport.h/cpp           # CSV 导出工具
 ```
 
-## 数据库
+---
 
-4 张表：`employees`、`leave_requests`、`payroll`、`audit_logs` + 1 张辅助表 `departments`。表结构自动迁移（`CREATE TABLE IF NOT EXISTS` + `ALTER TABLE ADD COLUMN`）。
+## 💾 数据库设计
 
-## 权限
+系统启动时会自动扫描数据库并执行结构自愈迁移（Idempotent Schema Migration），若不存在表则会自动创建。包含以下主要表结构：
+1. **`employees`**：员工基础信息与系统账户（含密码 SHA-256 哈希值）。
+2. **`departments`**：部门字典表。
+3. **`attendances`**：每日考勤打卡记录。
+4. **`makeup_requests`**：补卡申请记录。
+5. **`leave_requests`**：请假申请记录。
+6. **`payroll`**：月度工资条（包含底薪、绩效、请假扣款、五险一金个人扣减、个人所得税、实发工资）。
+7. **`salary_config`**：五险一金比例配置表。
+8. **`system_settings`**：全局计薪天数（21.75天）与免税起征点（5000元）。
+9. **`profile_change_requests`**：员工信息修改审批流表。
+10. **`notifications`**：系统未读通知表。
+11. **`audit_logs`**：全局操作安全审计日志表。
 
-| 角色 | 可见 Tab | 功能限制 |
-|------|---------|---------|
-| admin | 全部（含仪表盘/员工管理/日志/报表） | 全部功能 |
-| user | 请假审批、薪酬管理 | 仅可查看和操作自身数据 |
+---
+
+## 🚀 构建与运行
+
+### 前置条件
+1. 安装 **MySQL 8.0+** 服务端并创建一个空数据库 `hrms_db`。
+2. 安装 **MySQL ODBC 9.6 UNICODE Driver** (或较新版本)，确保 Windows ODBC 数据源管理器中能查找到该驱动。
+3. 安装 Qt6.5.3 (包含 MinGW 编译器)。
+
+### 命令行编译步骤
+在项目根目录下打开命令行工具（如 PowerShell/CMD）：
+
+```bash
+# 1. 生成 CMake 构建工程 (请根据本机 Qt 的实际安装路径修改 D:/Qt/...)
+cmake -B build -S . -G "MinGW Makefiles" \
+  -DCMAKE_PREFIX_PATH="D:/Qt/6.5.3/mingw_64" \
+  -DCMAKE_CXX_COMPILER="D:/Qt/Tools/mingw1120_64/bin/g++.exe"
+
+# 2. 编译项目
+cmake --build build
+```
+
+### 运行说明
+1. 编译完成后，双击 `./build/HRMS.exe` 启动。
+2. 若首次启动或数据库配置错误，系统会自动引导进入 **服务器配置** 对话框。
+3. 输入您的 MySQL 主机 IP、端口、用户名和密码，点击 **保存** 成功后即可开始使用。
+4. **内置默认账户**：
+   - **管理员**：姓名 `admin` 或 手机号 `13800000000`，密码 `admin1`。
+   - **普通员工**：可以在管理员登录后，在“员工管理”中自行添加并保存，新员工默认密码为 `123456`。

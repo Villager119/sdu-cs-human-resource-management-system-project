@@ -1,4 +1,6 @@
 #include "AuditTab.h"
+#include <QVBoxLayout>
+#include <QSqlQuery>
 
 AuditTab::AuditTab(QWidget *parent)
     : QWidget(parent)

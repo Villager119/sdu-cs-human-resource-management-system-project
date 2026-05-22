@@ -3,9 +3,7 @@
 
 #include <QWidget>
 #include <QSqlTableModel>
-#include <QVBoxLayout>
 #include <QTableView>
-#include <QSqlQuery>
 
 class AuditTab : public QWidget
 {

@@ -1,5 +1,7 @@
 #include "PayrollTab.h"
+#include "../utils/CsvExport.h"
 #include "../core/Constants.h"
+#include "../core/GlobalEvents.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QPushButton>
@@ -31,7 +33,7 @@ PayrollTab::PayrollTab(int empId, const QString &role,
                     Col{"housing_fund","unemployment"},
                     Col{"income_tax","housing_fund"}}) {
         q.exec(QString("SHOW COLUMNS FROM payroll LIKE '%1'").arg(c.name));
-        if (q.size() == 0)
+        if (!q.next())
             q.exec(QString("ALTER TABLE payroll ADD COLUMN %1 DECIMAL(10,2) DEFAULT 0.00 AFTER %2").arg(c.name, c.after));
     }
 
@@ -97,6 +99,25 @@ void PayrollTab::calculate()
         QSqlQuery del; del.prepare("DELETE FROM payroll WHERE month=?"); del.addBindValue(month); del.exec();
     }
 
+    // 获取全局配置（所有员工共用，查询提前到循环外）
+    double wd = 21.75;
+    {
+        QSqlQuery sq; sq.exec("SELECT value FROM system_settings WHERE key_name='work_days_per_month'");
+        if (sq.next()) wd = sq.value(0).toDouble();
+    }
+    struct TaxItem { QString name; double rate; };
+    QList<TaxItem> taxItems;
+    {
+        QSqlQuery sc("SELECT item_name, rate_personal FROM salary_config WHERE enabled=1");
+        while (sc.next())
+            taxItems.append({sc.value(0).toString(), sc.value(1).toDouble()});
+    }
+    double threshold = 5000;
+    {
+        QSqlQuery tq; tq.exec("SELECT value FROM system_settings WHERE key_name='tax_threshold'");
+        if (tq.next()) threshold = tq.value(0).toDouble();
+    }
+
     QSqlDatabase db = QSqlDatabase::database();
     db.transaction();
 
@@ -108,9 +129,6 @@ void PayrollTab::calculate()
         QSqlQuery lv; lv.prepare("SELECT SUM(DATEDIFF(end_date, start_date)+1) FROM leave_requests WHERE emp_id=? AND status='已同意' AND start_date LIKE ?");
         lv.addBindValue(eid); lv.addBindValue(month + "%"); lv.exec();
         int days = (lv.next()) ? lv.value(0).toInt() : 0;
-        double wd = 21.75;
-        QSqlQuery sq; sq.exec("SELECT value FROM system_settings WHERE key_name='work_days_per_month'");
-        if (sq.next()) wd = sq.value(0).toDouble();
         double ded = (bs / wd) * days;
         // 绩效奖金：>=90 分 10%，>=70 分 5%
         double perf = 0.0;
@@ -123,20 +141,14 @@ void PayrollTab::calculate()
         }
         // 五险一金
         double pension = 0, medical = 0, unemployment = 0, housing = 0;
-        QSqlQuery sc("SELECT item_name, rate_personal FROM salary_config WHERE enabled=1");
-        while (sc.next()) {
-            QString name = sc.value(0).toString();
-            double rate = sc.value(1).toDouble();
-            double val = bs * rate;
-            if (name == "养老保险") pension = val;
-            else if (name == "医疗保险") medical = val;
-            else if (name == "失业保险") unemployment = val;
-            else if (name == "住房公积金") housing = val;
+        for (const auto &ti : taxItems) {
+            double val = bs * ti.rate;
+            if (ti.name == "养老保险") pension = val;
+            else if (ti.name == "医疗保险") medical = val;
+            else if (ti.name == "失业保险") unemployment = val;
+            else if (ti.name == "住房公积金") housing = val;
         }
         // 个税（阶梯税率）
-        double threshold = 5000;
-        QSqlQuery tq; tq.exec("SELECT value FROM system_settings WHERE key_name='tax_threshold'");
-        if (tq.next()) threshold = tq.value(0).toDouble();
         double taxable = bs - ded + perf - pension - medical - unemployment - housing - threshold;
         double tax = 0;
         if (taxable > 25000) tax = taxable * 0.25 - 2660;
@@ -162,23 +174,12 @@ void PayrollTab::calculate()
     QMessageBox::information(this, "核算完成", QString("一键核算完毕！\n成功生成了 %1 名员工的 %2 月份工资单。").arg(ok).arg(month));
     m_log("核算工资", month + " (" + QString::number(ok) + "人)");
     m_model->select();
+    GlobalEvents::instance()->dataChanged();
 }
 
 void PayrollTab::exportCSV()
 {
     QString path = QFileDialog::getSaveFileName(this, "导出工资表", "薪酬数据.csv", "CSV文件 (*.csv)");
     if (path.isEmpty()) return;
-    QFile f(path);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) return;
-    QTextStream out(&f);
-    out.setEncoding(QStringConverter::Utf8);
-    out << "\xEF\xBB\xBF";
-    for (int c = 0; c < m_model->columnCount(); c++)
-        out << "\"" << m_model->headerData(c, Qt::Horizontal).toString() << "\"" << (c < m_model->columnCount()-1 ? "," : "\n");
-    for (int r = 0; r < m_model->rowCount(); r++) {
-        for (int c = 0; c < m_model->columnCount(); c++)
-            out << "\"" << m_model->data(m_model->index(r, c)).toString().replace("\"", "\"\"") << "\"" << (c < m_model->columnCount()-1 ? "," : "\n");
-    }
-    f.close();
-    QMessageBox::information(this, "导出成功", "薪酬数据已导出至:\n" + path);
+    exportModelToCSV(m_model, path);
 }

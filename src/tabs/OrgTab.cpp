@@ -85,18 +85,23 @@ void OrgTab::refresh()
     QSqlQuery eq("SELECT emp_id, name FROM employees");
     while (eq.next()) m_managerCombo->addItem(eq.value(1).toString(), eq.value(0).toInt());
 
+    // 一次查询获取所有部门的员工计数
+    QMap<QString, int> empCountMap;
+    {
+        QSqlQuery eqc("SELECT department, COUNT(*) FROM employees WHERE department IS NOT NULL AND department!='' GROUP BY department");
+        while (eqc.next())
+            empCountMap[eqc.value(0).toString()] = eqc.value(1).toInt();
+    }
+
     QMap<int, QStandardItem *> items;
     QMap<int, int> parentMap;
-    QMap<int, int> empCount;
     QSqlQuery dq("SELECT dept_id, dept_name, parent_id FROM departments ORDER BY dept_id");
     while (dq.next()) {
         int id = dq.value(0).toInt();
         QString name = dq.value(1).toString();
         int pid = dq.value(2).isNull() ? -1 : dq.value(2).toInt();
         parentMap[id] = pid;
-        QSqlQuery cq; cq.prepare("SELECT COUNT(*) FROM employees WHERE department=?"); cq.addBindValue(name); cq.exec();
-        int cnt = cq.next() ? cq.value(0).toInt() : 0;
-        empCount[id] = cnt;
+        int cnt = empCountMap.value(name, 0);
         auto *item = new QStandardItem(QString("%1  (%2人)").arg(name).arg(cnt));
         item->setData(id, Qt::UserRole);
         items[id] = item;

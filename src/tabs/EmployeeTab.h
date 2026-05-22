@@ -18,6 +18,9 @@ public:
     EmployeeTab(std::function<void(const QString&, const QString&)> logFn,
                 QWidget *parent = nullptr);
 
+public slots:
+    void refresh();
+
 private slots:
     void add();
     void remove();
@@ -32,8 +35,8 @@ private slots:
 private:
     QSqlTableModel *m_model;
     QTableView *m_table;
-    QComboBox *m_deptCombo, *m_statusCombo;
-    QLineEdit *m_nameSearch;
+    QComboBox *m_deptCombo, *m_statusCombo, *m_maritalCombo, *m_eduCombo;
+    QLineEdit *m_nameSearch, *m_posSearch;
     QPushButton *m_btnToggleStatus;
     PaginationBar *m_pagination;
     std::function<void(const QString&, const QString&)> m_log;

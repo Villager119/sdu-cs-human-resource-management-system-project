@@ -2,10 +2,13 @@
 #include "ui_LoginWindow.h"
 #include "MainWindow.h"
 #include "ServerSettingsDialog.h"
+#include "../utils/DbUtils.h"
 #include <QCryptographicHash>
 #include <QDebug>
+#include <QMessageBox>
 #include <QSqlDatabase>
 #include <QSqlError>
+#include <QSqlQuery>
 #include <QSettings>
 #include <QFileInfo>
 #include <QTimer>
@@ -62,12 +65,7 @@ void LoginWindow::tryReconnect()
 
     QSqlDatabase db = QSqlDatabase::database();
     db.close();
-
-    QString dsn = QString("DRIVER={%1};SERVER=%2;PORT=%3;DATABASE=%4;UID=%5;PWD=%6;")
-                      .arg(driver, server)
-                      .arg(port)
-                      .arg(database, uid, pwd);
-    db.setDatabaseName(dsn);
+    db.setDatabaseName(buildDsn(driver, server, port, database, uid, pwd));
 
     if (db.open()) {
         m_dbConnected = true;

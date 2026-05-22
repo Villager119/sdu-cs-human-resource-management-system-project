@@ -8,6 +8,7 @@
 #include <QFile>
 #include <QTextStream>
 #include "ui/LoginWindow.h"
+#include "utils/DbUtils.h"
 #include "core/Logger.h"
 
 static QString findFile(const QString &name)
@@ -54,18 +55,7 @@ int main(int argc, char *argv[]) {
     QString pwd = pwdDec.isEmpty() ? pwdEnc : QString::fromUtf8(pwdDec);
 
     QSqlDatabase db = QSqlDatabase::addDatabase("QODBC");
-
-    QString dsn = QString("DRIVER={%1};"
-                          "SERVER=%2;"
-                          "PORT=%3;"
-                          "DATABASE=%4;"
-                          "UID=%5;"
-                          "PWD=%6;")
-                      .arg(driver, server)
-                      .arg(port)
-                      .arg(database, uid, pwd);
-
-    db.setDatabaseName(dsn);
+    db.setDatabaseName(buildDsn(driver, server, port, database, uid, pwd));
 
     bool dbOk = db.open();
     if (!dbOk)

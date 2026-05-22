@@ -14,6 +14,10 @@ namespace HR {
     namespace EmpStatus {
         inline const QString ACTIVE   = "在职";
         inline const QString INACTIVE = "离职";
+        inline const QString TRANSFERRED_OUT = "转出";
+        inline const QString RESIGNED = "辞职";
+        inline const QString DISMISSED = "辞退";
+        inline const QString RETIRED = "退休";
     }
     namespace Role {
         inline const QString ADMIN = "admin";

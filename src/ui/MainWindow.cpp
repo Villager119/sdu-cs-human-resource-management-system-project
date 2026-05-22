@@ -12,6 +12,7 @@
 #include "../tabs/OrgTab.h"
 #include "../tabs/ProfileChangeTab.h"
 #include "../tabs/AttendTaxTab.h"
+#include "../widgets/TaxConfigPanel.h"
 #include "../core/GlobalEvents.h"
 #include <QMenu>
 #include <QTabWidget>
@@ -26,7 +27,7 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
     ui->setupUi(this);
     setWindowTitle("HRMS");
 
-    { QSqlQuery q; q.prepare("SELECT name FROM employees WHERE emp_id=?"); q.addBindValue(m_empId); if(q.exec()&&q.next()) m_empName=q.value(0).toString(); }
+    { QSqlQuery q; q.prepare("SELECT name FROM employees WHERE emp_id=?"); q.addBindValue(m_empId); m_empName = (q.exec()&&q.next()) ? q.value(0).toString() : "未知"; }
 
     auto logFn = [this](const QString &a, const QString &t) { logAction(a, t); };
     auto notifyFn = [this](int e, const QString &t, const QString &c) { notifyUser(e, t, c); };
@@ -68,12 +69,17 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
     m_payrollTab->setObjectName("工资条");
     m_perfTab->setObjectName("绩效评分");
 
+    bool adm = (m_role == "admin");
+    TaxConfigPanel *taxPanel = nullptr;
+    if (adm) {
+        taxPanel = new TaxConfigPanel(logFn);
+        taxPanel->setObjectName("社保配置");
+    }
+
     QWidget *homePage    = makeWrapper(m_dashboard, m_reportsTab);
     QWidget *empPage     = makeWrapper(m_empTab, m_profileTab);
     QWidget *attPage     = makeWrapper(m_attTaxTab, m_leaveTab);
-    QWidget *payPage     = makeWrapper(m_payrollTab, m_perfTab);
-
-    bool adm = (m_role == "admin");
+    QWidget *payPage     = makeWrapper(m_payrollTab, m_perfTab, taxPanel);
     ui->sidebar->setIconSize(QSize(20, 20));
     addNavItem("🏠", "首页",    homePage,    adm);
     addNavItem("👥", "员工",    empPage,     adm);
@@ -104,6 +110,9 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
     sm->addAction("退出登录", this, &MainWindow::on_actionLogout_triggered);
 
     connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_dashboard, &DashboardTab::refresh);
+    connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_empTab, &EmployeeTab::refresh);
+    connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_orgTab, &OrgTab::refresh);
+    connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_reportsTab, &ReportsTab::refresh);
     connect(GlobalEvents::instance(), &GlobalEvents::auditRefresh, m_auditTab, &AuditTab::refresh);
 
     updateStatusBar();
@@ -136,6 +145,10 @@ void MainWindow::logAction(const QString &action, const QString &target)
 
 void MainWindow::notifyUser(int empId, const QString &title, const QString &content)
 {
+    if (empId == 0) {
+        notifyAdmins(title, content);
+        return;
+    }
     QSqlQuery q; q.prepare("INSERT INTO notifications(emp_id,title,content) VALUES(?,?,?)");
     q.addBindValue(empId); q.addBindValue(title); q.addBindValue(content); q.exec();
     if (empId == m_empId) refreshBell();
@@ -185,5 +198,8 @@ void MainWindow::on_actionChangePassword_triggered()
 void MainWindow::on_actionLogout_triggered()
 {
     logAction("退出登录");
-    auto *w = new LoginWindow; w->show(); close();
+    auto *w = new LoginWindow;
+    w->setAttribute(Qt::WA_DeleteOnClose);
+    w->show();
+    deleteLater();
 }

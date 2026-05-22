@@ -28,6 +28,9 @@ set(PROJECT_SOURCES
     src/tabs/OrgTab.cpp src/tabs/OrgTab.h
     src/widgets/PaginationBar.cpp src/widgets/PaginationBar.h
     src/widgets/ComboDelegate.cpp src/widgets/ComboDelegate.h
+    src/widgets/TaxConfigPanel.cpp src/widgets/TaxConfigPanel.h
+    src/utils/CsvExport.cpp src/utils/CsvExport.h
+    src/utils/DbUtils.cpp src/utils/DbUtils.h
     src/core/Logger.cpp src/core/Logger.h
     src/core/SessionManager.cpp src/core/SessionManager.h
     src/core/GlobalEvents.cpp src/core/GlobalEvents.h

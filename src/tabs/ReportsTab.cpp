@@ -8,7 +8,12 @@
 #include <QPainter>
 #include <QMessageBox>
 #include <QSqlQuery>
-#include <QLineSeries>
+#include <QtCharts/QPieSeries>
+#include <QtCharts/QBarSeries>
+#include <QtCharts/QBarSet>
+#include <QtCharts/QBarCategoryAxis>
+#include <QtCharts/QValueAxis>
+#include <QtCharts/QLineSeries>
 #include <QChart>
 
 ReportsTab::ReportsTab(QWidget *parent)
@@ -24,7 +29,18 @@ ReportsTab::ReportsTab(QWidget *parent)
     auto *row = new QHBoxLayout;
     row->addWidget(new QLabel("图表类型:"));
     m_combo = new QComboBox;
-    m_combo->addItems({"部门人数分布", "在职/离职比例", "各部门平均薪资", "月度请假统计", "月度薪资趋势"});
+    m_combo->addItems({
+        "部门人数分布",
+        "在职/离职比例",
+        "学历分布",
+        "婚姻状况比例",
+        "岗位分布",
+        "入职年份分布",
+        "工资区间统计",
+        "各部门平均薪资",
+        "月度请假统计",
+        "月度薪资趋势"
+    });
     row->addWidget(m_combo);
     row->addStretch();
     auto *btn = new QPushButton("导出PDF");
@@ -68,6 +84,85 @@ void ReportsTab::refreshChart()
         break;
     }
     case 2: {
+        q.exec("SELECT education, COUNT(*) FROM employees GROUP BY education");
+        auto *s = new QPieSeries;
+        while (q.next()) {
+            QString label = q.value(0).toString().trimmed();
+            if (label.isEmpty()) label = "未填写";
+            s->append(label, q.value(1).toInt());
+        }
+        chart->addSeries(s);
+        chart->setTitle("学历分布");
+        break;
+    }
+    case 3: {
+        q.exec("SELECT marital_status, COUNT(*) FROM employees GROUP BY marital_status");
+        auto *s = new QPieSeries;
+        while (q.next()) {
+            QString label = q.value(0).toString().trimmed();
+            if (label.isEmpty()) label = "未填写";
+            s->append(label, q.value(1).toInt());
+        }
+        chart->addSeries(s);
+        chart->setTitle("婚姻状况比例");
+        break;
+    }
+    case 4: {
+        q.exec("SELECT position, COUNT(*) FROM employees GROUP BY position");
+        auto *s = new QPieSeries;
+        while (q.next()) {
+            QString label = q.value(0).toString().trimmed();
+            if (label.isEmpty()) label = "未指定";
+            s->append(label, q.value(1).toInt());
+        }
+        chart->addSeries(s);
+        chart->setTitle("岗位分布");
+        break;
+    }
+    case 5: {
+        q.exec("SELECT DATE_FORMAT(hire_date, '%Y'), COUNT(*) FROM employees WHERE hire_date IS NOT NULL GROUP BY 1 ORDER BY 1");
+        auto *set = new QBarSet("入职人数");
+        QStringList cats;
+        while (q.next()) {
+            cats << q.value(0).toString() + "年";
+            *set << q.value(1).toInt();
+        }
+        auto *s = new QBarSeries; s->append(set);
+        chart->addSeries(s);
+        auto *ax = new QBarCategoryAxis; ax->append(cats);
+        chart->addAxis(ax, Qt::AlignBottom); s->attachAxis(ax);
+        auto *ay = new QValueAxis; ay->setTitleText("人数");
+        chart->addAxis(ay, Qt::AlignLeft); s->attachAxis(ay);
+        chart->setTitle("入职年份分布");
+        break;
+    }
+    case 6: {
+        q.exec("SELECT "
+               "SUM(CASE WHEN base_salary < 5000 THEN 1 ELSE 0 END), "
+               "SUM(CASE WHEN base_salary >= 5000 AND base_salary < 10000 THEN 1 ELSE 0 END), "
+               "SUM(CASE WHEN base_salary >= 10000 AND base_salary < 20000 THEN 1 ELSE 0 END), "
+               "SUM(CASE WHEN base_salary >= 20000 THEN 1 ELSE 0 END) "
+               "FROM employees");
+        auto *set = new QBarSet("员工人数");
+        QStringList cats = {"<5000元", "5000-10000元", "10000-20000元", ">=20000元"};
+        if (q.next()) {
+            *set << q.value(0).toInt()
+                 << q.value(1).toInt()
+                 << q.value(2).toInt()
+                 << q.value(3).toInt();
+        } else {
+            *set << 0 << 0 << 0 << 0;
+        }
+        auto *s = new QBarSeries; s->append(set);
+        chart->addSeries(s);
+        auto *ax = new QBarCategoryAxis; ax->append(cats);
+        chart->addAxis(ax, Qt::AlignBottom); s->attachAxis(ax);
+        auto *ay = new QValueAxis; ay->setTitleText("人数");
+        chart->addAxis(ay, Qt::AlignLeft); s->attachAxis(ay);
+        chart->setTitle("员工工资区间分布");
+        break;
+    }
+    case 7: {
         q.exec("SELECT department, AVG(base_salary) FROM employees WHERE base_salary>0 GROUP BY department");
         auto *set = new QBarSet("平均薪资");
         QStringList cats;
@@ -81,7 +176,7 @@ void ReportsTab::refreshChart()
         chart->setTitle("各部门平均薪资");
         break;
     }
-    case 3: {
+    case 8: {
         q.exec("SELECT DATE_FORMAT(start_date,'%Y-%m'), COUNT(*) FROM leave_requests GROUP BY 1 ORDER BY 1");
         auto *set = new QBarSet("请假人次");
         QStringList cats;
@@ -95,7 +190,7 @@ void ReportsTab::refreshChart()
         chart->setTitle("月度请假统计");
         break;
     }
-    case 4: {
+    case 9: {
         q.exec("SELECT month, SUM(net_salary) FROM payroll GROUP BY month ORDER BY month");
         auto *s = new QLineSeries;
         s->setName("薪资总额");
@@ -126,4 +221,9 @@ void ReportsTab::exportPDF()
     m_chartView->render(&p);
     p.end();
     QMessageBox::information(this, "导出成功", "报表已导出至:\n" + path);
+}
+
+void ReportsTab::refresh()
+{
+    refreshChart();
 }

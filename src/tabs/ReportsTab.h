@@ -3,11 +3,6 @@
 
 #include <QWidget>
 #include <QtCharts/QChartView>
-#include <QtCharts/QPieSeries>
-#include <QtCharts/QBarSeries>
-#include <QtCharts/QBarSet>
-#include <QtCharts/QBarCategoryAxis>
-#include <QtCharts/QValueAxis>
 #include <QComboBox>
 
 class ReportsTab : public QWidget
@@ -15,6 +10,9 @@ class ReportsTab : public QWidget
     Q_OBJECT
 public:
     explicit ReportsTab(QWidget *parent = nullptr);
+
+public slots:
+    void refresh();
 
 private slots:
     void onChartTypeChanged(int index);

@@ -1,4 +1,5 @@
 #include "ServerSettingsDialog.h"
+#include "../utils/DbUtils.h"
 #include <QFormLayout>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -186,18 +187,16 @@ void ServerSettingsDialog::onTest()
     QString uid = m_uidEdit->text().trimmed();
     QString pwd = m_pwdEdit->text();
 
-    QSqlDatabase testDb = QSqlDatabase::addDatabase("QODBC", "_test_conn_");
-    QString dsn = QString("DRIVER={%1};SERVER=%2;PORT=%3;DATABASE=%4;UID=%5;PWD=%6;")
-                      .arg(driver, server)
-                      .arg(port)
-                      .arg(database, uid, pwd);
-    testDb.setDatabaseName(dsn);
+    {
+        QSqlDatabase testDb = QSqlDatabase::addDatabase("QODBC", "_test_conn_");
+        testDb.setDatabaseName(buildDsn(driver, server, port, database, uid, pwd));
 
-    if (testDb.open()) {
-        QMessageBox::information(this, "连接成功", "数据库连接测试成功！");
-        testDb.close();
-    } else {
-        QMessageBox::warning(this, "连接失败", testDb.lastError().text());
+        if (testDb.open()) {
+            QMessageBox::information(this, "连接成功", "数据库连接测试成功！");
+            testDb.close();
+        } else {
+            QMessageBox::warning(this, "连接失败", testDb.lastError().text());
+        }
     }
     QSqlDatabase::removeDatabase("_test_conn_");
 }
@@ -210,7 +209,7 @@ void ServerSettingsDialog::onSave()
     settings.setValue("Database/Port",     m_portSpin->value());
     settings.setValue("Database/Database", m_dbEdit->text().trimmed());
     settings.setValue("Database/UID",      m_uidEdit->text().trimmed());
-    settings.setValue("Database/PWD",      m_pwdEdit->text());
+    settings.setValue("Database/PWD",      QString(m_pwdEdit->text().toUtf8().toBase64()));
     settings.sync();
 
     accept();

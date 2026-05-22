@@ -2,10 +2,6 @@
 #define LOGINWINDOW_H
 
 #include <QWidget>
-#include<QSqlDatabase>
-#include<QSqlQuery>
-#include<QSqlError>
-#include<qmessagebox.h>
 
 QT_BEGIN_NAMESPACE
 namespace Ui {

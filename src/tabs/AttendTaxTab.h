@@ -29,8 +29,6 @@ private slots:
     void submitMakeup();
     void approveMakeup();
     void rejectMakeup();
-    // 社保配置
-    void saveTaxConfig();
     // 切换视图
     void switchView(int idx);
 
@@ -38,7 +36,6 @@ private:
     void initTables();
     QWidget *createAttendancePanel();
     QWidget *createMakeupPanel();
-    QWidget *createTaxConfigPanel();
 
     int m_empId;
     QString m_role;
@@ -56,13 +53,6 @@ private:
     QTimeEdit *m_makeupTime;
     QLineEdit *m_makeupReason;
     QPushButton *m_btnApproveMakeup, *m_btnRejectMakeup;
-    // 排班
-    QTableView *m_shiftTable;
-    QSqlTableModel *m_shiftModel;
-    // 社保配置
-    QTableView *m_taxTable;
-    QSqlTableModel *m_taxModel;
-    QPushButton *m_btnSaveTax;
     // 视图
     QTabWidget *m_viewTabs;
 };

@@ -1,6 +1,7 @@
 #include "EmployeeTab.h"
 #include "../widgets/PaginationBar.h"
 #include "../widgets/ComboDelegate.h"
+#include "../utils/CsvExport.h"
 #include "../core/Constants.h"
 #include "../core/GlobalEvents.h"
 #include <QVBoxLayout>
@@ -25,7 +26,7 @@ EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> log
 {
     // 扩展字段迁移
     QSqlQuery q;
-    for (auto &col : {"education", "marital_status", "position"}) {
+    for (auto &col : {"education", "marital_status", "position", "title"}) {
         q.exec(QString("SHOW COLUMNS FROM employees LIKE '%1'").arg(col));
         if (!q.next())
             q.exec(QString("ALTER TABLE employees ADD COLUMN %1 VARCHAR(50) DEFAULT '' AFTER status").arg(col));
@@ -53,6 +54,7 @@ EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> log
     m_model->setHeaderData(11, Qt::Horizontal, "学历");
     m_model->setHeaderData(12, Qt::Horizontal, "婚姻状况");
     m_model->setHeaderData(13, Qt::Horizontal, "岗位");
+    m_model->setHeaderData(14, Qt::Horizontal, "职称");
     m_model->setEditStrategy(QSqlTableModel::OnManualSubmit);
 
     m_table = new QTableView;
@@ -64,7 +66,14 @@ EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> log
     // 下拉选择委托
     m_table->setItemDelegateForColumn(2, new ComboDelegate({"男", "女"}, this));                // 性别
     m_table->setItemDelegateForColumn(5, new ComboDelegate({"admin", "user"}, this));           // 角色
-    m_table->setItemDelegateForColumn(10, new ComboDelegate({"在职", "离职"}, this));           // 状态
+    m_table->setItemDelegateForColumn(10, new ComboDelegate({
+        HR::EmpStatus::ACTIVE,
+        HR::EmpStatus::INACTIVE,
+        HR::EmpStatus::TRANSFERRED_OUT,
+        HR::EmpStatus::RESIGNED,
+        HR::EmpStatus::DISMISSED,
+        HR::EmpStatus::RETIRED
+    }, this));                                                                                  // 状态
     m_table->setItemDelegateForColumn(11, new ComboDelegate({"大专", "本科", "硕士", "博士"}, this)); // 学历
     m_table->setItemDelegateForColumn(12, new ComboDelegate({"未婚", "已婚", "离异"}, this));   // 婚姻
 
@@ -77,14 +86,43 @@ EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> log
     m_deptCombo->addItem("全部部门");
     filter->addWidget(new QLabel("部门:"));
     filter->addWidget(m_deptCombo);
+
     m_statusCombo = new QComboBox;
-    m_statusCombo->addItems({"全部状态", HR::EmpStatus::ACTIVE, HR::EmpStatus::INACTIVE});
+    m_statusCombo->addItems({
+        "全部状态",
+        HR::EmpStatus::ACTIVE,
+        HR::EmpStatus::INACTIVE,
+        HR::EmpStatus::TRANSFERRED_OUT,
+        HR::EmpStatus::RESIGNED,
+        HR::EmpStatus::DISMISSED,
+        HR::EmpStatus::RETIRED
+    });
+    m_statusCombo->setCurrentIndex(1); // 默认在职
     filter->addWidget(new QLabel("状态:"));
     filter->addWidget(m_statusCombo);
+
+    m_maritalCombo = new QComboBox;
+    m_maritalCombo->addItems({"全部婚姻", "未婚", "已婚", "离异"});
+    filter->addWidget(new QLabel("婚姻:"));
+    filter->addWidget(m_maritalCombo);
+
+    m_eduCombo = new QComboBox;
+    m_eduCombo->addItems({"全部学历", "大专", "本科", "硕士", "博士"});
+    filter->addWidget(new QLabel("学历:"));
+    filter->addWidget(m_eduCombo);
+
+    m_posSearch = new QLineEdit;
+    m_posSearch->setPlaceholderText("岗位/职称...");
+    m_posSearch->setFixedWidth(100);
+    filter->addWidget(new QLabel("岗位/职称:"));
+    filter->addWidget(m_posSearch);
+
     m_nameSearch = new QLineEdit;
-    m_nameSearch->setPlaceholderText("输入姓名搜索...");
+    m_nameSearch->setPlaceholderText("姓名...");
+    m_nameSearch->setFixedWidth(80);
     filter->addWidget(new QLabel("姓名:"));
     filter->addWidget(m_nameSearch);
+
     auto *btnSearch = new QPushButton("查询");
     auto *btnReset = new QPushButton("重置");
     filter->addWidget(btnSearch);
@@ -148,6 +186,7 @@ EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> log
     btnRow->addWidget(btnBatchDept, 1, 0);
     connect(btnBatchDept, &QPushButton::clicked, this, &EmployeeTab::batchChangeDept);
 
+    m_model->setFilter(QString("status='%1'").arg(HR::EmpStatus::ACTIVE));
     m_model->select();
     m_pagination->setTotalRecords(m_model->rowCount());
 }
@@ -225,11 +264,22 @@ void EmployeeTab::toggleStatus()
 void EmployeeTab::search()
 {
     QStringList cond;
-    if (m_deptCombo->currentIndex() > 1) cond << QString("department='%1'").arg(m_deptCombo->currentText());
-    if (m_statusCombo->currentIndex() > 0) cond << QString("status='%1'").arg(m_statusCombo->currentText());
+    if (m_deptCombo->currentIndex() > 0)
+        cond << QString("department='%1'").arg(m_deptCombo->currentText().replace("'", "''"));
+    if (m_statusCombo->currentIndex() > 0)
+        cond << QString("status='%1'").arg(m_statusCombo->currentText().replace("'", "''"));
+    if (m_maritalCombo->currentIndex() > 0)
+        cond << QString("marital_status='%1'").arg(m_maritalCombo->currentText().replace("'", "''"));
+    if (m_eduCombo->currentIndex() > 0)
+        cond << QString("education='%1'").arg(m_eduCombo->currentText().replace("'", "''"));
+    if (!m_posSearch->text().isEmpty()) {
+        QString escaped = m_posSearch->text().trimmed();
+        escaped.replace("'", "''");
+        cond << QString("(position LIKE '%%1%' OR title LIKE '%%1%')").arg(escaped);
+    }
     if (!m_nameSearch->text().isEmpty()) {
-        QString escaped = m_nameSearch->text();
-        escaped.replace("'", "''"); // 防 SQL 注入：转义单引号
+        QString escaped = m_nameSearch->text().trimmed();
+        escaped.replace("'", "''");
         cond << QString("name LIKE '%%1%'").arg(escaped);
     }
     m_model->setFilter(cond.isEmpty() ? "" : cond.join(" AND "));
@@ -241,9 +291,12 @@ void EmployeeTab::search()
 void EmployeeTab::resetFilter()
 {
     m_deptCombo->setCurrentIndex(0);
-    m_statusCombo->setCurrentIndex(0);
+    m_statusCombo->setCurrentIndex(1); // 默认在职
+    m_maritalCombo->setCurrentIndex(0);
+    m_eduCombo->setCurrentIndex(0);
+    m_posSearch->clear();
     m_nameSearch->clear();
-    m_model->setFilter("");
+    m_model->setFilter(QString("status='%1'").arg(HR::EmpStatus::ACTIVE));
     m_model->select();
     m_pagination->refresh();
     m_pagination->setTotalRecords(m_model->rowCount());
@@ -253,21 +306,22 @@ void EmployeeTab::exportCSV()
 {
     QString path = QFileDialog::getSaveFileName(this, "导出员工表", "员工信息.csv", "CSV文件 (*.csv)");
     if (path.isEmpty()) return;
-    QFile f(path);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) return;
-    QTextStream out(&f);
-    out.setEncoding(QStringConverter::Utf8);
-    out << "\xEF\xBB\xBF";
-    for (int c = 0; c < m_model->columnCount(); c++) {
-        if (c == 6) continue;
-        out << "\"" << m_model->headerData(c, Qt::Horizontal).toString() << "\"" << (c < m_model->columnCount()-1 ? "," : "\n");
-    }
-    for (int r = 0; r < m_model->rowCount(); r++) {
-        for (int c = 0; c < m_model->columnCount(); c++) {
-            if (c == 6) continue;
-            out << "\"" << m_model->data(m_model->index(r, c)).toString().replace("\"", "\"\"") << "\"" << (c < m_model->columnCount()-1 ? "," : "\n");
-        }
-    }
-    f.close();
-    QMessageBox::information(this, "导出成功", "员工信息已导出至:\n" + path);
+    exportModelToCSV(m_model, path, {6}); // 跳过密码列
+}
+
+void EmployeeTab::refresh()
+{
+    m_deptCombo->blockSignals(true);
+    QString curDept = m_deptCombo->currentText();
+    m_deptCombo->clear();
+    m_deptCombo->addItem("全部部门");
+    QSqlQuery dq("SELECT dept_name FROM departments ORDER BY dept_id");
+    while (dq.next()) m_deptCombo->addItem(dq.value(0).toString());
+    int idx = m_deptCombo->findText(curDept);
+    m_deptCombo->setCurrentIndex(idx >= 0 ? idx : 0);
+    m_deptCombo->blockSignals(false);
+
+    m_model->select();
+    m_pagination->refresh();
+    m_pagination->setTotalRecords(m_model->rowCount());
 }

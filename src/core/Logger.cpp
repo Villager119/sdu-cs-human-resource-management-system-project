@@ -1,5 +1,6 @@
 #include "Logger.h"
 #include <QDir>
+#include <QDebug>
 
 static Logger *s_instance = nullptr;
 
@@ -16,7 +17,8 @@ void Logger::init(const QString &filePath)
     auto *inst = instance();
     inst->m_filePath = filePath;
     inst->m_file.setFileName(filePath);
-    inst->m_file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text);
+    if (!inst->m_file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text))
+        qWarning() << "Logger: 无法打开日志文件" << filePath;
 }
 
 void Logger::log(const QString &level, const QString &message)

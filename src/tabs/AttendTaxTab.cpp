@@ -1,4 +1,5 @@
 #include "AttendTaxTab.h"
+#include "../core/GlobalEvents.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFormLayout>
@@ -23,9 +24,6 @@ AttendTaxTab::AttendTaxTab(int empId, const QString &role,
     m_viewTabs = new QTabWidget;
     m_viewTabs->addTab(createAttendancePanel(), "打卡考勤");
     m_viewTabs->addTab(createMakeupPanel(), "补卡申请");
-    if (m_role == "admin") {
-        m_viewTabs->addTab(createTaxConfigPanel(), "社保配置");
-    }
     connect(m_viewTabs, &QTabWidget::currentChanged, this, &AttendTaxTab::switchView);
 
     auto *layout = new QVBoxLayout(this);
@@ -73,7 +71,7 @@ void AttendTaxTab::initTables()
     // 社保配置表
     q.exec("CREATE TABLE IF NOT EXISTS salary_config ("
            "config_id INT PRIMARY KEY AUTO_INCREMENT,"
-           "item_name VARCHAR(50) NOT NULL,"
+           "item_name VARCHAR(50) NOT NULL UNIQUE,"
            "rate_personal DECIMAL(5,4) NOT NULL DEFAULT 0.0000,"
            "enabled TINYINT DEFAULT 1"
            ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
@@ -185,43 +183,10 @@ QWidget *AttendTaxTab::createMakeupPanel()
     return w;
 }
 
-QWidget *AttendTaxTab::createTaxConfigPanel()
-{
-    m_taxModel = new QSqlTableModel(this);
-    m_taxModel->setTable("salary_config");
-    m_taxModel->setHeaderData(0, Qt::Horizontal, "编号");
-    m_taxModel->setHeaderData(1, Qt::Horizontal, "保险项目");
-    m_taxModel->setHeaderData(2, Qt::Horizontal, "个人比例");
-    m_taxModel->setHeaderData(3, Qt::Horizontal, "启用");
-    m_taxModel->setEditStrategy(QSqlTableModel::OnManualSubmit);
-    m_taxModel->select();
-
-    m_taxTable = new QTableView;
-    m_taxTable->setModel(m_taxModel);
-    m_taxTable->hideColumn(0);
-    m_taxTable->setEditTriggers(QAbstractItemView::DoubleClicked);
-
-    m_btnSaveTax = new QPushButton("保存配置");
-    m_btnSaveTax->setStyleSheet("QPushButton { background: #1e3a5f; color: #fff; } QPushButton:hover { background: #2a5080; }");
-
-    auto *w = new QWidget;
-    auto *l = new QVBoxLayout(w);
-    l->setContentsMargins(0, 0, 0, 0);
-    l->addWidget(new QLabel("社保公积金配置（双击表格修改比例，0=禁用，保存后下次核算生效）"));
-    l->addWidget(m_taxTable, 1);
-    auto *row = new QHBoxLayout;
-    row->addStretch();
-    row->addWidget(m_btnSaveTax);
-    l->addLayout(row);
-    connect(m_btnSaveTax, &QPushButton::clicked, this, &AttendTaxTab::saveTaxConfig);
-    return w;
-}
-
 void AttendTaxTab::switchView(int)
 {
     if (m_attModel) m_attModel->select();
     if (m_makeupModel) m_makeupModel->select();
-    if (m_taxModel) m_taxModel->select();
 }
 
 // 打卡
@@ -314,6 +279,11 @@ void AttendTaxTab::approveMakeup()
     QString type = m_makeupModel->data(m_makeupModel->index(row, 3)).toString();
     QString time = m_makeupModel->data(m_makeupModel->index(row, 4)).toString();
 
+    if (type != "clock_in" && type != "clock_out") {
+        QMessageBox::warning(this, "错误", "无效的补卡类型");
+        return;
+    }
+
     QSqlQuery q;
     q.prepare("SELECT att_id FROM attendances WHERE emp_id=? AND att_date=?");
     q.addBindValue(eid); q.addBindValue(date); q.exec();
@@ -331,6 +301,7 @@ void AttendTaxTab::approveMakeup()
     m_notify(eid, "补卡已批准", QString("你%1的补卡申请已通过").arg(date));
     m_makeupModel->select();
     m_attModel->select();
+    GlobalEvents::instance()->dataChanged();
     QMessageBox::information(this, "成功", "补卡已批准");
 }
 
@@ -347,17 +318,8 @@ void AttendTaxTab::rejectMakeup()
         m_log("拒绝补卡", QString::number(mid));
         m_notify(eid, "补卡已拒绝", "你的补卡申请未通过审批");
         m_makeupModel->select();
+        GlobalEvents::instance()->dataChanged();
         QMessageBox::information(this, "成功", "已拒绝");
     }
 }
 
-// 社保配置
-void AttendTaxTab::saveTaxConfig()
-{
-    if (m_taxModel->submitAll()) {
-        QMessageBox::information(this, "成功", "社保配置已保存");
-        m_log("修改社保配置", "");
-    } else {
-        QMessageBox::critical(this, "失败", m_taxModel->lastError().text());
-    }
-}

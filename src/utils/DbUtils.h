@@ -6,4 +6,7 @@
 QString buildDsn(const QString &driver, const QString &server, int port,
                  const QString &database, const QString &uid, const QString &pwd);
 
+bool initDatabaseSchema();
+
 #endif
+

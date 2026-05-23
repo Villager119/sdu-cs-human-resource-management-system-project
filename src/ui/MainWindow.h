@@ -37,6 +37,9 @@ private:
 
     Ui::MainWindow *ui;
     QPushButton *m_bellBtn;
+    class QTimer *m_bellTimer;
+    class QTimer *m_pollTimer;
+    bool m_bellFlashState = false;
 
     DashboardTab *m_dashboard; EmployeeTab *m_empTab; LeaveTab *m_leaveTab;
     PayrollTab *m_payrollTab; AuditTab *m_auditTab; ReportsTab *m_reportsTab;

@@ -26,6 +26,7 @@
 #include <QSettings>
 #include <QFileInfo>
 #include <QCoreApplication>
+#include <QTimer>
 
 MainWindow::MainWindow(int empId, QString role, QWidget *parent)
     : QMainWindow(parent), ui(new Ui::MainWindow), m_empId(empId), m_role(role)
@@ -168,12 +169,28 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
     ui->sidebar->setCurrentRow(0);
 
     // 通知铃铛
-    { QSqlQuery q; q.exec("CREATE TABLE IF NOT EXISTS notifications (notif_id INT PRIMARY KEY AUTO_INCREMENT,emp_id INT NOT NULL,title VARCHAR(100) NOT NULL,content VARCHAR(200),is_read TINYINT DEFAULT 0,created_at DATETIME DEFAULT NOW(),FOREIGN KEY(emp_id) REFERENCES employees(emp_id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"); }
     m_bellBtn = new QPushButton;
     m_bellBtn->setFlat(true);
     m_bellBtn->setStyleSheet("QPushButton{font-size:16px;border:none;padding:2px 8px;} QPushButton:hover{background:#2a3344;}");
     ui->menubar->setCornerWidget(m_bellBtn, Qt::TopRightCorner);
     connect(m_bellBtn, &QPushButton::clicked, this, &MainWindow::showNotifications);
+
+    m_bellTimer = new QTimer(this);
+    m_bellTimer->setInterval(500);
+    connect(m_bellTimer, &QTimer::timeout, this, [this]() {
+        m_bellFlashState = !m_bellFlashState;
+        if (m_bellFlashState) {
+            m_bellBtn->setStyleSheet("QPushButton{font-size:16px;border:none;padding:2px 8px;background-color:#ef4444;color:white;border-radius:4px;} QPushButton:hover{background:#dc2626;}");
+        } else {
+            m_bellBtn->setStyleSheet("QPushButton{font-size:16px;border:none;padding:2px 8px;background-color:transparent;color:#ef4444;border-radius:4px;} QPushButton:hover{background:#2a3344;}");
+        }
+    });
+
+    m_pollTimer = new QTimer(this);
+    m_pollTimer->setInterval(5000); // 5 seconds polling
+    connect(m_pollTimer, &QTimer::timeout, this, &MainWindow::refreshBell);
+    m_pollTimer->start();
+
     refreshBell();
 
     QMenu *sm = ui->menubar->addMenu("系统");
@@ -280,7 +297,20 @@ void MainWindow::refreshBell()
 {
     QSqlQuery q; q.prepare("SELECT COUNT(*) FROM notifications WHERE emp_id=? AND is_read=0");
     q.addBindValue(m_empId); q.exec();
-    m_bellBtn->setText(q.next() && q.value(0).toInt() > 0 ? QString("🔔 %1").arg(q.value(0).toInt()) : "🔕");
+    int count = (q.next() ? q.value(0).toInt() : 0);
+    if (count > 0) {
+        m_bellBtn->setText(QString("🔔 %1").arg(count));
+        if (!m_bellTimer->isActive()) {
+            m_bellFlashState = false;
+            m_bellTimer->start();
+        }
+    } else {
+        m_bellBtn->setText("🔕");
+        if (m_bellTimer->isActive()) {
+            m_bellTimer->stop();
+        }
+        m_bellBtn->setStyleSheet("QPushButton{font-size:16px;border:none;padding:2px 8px;} QPushButton:hover{background:#2a3344;}");
+    }
 }
 
 void MainWindow::showNotifications()

@@ -94,9 +94,20 @@ LeaveTab::LeaveTab(int empId, const QString &role,
 void LeaveTab::applyLeave()
 {
     QDate s = m_start->date(), e = m_end->date();
-    QString r = m_reason->text();
+    QString r = m_reason->text().trimmed();
     if (s > e) { QMessageBox::warning(this, "填写错误", "结束日期不能早于开始日期，请重新选择"); return; }
     if (r.isEmpty()) { QMessageBox::warning(this, "填写错误", "请假理由不能为空"); return; }
+
+    QSqlQuery check;
+    check.prepare("SELECT COUNT(*) FROM leave_requests WHERE emp_id = ? AND status != ? AND NOT (end_date < ? OR start_date > ?)");
+    check.addBindValue(m_empId);
+    check.addBindValue(HR::LeaveStatus::REJECTED);
+    check.addBindValue(s.toString("yyyy-MM-dd"));
+    check.addBindValue(e.toString("yyyy-MM-dd"));
+    if (check.exec() && check.next() && check.value(0).toInt() > 0) {
+        QMessageBox::warning(this, "申请失败", "您在选择的日期段内已有尚未拒绝的请假申请，请勿重复申请！");
+        return;
+    }
 
     QSqlQuery q;
     q.prepare(QString("INSERT INTO leave_requests(emp_id,start_date,end_date,reason,status) VALUES(:e,:s,:e2,:r,'%1')").arg(HR::LeaveStatus::PENDING));

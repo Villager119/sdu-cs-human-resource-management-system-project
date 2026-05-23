@@ -16,6 +16,7 @@ set(PROJECT_SOURCES
     src/ui/MainWindow.cpp src/ui/MainWindow.h src/ui/MainWindow.ui
     src/ui/ServerSettingsDialog.cpp src/ui/ServerSettingsDialog.h
     src/ui/ChangePasswordDialog.cpp src/ui/ChangePasswordDialog.h
+    src/ui/RecoverPasswordDialog.cpp src/ui/RecoverPasswordDialog.h
     src/tabs/EmployeeTab.cpp src/tabs/EmployeeTab.h
     src/tabs/LeaveTab.cpp src/tabs/LeaveTab.h
     src/tabs/PayrollTab.cpp src/tabs/PayrollTab.h
@@ -31,6 +32,7 @@ set(PROJECT_SOURCES
     src/widgets/ComboDelegate.cpp src/widgets/ComboDelegate.h
     src/widgets/SafeEditDelegate.h
     src/widgets/TaxConfigPanel.cpp src/widgets/TaxConfigPanel.h
+    src/widgets/OrgChartView.cpp src/widgets/OrgChartView.h
     src/utils/CsvExport.cpp src/utils/CsvExport.h
     src/utils/DbUtils.cpp src/utils/DbUtils.h
     src/core/Logger.cpp src/core/Logger.h

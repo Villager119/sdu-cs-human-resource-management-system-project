@@ -10,28 +10,13 @@
 #include <QSqlQuery>
 #include <QSqlError>
 #include <QDate>
+#include <QRegularExpression>
 
 PerformanceTab::PerformanceTab(int empId, const QString &role,
                                std::function<void(const QString&, const QString&)> logFn,
                                QWidget *parent)
     : QWidget(parent), m_empId(empId), m_role(role), m_log(logFn)
 {
-    QSqlQuery q;
-    q.exec("CREATE TABLE IF NOT EXISTS performance_scores ("
-           "score_id INT PRIMARY KEY AUTO_INCREMENT,"
-           "emp_id INT NOT NULL, eval_month VARCHAR(7) NOT NULL,"
-           "attitude DECIMAL(5,2) DEFAULT 0, capability DECIMAL(5,2) DEFAULT 0,"
-           "teamwork DECIMAL(5,2) DEFAULT 0, innovation DECIMAL(5,2) DEFAULT 0,"
-           "score DECIMAL(5,2) NOT NULL, comment TEXT,"
-           "created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
-           "FOREIGN KEY(emp_id) REFERENCES employees(emp_id)"
-           ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-    for (auto &col : {"attitude", "capability", "teamwork", "innovation"}) {
-        q.exec(QString("SHOW COLUMNS FROM performance_scores LIKE '%1'").arg(col));
-        if (!q.next())
-            q.exec(QString("ALTER TABLE performance_scores ADD COLUMN %1 DECIMAL(5,2) DEFAULT 0 AFTER eval_month").arg(col));
-    }
-
     m_model = new QSqlTableModel(this);
     m_model->setTable("performance_scores");
     m_model->setHeaderData(0, Qt::Horizontal, "编号");
@@ -65,9 +50,10 @@ PerformanceTab::PerformanceTab(int empId, const QString &role,
     form->addRow("员工:", m_empCombo);
 
     m_monthCombo = new QComboBox;
-    m_monthCombo->addItem(QDate::currentDate().toString("yyyy-MM"));
-    m_monthCombo->addItem(QDate::currentDate().addMonths(-1).toString("yyyy-MM"));
-    m_monthCombo->setEditable(true);
+    for (int i = 0; i < 12; ++i) {
+        m_monthCombo->addItem(QDate::currentDate().addMonths(-i).toString("yyyy-MM"));
+    }
+    m_monthCombo->setEditable(false);
     form->addRow("月份:", m_monthCombo);
 
     auto *grid = new QGridLayout;
@@ -116,6 +102,12 @@ void PerformanceTab::submitScore()
     int total = a1 + a2 + a3 + a4;
     QString comment = m_commentEdit->toPlainText().trimmed();
     if (month.isEmpty()) { QMessageBox::warning(this, "提示", "请输入考核月份"); return; }
+
+    QRegularExpression re("^\\d{4}-(0[1-9]|1[0-2])$");
+    if (!re.match(month).hasMatch()) {
+        QMessageBox::warning(this, "格式错误", "考核月份格式不正确，请输入标准的 YYYY-MM 格式（如 2026-05）！");
+        return;
+    }
 
     QSqlQuery ck; ck.prepare("SELECT COUNT(*) FROM performance_scores WHERE emp_id=? AND eval_month=?");
     ck.addBindValue(eid); ck.addBindValue(month); ck.exec();

@@ -16,17 +16,36 @@ void exportModelToCSV(QAbstractItemModel *model, const QString &filePath,
     out.setEncoding(QStringConverter::Utf8);
     out << "\xEF\xBB\xBF";
 
+    // Collect active columns to export
+    QList<int> exportCols;
     const int cc = model->columnCount();
     for (int c = 0; c < cc; c++) {
-        if (skipCols.contains(c)) continue;
-        out << "\"" << model->headerData(c, Qt::Horizontal).toString() << "\""
-            << (c < cc - 1 ? "," : "\n");
+        if (!skipCols.contains(c)) {
+            exportCols.append(c);
+        }
     }
+
+    // Write headers
+    for (int i = 0; i < exportCols.size(); i++) {
+        int c = exportCols[i];
+        out << "\"" << model->headerData(c, Qt::Horizontal).toString() << "\"";
+        if (i < exportCols.size() - 1) {
+            out << ",";
+        } else {
+            out << "\n";
+        }
+    }
+
+    // Write data rows
     for (int r = 0; r < model->rowCount(); r++) {
-        for (int c = 0; c < cc; c++) {
-            if (skipCols.contains(c)) continue;
-            out << "\"" << model->data(model->index(r, c)).toString().replace("\"", "\"\"") << "\""
-                << (c < cc - 1 ? "," : "\n");
+        for (int i = 0; i < exportCols.size(); i++) {
+            int c = exportCols[i];
+            out << "\"" << model->data(model->index(r, c)).toString().replace("\"", "\"\"") << "\"";
+            if (i < exportCols.size() - 1) {
+                out << ",";
+            } else {
+                out << "\n";
+            }
         }
     }
     f.close();

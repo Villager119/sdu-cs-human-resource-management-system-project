@@ -23,6 +23,7 @@ public:
 private slots:
     void on_btnLogin_clicked();
     void on_btnServerSettings_clicked();
+    void on_btnForgotPassword_clicked();
     void tryReconnect();
     void tryAutoLogin();
 

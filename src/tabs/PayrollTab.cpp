@@ -20,24 +20,6 @@ PayrollTab::PayrollTab(int empId, const QString &role,
                        QWidget *parent)
     : QWidget(parent), m_empId(empId), m_role(role), m_log(logFn)
 {
-    // system_settings 表
-    QSqlQuery q;
-    q.exec("CREATE TABLE IF NOT EXISTS system_settings (key_name VARCHAR(50) PRIMARY KEY, value VARCHAR(200) NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-    q.exec("INSERT IGNORE INTO system_settings VALUES('work_days_per_month','21.75'),('tax_threshold','5000')");
-
-    // 扩展 payroll 表
-    struct Col { QString name, after; };
-    for (auto &c : {Col{"performance_bonus","leave_deduction"},
-                    Col{"pension","performance_bonus"},
-                    Col{"medical","pension"},
-                    Col{"unemployment","medical"},
-                    Col{"housing_fund","unemployment"},
-                    Col{"income_tax","housing_fund"}}) {
-        q.exec(QString("SHOW COLUMNS FROM payroll LIKE '%1'").arg(c.name));
-        if (!q.next())
-            q.exec(QString("ALTER TABLE payroll ADD COLUMN %1 DECIMAL(10,2) DEFAULT 0.00 AFTER %2").arg(c.name, c.after));
-    }
-
     m_model = new QSqlRelationalTableModel(this);
     m_model->setTable("payroll");
     m_model->setRelation(1, QSqlRelation("employees", "emp_id", "name"));

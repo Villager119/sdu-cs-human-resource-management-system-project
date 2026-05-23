@@ -25,19 +25,8 @@ EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> log
                          QWidget *parent)
     : QWidget(parent), m_log(logFn)
 {
-    // 扩展字段迁移
+    // 自动将员工表中现有的部门导入部门表
     QSqlQuery q;
-    for (auto &col : {"education", "marital_status", "position", "title"}) {
-        q.exec(QString("SHOW COLUMNS FROM employees LIKE '%1'").arg(col));
-        if (!q.next())
-            q.exec(QString("ALTER TABLE employees ADD COLUMN %1 VARCHAR(50) DEFAULT '' AFTER status").arg(col));
-    }
-    q.exec("SHOW COLUMNS FROM employees LIKE 'contract_end_date'");
-    if (!q.next())
-        q.exec("ALTER TABLE employees ADD COLUMN contract_end_date DATE DEFAULT NULL AFTER hire_date");
-
-    // 部门表
-    q.exec("CREATE TABLE IF NOT EXISTS departments (dept_id INT PRIMARY KEY AUTO_INCREMENT, dept_name VARCHAR(50) NOT NULL UNIQUE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
     q.exec("INSERT IGNORE INTO departments (dept_name) SELECT DISTINCT department FROM employees WHERE department IS NOT NULL AND department!=''");
 
     m_model = new QSqlTableModel(this);

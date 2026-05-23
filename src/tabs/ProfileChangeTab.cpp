@@ -28,19 +28,6 @@ ProfileChangeTab::ProfileChangeTab(int empId, const QString &role,
                                    QWidget *parent)
     : QWidget(parent), m_empId(empId), m_role(role), m_log(logFn), m_notify(notifyFn)
 {
-    QSqlQuery q;
-    q.exec("CREATE TABLE IF NOT EXISTS profile_change_requests ("
-           "request_id INT PRIMARY KEY AUTO_INCREMENT,"
-           "emp_id INT NOT NULL,"
-           "field_name VARCHAR(30) NOT NULL,"
-           "old_value VARCHAR(200),"
-           "new_value VARCHAR(200) NOT NULL,"
-           "status VARCHAR(20) DEFAULT '待审批',"
-           "reason TEXT,"
-           "created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
-           "FOREIGN KEY (emp_id) REFERENCES employees(emp_id)"
-           ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-
     m_model = new QSqlRelationalTableModel(this);
     m_model->setTable("profile_change_requests");
     m_model->setRelation(1, QSqlRelation("employees", "emp_id", "name"));

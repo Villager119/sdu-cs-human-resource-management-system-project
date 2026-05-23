@@ -2,6 +2,7 @@
 #include "ui_LoginWindow.h"
 #include "MainWindow.h"
 #include "ServerSettingsDialog.h"
+#include "RecoverPasswordDialog.h"
 #include "../utils/DbUtils.h"
 #include "../core/SessionManager.h"
 #include <QCryptographicHash>
@@ -91,6 +92,17 @@ void LoginWindow::on_btnServerSettings_clicked()
     ServerSettingsDialog dlg(m_configPath, this);
     if (dlg.exec() == QDialog::Accepted)
         tryReconnect();
+}
+
+void LoginWindow::on_btnForgotPassword_clicked()
+{
+    if (!m_dbConnected) {
+        QMessageBox::warning(this, "提示", "数据库未连接，请先配置服务器！");
+        return;
+    }
+
+    RecoverPasswordDialog dlg(this);
+    dlg.exec();
 }
 
 void LoginWindow::tryReconnect()

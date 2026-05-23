@@ -1,4 +1,5 @@
 #include "OrgTab.h"
+#include "../widgets/OrgChartView.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFormLayout>
@@ -8,18 +9,12 @@
 #include <QMessageBox>
 #include <QSqlQuery>
 #include <QSqlError>
+#include <QTabWidget>
 
 OrgTab::OrgTab(std::function<void(const QString&, const QString&)> logFn,
                QWidget *parent)
     : QWidget(parent), m_log(logFn)
 {
-    QSqlQuery q;
-    for (auto &col : {"parent_id", "manager_id"}) {
-        q.exec(QString("SHOW COLUMNS FROM departments LIKE '%1'").arg(col));
-        if (!q.next())
-            q.exec(QString("ALTER TABLE departments ADD COLUMN %1 INT DEFAULT NULL REFERENCES employees(emp_id)").arg(col));
-    }
-
     // 右侧员工列表
     m_empModel = new QSqlTableModel(this);
     m_empModel->setTable("employees");
@@ -69,9 +64,15 @@ OrgTab::OrgTab(std::function<void(const QString&, const QString&)> logFn,
     m_splitter->setStretchFactor(0, 3);
     m_splitter->setStretchFactor(1, 5);
 
+    m_chartView = new OrgChartView(this);
+
+    m_tabWidget = new QTabWidget(this);
+    m_tabWidget->addTab(m_splitter, "部门结构列表");
+    m_tabWidget->addTab(m_chartView, "可视化架构图");
+
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->addWidget(m_splitter, 1);
+    layout->addWidget(m_tabWidget, 1);
 
     auto *panel = new QGroupBox("部门管理");
     auto *form = new QFormLayout(panel);
@@ -110,6 +111,25 @@ OrgTab::OrgTab(std::function<void(const QString&, const QString&)> logFn,
     connect(m_tree->selectionModel(), &QItemSelectionModel::currentChanged, this, &OrgTab::onTreeSelectionChanged);
     connect(btnSave, &QPushButton::clicked, this, &OrgTab::saveDepartment);
     connect(m_btnDel, &QPushButton::clicked, this, &OrgTab::removeDepartment);
+
+    connect(m_chartView, &OrgChartView::departmentSelected, this, [this](int deptId) {
+        for (int i = 0; i < m_treeModel->rowCount(); ++i) {
+            QStandardItem *item = m_treeModel->item(i);
+            if (item) {
+                std::function<bool(QStandardItem*)> findAndSelect = [&](QStandardItem *it) -> bool {
+                    if (it->data(Qt::UserRole).toInt() == deptId) {
+                        m_tree->setCurrentIndex(it->index());
+                        return true;
+                    }
+                    for (int j = 0; j < it->rowCount(); ++j) {
+                        if (findAndSelect(it->child(j))) return true;
+                    }
+                    return false;
+                };
+                if (findAndSelect(item)) break;
+            }
+        }
+    });
 
     refresh();
 }
@@ -153,6 +173,7 @@ void OrgTab::refresh()
     }
     m_tree->setModel(m_treeModel);
     m_tree->expandAll();
+    m_chartView->refresh();
 }
 
 void OrgTab::onTreeSelectionChanged()

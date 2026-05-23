@@ -57,8 +57,11 @@ int main(int argc, char *argv[]) {
     db.setDatabaseName(buildDsn(driver, server, port, database, uid, pwd));
 
     bool dbOk = db.open();
-    if (!dbOk)
+    if (!dbOk) {
         qDebug() << "数据库连接失败！" << db.lastError().text();
+    } else {
+        initDatabaseSchema();
+    }
 
     LoginWindow loginWin;
     loginWin.setConfigPath(configPath);

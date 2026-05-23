@@ -12,6 +12,8 @@
 #include <functional>
 
 class QPushButton;
+class OrgChartView;
+class QTabWidget;
 
 class OrgTab : public QWidget
 {
@@ -39,6 +41,8 @@ private:
     QTableView *m_empTable;
     QSqlTableModel *m_empModel;
     QSplitter *m_splitter;
+    OrgChartView *m_chartView;
+    QTabWidget *m_tabWidget;
 };
 
 #endif

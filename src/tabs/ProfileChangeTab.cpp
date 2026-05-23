@@ -60,8 +60,6 @@ ProfileChangeTab::ProfileChangeTab(int empId, const QString &role,
     m_fieldCombo->addItem("联系电话", "phone");
     m_fieldCombo->addItem("学历", "education");
     m_fieldCombo->addItem("婚姻状况", "marital_status");
-    m_fieldCombo->addItem("岗位", "position");
-    m_fieldCombo->addItem("性别", "gender");
     form->addRow("修改字段:", m_fieldCombo);
 
     m_newValueEdit = new QLineEdit;
@@ -109,6 +107,10 @@ ProfileChangeTab::ProfileChangeTab(int empId, const QString &role,
     layout->addWidget(panel);
     layout->addLayout(approveRow);
 
+    if (!SessionManager::instance()->hasPermission("request_profile_change")) {
+        panel->setVisible(false);
+    }
+
     connect(m_btnApprove, &QPushButton::clicked, this, &ProfileChangeTab::approve);
     connect(m_btnReject, &QPushButton::clicked, this, &ProfileChangeTab::reject);
 
@@ -148,8 +150,12 @@ void ProfileChangeTab::approve()
     int id = m_model->data(m_model->index(row, 0)).toInt();
     QString field = m_model->data(m_model->index(row, 2)).toString();
     QString nv = m_model->data(m_model->index(row, 4)).toString();
-    // 从关联模型获取原始 emp_id
-    int eid = m_model->index(row, 1).data(Qt::EditRole).toInt();
+    int eid = 0;
+    {
+        QSqlQuery eq; eq.prepare("SELECT emp_id FROM profile_change_requests WHERE request_id=?");
+        eq.addBindValue(id); eq.exec();
+        if (eq.next()) eid = eq.value(0).toInt();
+    }
 
     QSqlQuery q;
     q.prepare("UPDATE employees SET " + field + "=? WHERE emp_id=?");
@@ -171,7 +177,12 @@ void ProfileChangeTab::reject()
     int row = m_table->currentIndex().row();
     if (row < 0) { QMessageBox::warning(this, "提示", "请选中一条申请"); return; }
     int id = m_model->data(m_model->index(row, 0)).toInt();
-    int eid = m_model->index(row, 1).data(Qt::EditRole).toInt();
+    int eid = 0;
+    {
+        QSqlQuery eq; eq.prepare("SELECT emp_id FROM profile_change_requests WHERE request_id=?");
+        eq.addBindValue(id); eq.exec();
+        if (eq.next()) eid = eq.value(0).toInt();
+    }
     QString field = m_model->data(m_model->index(row, 2)).toString();
     QSqlQuery q;
     q.prepare("UPDATE profile_change_requests SET status='已拒绝' WHERE request_id=?");

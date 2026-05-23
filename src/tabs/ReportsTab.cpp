@@ -65,7 +65,7 @@ void ReportsTab::refreshChart()
 
     switch (type) {
     case 0: {
-        q.exec("SELECT department, COUNT(*) FROM employees GROUP BY department");
+        q.exec("SELECT department, COUNT(*) FROM employees WHERE status='在职' GROUP BY department");
         auto *s = new QPieSeries;
         while (q.next()) {
             QString d = q.value(0).toString();
@@ -85,7 +85,7 @@ void ReportsTab::refreshChart()
         break;
     }
     case 2: {
-        q.exec("SELECT education, COUNT(*) FROM employees GROUP BY education");
+        q.exec("SELECT education, COUNT(*) FROM employees WHERE status='在职' GROUP BY education");
         auto *s = new QPieSeries;
         while (q.next()) {
             QString label = q.value(0).toString().trimmed();
@@ -97,7 +97,7 @@ void ReportsTab::refreshChart()
         break;
     }
     case 3: {
-        q.exec("SELECT marital_status, COUNT(*) FROM employees GROUP BY marital_status");
+        q.exec("SELECT marital_status, COUNT(*) FROM employees WHERE status='在职' GROUP BY marital_status");
         auto *s = new QPieSeries;
         while (q.next()) {
             QString label = q.value(0).toString().trimmed();
@@ -109,7 +109,7 @@ void ReportsTab::refreshChart()
         break;
     }
     case 4: {
-        q.exec("SELECT position, COUNT(*) FROM employees GROUP BY position");
+        q.exec("SELECT position, COUNT(*) FROM employees WHERE status='在职' GROUP BY position");
         auto *s = new QPieSeries;
         while (q.next()) {
             QString label = q.value(0).toString().trimmed();
@@ -143,7 +143,7 @@ void ReportsTab::refreshChart()
                "SUM(CASE WHEN base_salary >= 5000 AND base_salary < 10000 THEN 1 ELSE 0 END), "
                "SUM(CASE WHEN base_salary >= 10000 AND base_salary < 20000 THEN 1 ELSE 0 END), "
                "SUM(CASE WHEN base_salary >= 20000 THEN 1 ELSE 0 END) "
-               "FROM employees");
+               "FROM employees WHERE status='在职'");
         auto *set = new QBarSet("员工人数");
         QStringList cats = {"<5000元", "5000-10000元", "10000-20000元", ">=20000元"};
         if (q.next()) {
@@ -164,7 +164,7 @@ void ReportsTab::refreshChart()
         break;
     }
     case 7: {
-        q.exec("SELECT department, AVG(base_salary) FROM employees WHERE base_salary>0 GROUP BY department");
+        q.exec("SELECT department, AVG(base_salary) FROM employees WHERE base_salary>0 AND status='在职' GROUP BY department");
         auto *set = new QBarSet("平均薪资");
         QStringList cats;
         while (q.next()) { cats << q.value(0).toString(); *set << q.value(1).toDouble(); }

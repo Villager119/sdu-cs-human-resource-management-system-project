@@ -29,6 +29,7 @@ private:
     void logAction(const QString &action, const QString &target = QString());
     void notifyUser(int empId, const QString &title, const QString &content);
     void notifyAdmins(const QString &title, const QString &content);
+    void notifyPermittedUsers(const QString &permissionKey, const QString &title, const QString &content);
     void refreshBell();
     void showNotifications();
     void addNavItem(const QString &icon, const QString &label, QWidget *page, bool visible = true);

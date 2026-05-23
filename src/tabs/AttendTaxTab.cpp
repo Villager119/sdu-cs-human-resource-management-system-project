@@ -155,14 +155,20 @@ QWidget *AttendTaxTab::createAttendancePanel()
     l->addLayout(filterLayout);
     l->addWidget(m_attTable, 1);
 
-    auto *row = new QHBoxLayout;
+    auto *btnWidget = new QWidget;
+    auto *row = new QHBoxLayout(btnWidget);
+    row->setContentsMargins(0, 0, 0, 0);
     row->addStretch();
     auto *btnIn = new QPushButton("上班打卡");
     auto *btnOut = new QPushButton("下班打卡");
     row->addWidget(btnIn);
     row->addWidget(btnOut);
     row->addStretch();
-    l->addLayout(row);
+    l->addWidget(btnWidget);
+
+    if (!SessionManager::instance()->hasPermission("apply_leave_makeup")) {
+        btnWidget->setVisible(false);
+    }
 
     connect(btnIn, &QPushButton::clicked, this, &AttendTaxTab::clockIn);
     connect(btnOut, &QPushButton::clicked, this, &AttendTaxTab::clockOut);
@@ -244,6 +250,10 @@ QWidget *AttendTaxTab::createMakeupPanel()
 
     l->addWidget(panel);
     l->addLayout(approveRow);
+
+    if (!SessionManager::instance()->hasPermission("apply_leave_makeup")) {
+        panel->setVisible(false);
+    }
     connect(m_btnApproveMakeup, &QPushButton::clicked, this, &AttendTaxTab::approveMakeup);
     connect(m_btnRejectMakeup, &QPushButton::clicked, this, &AttendTaxTab::rejectMakeup);
 
@@ -330,6 +340,7 @@ void AttendTaxTab::submitMakeup()
     if (q.exec()) {
         QMessageBox::information(this, "成功", "补卡申请已提交");
         m_log("补卡申请", date);
+        m_notify(0, "补卡申请", QString("员工提交了补卡申请 %1").arg(date));
         m_makeupModel->select();
         m_makeupReason->clear();
     } else {
@@ -342,7 +353,12 @@ void AttendTaxTab::approveMakeup()
     int row = m_makeupTable->currentIndex().row();
     if (row < 0) { QMessageBox::warning(this, "提示", "请选中一条补卡申请"); return; }
     int mid = m_makeupModel->data(m_makeupModel->index(row, 0)).toInt();
-    int eid = m_makeupModel->data(m_makeupModel->index(row, 1)).toInt();
+    int eid = 0;
+    {
+        QSqlQuery eq; eq.prepare("SELECT emp_id FROM makeup_requests WHERE makeup_id=?");
+        eq.addBindValue(mid); eq.exec();
+        if (eq.next()) eid = eq.value(0).toInt();
+    }
     QString date = m_makeupModel->data(m_makeupModel->index(row, 2)).toString();
     QString type = m_makeupModel->data(m_makeupModel->index(row, 3)).toString();
     QString time = m_makeupModel->data(m_makeupModel->index(row, 4)).toString();
@@ -382,7 +398,12 @@ void AttendTaxTab::rejectMakeup()
     q.prepare("UPDATE makeup_requests SET status='已拒绝' WHERE makeup_id=?");
     q.addBindValue(mid);
     if (q.exec()) {
-        int eid = m_makeupModel->index(row, 1).data(Qt::EditRole).toInt();
+        int eid = 0;
+        {
+            QSqlQuery eq; eq.prepare("SELECT emp_id FROM makeup_requests WHERE makeup_id=?");
+            eq.addBindValue(mid); eq.exec();
+            if (eq.next()) eid = eq.value(0).toInt();
+        }
         m_log("拒绝补卡", QString::number(mid));
         m_notify(eid, "补卡已拒绝", "你的补卡申请未通过审批");
         m_makeupModel->select();

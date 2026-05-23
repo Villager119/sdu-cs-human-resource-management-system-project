@@ -138,7 +138,7 @@ void PayrollTab::calculate()
     QSqlDatabase db = QSqlDatabase::database();
     db.transaction();
 
-    QSqlQuery emp("SELECT emp_id, base_salary FROM employees");
+    QSqlQuery emp("SELECT emp_id, base_salary FROM employees WHERE status='在职'");
     int ok = 0;
     while (emp.next()) {
         int eid = emp.value("emp_id").toInt();

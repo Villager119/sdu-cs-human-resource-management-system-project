@@ -155,8 +155,13 @@ void DashboardTab::refresh()
         q.addBindValue(month + "%");
         q.exec();
         int leaves = q.next() ? q.value(0).toInt() : 0;
+        int pending = 0;
         q.exec("SELECT COUNT(*) FROM leave_requests WHERE status='待审批'");
-        int pending = q.next() ? q.value(0).toInt() : 0;
+        if (q.next()) pending += q.value(0).toInt();
+        q.exec("SELECT COUNT(*) FROM makeup_requests WHERE status='待审批'");
+        if (q.next()) pending += q.value(0).toInt();
+        q.exec("SELECT COUNT(*) FROM profile_change_requests WHERE status='待审批'");
+        if (q.next()) pending += q.value(0).toInt();
         q.prepare("SELECT SUM(net_salary) FROM payroll WHERE month=?");
         q.addBindValue(month);
         q.exec();
@@ -210,7 +215,7 @@ void DashboardTab::refresh()
 
         // 2. 本月请假次数
         QString month = QDate::currentDate().toString("yyyy-MM");
-        q.prepare("SELECT COUNT(*) FROM leave_requests WHERE emp_id = ? AND status = '已批准' AND start_date LIKE ?");
+        q.prepare("SELECT COUNT(*) FROM leave_requests WHERE emp_id = ? AND status = '已同意' AND start_date LIKE ?");
         q.addBindValue(empId);
         q.addBindValue(month + "%");
         q.exec();

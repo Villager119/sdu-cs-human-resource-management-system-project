@@ -124,13 +124,13 @@ void OrgTab::refresh()
     m_parentCombo->clear(); m_parentCombo->addItem("(无-顶级)", QVariant());
     m_managerCombo->clear(); m_managerCombo->addItem("(无)", QVariant());
 
-    QSqlQuery eq("SELECT emp_id, name FROM employees");
+    QSqlQuery eq("SELECT emp_id, name FROM employees WHERE status='在职'");
     while (eq.next()) m_managerCombo->addItem(eq.value(1).toString(), eq.value(0).toInt());
 
     // 一次查询获取所有部门的员工计数
     QMap<QString, int> empCountMap;
     {
-        QSqlQuery eqc("SELECT department, COUNT(*) FROM employees WHERE department IS NOT NULL AND department!='' GROUP BY department");
+        QSqlQuery eqc("SELECT department, COUNT(*) FROM employees WHERE department IS NOT NULL AND department!='' AND status='在职' GROUP BY department");
         while (eqc.next())
             empCountMap[eqc.value(0).toString()] = eqc.value(1).toInt();
     }
@@ -181,8 +181,8 @@ void OrgTab::onTreeSelectionChanged()
         m_parentCombo->setCurrentIndex(pid > 0 ? pid : 0);
         int mid = q.value(2).isNull() ? 0 : m_managerCombo->findData(q.value(2).toInt());
         m_managerCombo->setCurrentIndex(mid > 0 ? mid : 0);
-        // 显示该部门员工
-        m_empModel->setFilter(QString("department='%1'").arg(name.replace("'", "''")));
+        // 显示该部门在职员工
+        m_empModel->setFilter(QString("department='%1' AND status='在职'").arg(name.replace("'", "''")));
         m_empModel->select();
         m_empTable->setModel(m_empModel);
     }

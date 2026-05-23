@@ -278,7 +278,16 @@ void MainWindow::logAction(const QString &action, const QString &target)
 void MainWindow::notifyUser(int empId, const QString &title, const QString &content)
 {
     if (empId == 0) {
-        notifyAdmins(title, content);
+        QString permKey;
+        if (title == "请假申请") permKey = "approve_leave";
+        else if (title == "补卡申请") permKey = "approve_makeup";
+        else if (title == "信息修改申请") permKey = "approve_profile_change";
+
+        if (!permKey.isEmpty()) {
+            notifyPermittedUsers(permKey, title, content);
+        } else {
+            notifyAdmins(title, content);
+        }
         return;
     }
     QSqlQuery q; q.prepare("INSERT INTO notifications(emp_id,title,content) VALUES(?,?,?)");
@@ -288,8 +297,38 @@ void MainWindow::notifyUser(int empId, const QString &title, const QString &cont
 
 void MainWindow::notifyAdmins(const QString &title, const QString &content)
 {
-    QSqlQuery q("SELECT emp_id FROM employees WHERE role='admin'");
+    QSqlQuery q("SELECT emp_id FROM employees WHERE role='admin' AND status='在职'");
     while (q.next()) notifyUser(q.value(0).toInt(), title, content);
+}
+
+void MainWindow::notifyPermittedUsers(const QString &permissionKey, const QString &title, const QString &content)
+{
+    QSqlQuery q;
+    q.prepare("SELECT e.emp_id FROM employees e "
+              "INNER JOIN roles r ON e.role = r.role_name "
+              "INNER JOIN role_permissions rp ON r.role_id = rp.role_id "
+              "INNER JOIN permissions p ON rp.permission_id = p.permission_id "
+              "WHERE p.permission_key=? AND e.status='在职'");
+    q.addBindValue(permissionKey);
+    q.exec();
+
+    QList<int> empIds;
+    while (q.next()) {
+        empIds.append(q.value(0).toInt());
+    }
+
+    // Always include admin as backup
+    QSqlQuery qAdmin("SELECT emp_id FROM employees WHERE role='admin' AND status='在职'");
+    while (qAdmin.next()) {
+        int adminId = qAdmin.value(0).toInt();
+        if (!empIds.contains(adminId)) {
+            empIds.append(adminId);
+        }
+    }
+
+    for (int eid : empIds) {
+        notifyUser(eid, title, content);
+    }
 }
 
 void MainWindow::refreshBell()

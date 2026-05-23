@@ -45,7 +45,7 @@ PerformanceTab::PerformanceTab(int empId, const QString &role,
     auto *form = new QFormLayout(m_scorePanel);
 
     m_empCombo = new QComboBox;
-    QSqlQuery eq("SELECT emp_id, name FROM employees");
+    QSqlQuery eq("SELECT emp_id, name FROM employees WHERE status='在职'");
     while (eq.next()) m_empCombo->addItem(eq.value(1).toString(), eq.value(0).toInt());
     form->addRow("员工:", m_empCombo);
 

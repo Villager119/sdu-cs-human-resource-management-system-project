@@ -143,6 +143,13 @@ void SessionManager::reloadPermissions()
     if (empId == 0) return;
 
     QSqlQuery q;
+    // Sync the current user's role name from the database to handle role updates/deletions dynamically
+    q.prepare("SELECT role FROM employees WHERE emp_id = ?");
+    q.addBindValue(empId);
+    if (q.exec() && q.next()) {
+        role = q.value(0).toString();
+    }
+
     q.prepare("SELECT p.permission_key FROM permissions p "
               "JOIN role_permissions rp ON p.permission_id = rp.permission_id "
               "JOIN roles r ON rp.role_id = r.role_id "

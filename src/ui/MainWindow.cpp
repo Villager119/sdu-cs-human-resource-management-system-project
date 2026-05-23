@@ -39,17 +39,30 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
     auto notifyFn = [this](int e, const QString &t, const QString &c) { notifyUser(e, t, c); };
 
     // 创建所有原生页面
-    m_dashboard = new DashboardTab;
-    m_empTab    = new EmployeeTab(logFn);
-    m_leaveTab  = new LeaveTab(m_empId, m_role, logFn, notifyFn);
-    m_payrollTab= new PayrollTab(m_empId, m_role, logFn);
-    m_auditTab  = new AuditTab;
-    m_orgTab    = new OrgTab(logFn);
-    m_perfTab   = new PerformanceTab(m_empId, m_role, logFn);
-    m_reportsTab= new ReportsTab;
-    m_profileTab= new ProfileChangeTab(m_empId, m_role, logFn, notifyFn);
-    m_attTaxTab = new AttendTaxTab(m_empId, m_role, logFn, notifyFn);
-    m_rbacTab   = new RbacTab(logFn);
+    m_dashboard = new DashboardTab(this);
+    m_empTab    = new EmployeeTab(logFn, this);
+    m_leaveTab  = new LeaveTab(m_empId, m_role, logFn, notifyFn, this);
+    m_payrollTab= new PayrollTab(m_empId, m_role, logFn, this);
+    m_auditTab  = new AuditTab(this);
+    m_orgTab    = new OrgTab(logFn, this);
+    m_perfTab   = new PerformanceTab(m_empId, m_role, logFn, this);
+    m_reportsTab= new ReportsTab(this);
+    m_profileTab= new ProfileChangeTab(m_empId, m_role, logFn, notifyFn, this);
+    m_attTaxTab = new AttendTaxTab(m_empId, m_role, logFn, notifyFn, this);
+    m_rbacTab   = new RbacTab(logFn, this);
+
+    // Hide only unauthorized tabs to prevent them from rendering as floating child widgets at (0,0)
+    if (!SessionManager::instance()->hasPermission("view_dashboard")) m_dashboard->hide();
+    if (!SessionManager::instance()->hasPermission("view_reports")) m_reportsTab->hide();
+    if (!SessionManager::instance()->hasPermission("manage_employees")) m_empTab->hide();
+    if (!(SessionManager::instance()->hasPermission("request_profile_change") || SessionManager::instance()->hasPermission("approve_profile_change"))) m_profileTab->hide();
+    if (!(SessionManager::instance()->hasPermission("apply_leave_makeup") || SessionManager::instance()->hasPermission("approve_makeup"))) m_attTaxTab->hide();
+    if (!(SessionManager::instance()->hasPermission("apply_leave") || SessionManager::instance()->hasPermission("approve_leave"))) m_leaveTab->hide();
+    if (!(SessionManager::instance()->hasPermission("view_personal_payroll") || SessionManager::instance()->hasPermission("calculate_payroll"))) m_payrollTab->hide();
+    if (!(SessionManager::instance()->hasPermission("view_personal_performance") || SessionManager::instance()->hasPermission("evaluate_performance"))) m_perfTab->hide();
+    if (!SessionManager::instance()->hasPermission("manage_org")) m_orgTab->hide();
+    if (!SessionManager::instance()->hasPermission("view_audit_logs")) m_auditTab->hide();
+    if (!SessionManager::instance()->hasPermission("manage_rbac")) m_rbacTab->hide();
 
     auto makeDynamicWrapper = [this](const QList<QPair<QWidget*, QString>> &tabsList) -> QWidget* {
         QList<QPair<QWidget*, QString>> activeTabs;
@@ -173,6 +186,9 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
     connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_orgTab, &OrgTab::refresh);
     connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_reportsTab, &ReportsTab::refresh);
     connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_payrollTab, &PayrollTab::refresh);
+    connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, this, []() {
+        SessionManager::instance()->reloadPermissions();
+    });
     connect(GlobalEvents::instance(), &GlobalEvents::auditRefresh, m_auditTab, &AuditTab::refresh);
 
     updateStatusBar();
@@ -207,6 +223,19 @@ void MainWindow::refreshActiveTab()
     QWidget *activePage = currentWidget;
     if (tabWidget) {
         activePage = tabWidget->currentWidget();
+    } else {
+        // Fallback for single-tab wrapper widgets (no subTabWidget present)
+        if (currentWidget->findChild<DashboardTab*>()) activePage = m_dashboard;
+        else if (currentWidget->findChild<EmployeeTab*>()) activePage = m_empTab;
+        else if (currentWidget->findChild<OrgTab*>()) activePage = m_orgTab;
+        else if (currentWidget->findChild<ReportsTab*>()) activePage = m_reportsTab;
+        else if (currentWidget->findChild<PayrollTab*>()) activePage = m_payrollTab;
+        else if (currentWidget->findChild<AuditTab*>()) activePage = m_auditTab;
+        else if (currentWidget->findChild<ProfileChangeTab*>()) activePage = m_profileTab;
+        else if (currentWidget->findChild<AttendTaxTab*>()) activePage = m_attTaxTab;
+        else if (currentWidget->findChild<LeaveTab*>()) activePage = m_leaveTab;
+        else if (currentWidget->findChild<PerformanceTab*>()) activePage = m_perfTab;
+        else if (currentWidget->findChild<RbacTab*>()) activePage = m_rbacTab;
     }
 
     if (!activePage) return;

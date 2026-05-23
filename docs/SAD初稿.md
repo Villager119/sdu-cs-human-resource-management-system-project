@@ -144,6 +144,7 @@ classDiagram
         +MainWindow
         +ServerSettingsDialog
         +ChangePasswordDialog
+        +RecoverPasswordDialog
     }
 
     class Tabs_Business {
@@ -166,6 +167,7 @@ classDiagram
         +PaginationBar
         +ComboDelegate
         +TaxConfigPanel
+        +OrgChartView
     }
 
     MainEntrance --> UI_Main : "1. 引导启动登录"
@@ -401,21 +403,22 @@ flowchart TD
     GuideDialog -->|输入保存| ConnTest
     
     ConnTest -->|连接失败| GuideDialog
-    ConnTest -->|连接成功| LoginWin["显示登录窗口 LoginWindow"]
+    ConnTest -->|连接成功| Migrate["Idempotent Schema Bootstrapping 数据库自愈建表"]
+    
+    Migrate --> CheckTable{"利用 SHOW TABLES<br/>检查 16 张表是否存在"}
+    CheckTable -->|部分表缺失| CreateTable["CREATE TABLE IF NOT EXISTS"]
+    CheckTable -->|全部存在| InitDefault["校验并插入默认管理员 admin 及五险一金默认值"]
+    CreateTable --> InitDefault
+    
+    InitDefault --> LoginWin["显示登录窗口 LoginWindow"]
+    
+    LoginWin -->|点击忘记密码| ResetPwd["弹出 RecoverPasswordDialog<br/>身份多维校验并安全重置密码"]
+    ResetPwd --> LoginWin
     
     LoginWin -->|输入匹配失败| LoginWin
-    LoginWin -->|用户名或手机匹配 + SHA-256 验证成功| MainInit["创建 MainWindow 实例"]
+    LoginWin -->|用户名/工号 + SHA-256 验证成功| MainInit["创建 MainWindow 实例"]
     
-    MainInit --> Migrate["Idempotent Schema Migration 数据库自愈迁移"]
-    Migrate --> CheckTable{"利用 SHOW TABLES<br/>检查 13 张表是否存在"}
-    CheckTable -->|部分表缺失| CreateTable["CREATE TABLE IF NOT EXISTS"]
-    CheckTable -->|全部存在| CheckColumns{"使用 SHOW COLUMNS<br/>比对新增字段扩展列"}
-    
-    CreateTable --> CheckColumns
-    CheckColumns -->|发现缺失扩展列| AlterTable["ALTER TABLE ADD COLUMN"]
-    CheckColumns -->|全部符合| DoneMigrate["自愈迁移完毕"]
-    
-    DoneMigrate --> AppStart["显示主框架, 触发初次登录审计日志记录"]
+    MainInit --> AppStart["显示主框架, 触发登录操作审计日志"]
 ```
 
 #### 3.3.2 登录身份认证与权限过滤时序 (Sequence Diagram)

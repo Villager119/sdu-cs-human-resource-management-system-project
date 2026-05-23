@@ -27,6 +27,7 @@
 #include <QFileInfo>
 #include <QCoreApplication>
 #include <QTimer>
+#include <QStyle>
 
 MainWindow::MainWindow(int empId, QString role, QWidget *parent)
     : QMainWindow(parent), ui(new Ui::MainWindow), m_empId(empId), m_role(role)
@@ -171,7 +172,7 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
     // 通知铃铛
     m_bellBtn = new QPushButton;
     m_bellBtn->setFlat(true);
-    m_bellBtn->setStyleSheet("QPushButton{font-size:16px;border:none;padding:2px 8px;} QPushButton:hover{background:#2a3344;}");
+    m_bellBtn->setObjectName("bellButton");
     ui->menubar->setCornerWidget(m_bellBtn, Qt::TopRightCorner);
     connect(m_bellBtn, &QPushButton::clicked, this, &MainWindow::showNotifications);
 
@@ -179,11 +180,9 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
     m_bellTimer->setInterval(500);
     connect(m_bellTimer, &QTimer::timeout, this, [this]() {
         m_bellFlashState = !m_bellFlashState;
-        if (m_bellFlashState) {
-            m_bellBtn->setStyleSheet("QPushButton{font-size:16px;border:none;padding:2px 8px;background-color:#ef4444;color:white;border-radius:4px;} QPushButton:hover{background:#dc2626;}");
-        } else {
-            m_bellBtn->setStyleSheet("QPushButton{font-size:16px;border:none;padding:2px 8px;background-color:transparent;color:#ef4444;border-radius:4px;} QPushButton:hover{background:#2a3344;}");
-        }
+        m_bellBtn->setProperty("flash", m_bellFlashState ? "active" : "idle");
+        m_bellBtn->style()->unpolish(m_bellBtn);
+        m_bellBtn->style()->polish(m_bellBtn);
     });
 
     m_pollTimer = new QTimer(this);
@@ -309,7 +308,9 @@ void MainWindow::refreshBell()
         if (m_bellTimer->isActive()) {
             m_bellTimer->stop();
         }
-        m_bellBtn->setStyleSheet("QPushButton{font-size:16px;border:none;padding:2px 8px;} QPushButton:hover{background:#2a3344;}");
+        m_bellBtn->setProperty("flash", QVariant());
+        m_bellBtn->style()->unpolish(m_bellBtn);
+        m_bellBtn->style()->polish(m_bellBtn);
     }
 }
 

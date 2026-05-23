@@ -84,25 +84,9 @@ OrgTab::OrgTab(std::function<void(const QString&, const QString&)> logFn,
     form->addRow("负责人:", m_managerCombo);
     auto *btnRow = new QHBoxLayout;
     auto *btnSave = new QPushButton("保存部门");
-    btnSave->setStyleSheet("QPushButton{background:#1a2233;color:#fff;} QPushButton:hover{background:#2a3a55;}");
+    btnSave->setProperty("theme", "dark");
     m_btnDel = new QPushButton("删除");
-    m_btnDel->setStyleSheet(
-        "QPushButton {"
-        "  background-color: #fee2e2;"
-        "  color: #dc2626;"
-        "  border: 1px solid #fca5a5;"
-        "}"
-        "QPushButton:hover {"
-        "  background-color: #dc2626;"
-        "  color: #ffffff;"
-        "  border-color: #b91c1c;"
-        "}"
-        "QPushButton:disabled {"
-        "  background-color: #f1f5f9;"
-        "  color: #94a3b8;"
-        "  border: 1px solid #e2e8f0;"
-        "}"
-    );
+    m_btnDel->setProperty("theme", "danger");
     m_btnDel->setEnabled(false);
     btnRow->addWidget(btnSave); btnRow->addWidget(m_btnDel);
     form->addRow(btnRow);

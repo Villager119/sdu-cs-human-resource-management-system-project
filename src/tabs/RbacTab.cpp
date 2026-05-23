@@ -40,26 +40,10 @@ RbacTab::RbacTab(std::function<void(const QString&, const QString&)> logFn, QWid
     m_newRoleEdit->setMaxLength(30);
 
     m_btnAddRole = new QPushButton("添加角色");
-    m_btnAddRole->setStyleSheet("QPushButton{background:#1a2233;color:#fff;} QPushButton:hover{background:#2a3a55;}");
+    m_btnAddRole->setProperty("theme", "dark");
 
     m_btnDelRole = new QPushButton("删除");
-    m_btnDelRole->setStyleSheet(
-        "QPushButton {"
-        "  background-color: #fee2e2;"
-        "  color: #dc2626;"
-        "  border: 1px solid #fca5a5;"
-        "}"
-        "QPushButton:hover {"
-        "  background-color: #dc2626;"
-        "  color: #ffffff;"
-        "  border-color: #b91c1c;"
-        "}"
-        "QPushButton:disabled {"
-        "  background-color: #f1f5f9;"
-        "  color: #94a3b8;"
-        "  border: 1px solid #e2e8f0;"
-        "}"
-    );
+    m_btnDelRole->setProperty("theme", "danger");
     m_btnDelRole->setEnabled(false);
 
     addRoleLayout->addWidget(m_newRoleEdit, 1);
@@ -79,7 +63,6 @@ RbacTab::RbacTab(std::function<void(const QString&, const QString&)> logFn, QWid
 
     m_permsContainer = new QWidget;
     m_permsContainer->setObjectName("permsContainer");
-    m_permsContainer->setStyleSheet("QWidget#permsContainer { background-color: #ffffff; }");
     QVBoxLayout *permsContainerLayout = new QVBoxLayout(m_permsContainer);
     permsContainerLayout->setContentsMargins(15, 15, 15, 15);
     permsContainerLayout->setSpacing(12);
@@ -89,7 +72,6 @@ RbacTab::RbacTab(std::function<void(const QString&, const QString&)> logFn, QWid
 
     QHBoxLayout *saveLayout = new QHBoxLayout;
     m_btnSavePerms = new QPushButton("保存权限修改");
-    m_btnSavePerms->setStyleSheet("QPushButton{background:#2563eb;color:#fff;} QPushButton:hover{background:#3b82f6;}");
     saveLayout->addStretch(1);
     saveLayout->addWidget(m_btnSavePerms);
     permLayout->addLayout(saveLayout);

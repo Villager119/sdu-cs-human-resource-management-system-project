@@ -6,7 +6,6 @@
 #include "../tabs/LeaveTab.h"
 #include "../tabs/PayrollTab.h"
 #include "../tabs/AuditTab.h"
-#include "../tabs/ReportsTab.h"
 #include "../tabs/DashboardTab.h"
 #include "../tabs/PerformanceTab.h"
 #include "../tabs/OrgTab.h"
@@ -48,14 +47,12 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
     m_auditTab  = new AuditTab(this);
     m_orgTab    = new OrgTab(logFn, this);
     m_perfTab   = new PerformanceTab(m_empId, m_role, logFn, this);
-    m_reportsTab= new ReportsTab(this);
     m_profileTab= new ProfileChangeTab(m_empId, m_role, logFn, notifyFn, this);
     m_attTaxTab = new AttendTaxTab(m_empId, m_role, logFn, notifyFn, this);
     m_rbacTab   = new RbacTab(logFn, this);
 
     // Hide only unauthorized tabs to prevent them from rendering as floating child widgets at (0,0)
     if (!SessionManager::instance()->hasPermission("view_dashboard")) m_dashboard->hide();
-    if (!SessionManager::instance()->hasPermission("view_reports")) m_reportsTab->hide();
     if (!SessionManager::instance()->hasPermission("manage_employees")) m_empTab->hide();
     if (!(SessionManager::instance()->hasPermission("request_profile_change") || SessionManager::instance()->hasPermission("approve_profile_change"))) m_profileTab->hide();
     if (!(SessionManager::instance()->hasPermission("apply_leave_makeup") || SessionManager::instance()->hasPermission("approve_makeup"))) m_attTaxTab->hide();
@@ -94,7 +91,6 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
     };
 
     m_dashboard->setObjectName("仪表盘");
-    m_reportsTab->setObjectName("统计图表");
     m_empTab->setObjectName("员工管理");
     m_profileTab->setObjectName("信息变更");
     m_attTaxTab->setObjectName("打卡补卡");
@@ -109,8 +105,6 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
     QList<QPair<QWidget*, QString>> homeTabs;
     if (SessionManager::instance()->hasPermission("view_dashboard"))
         homeTabs.append({m_dashboard, "仪表盘"});
-    if (SessionManager::instance()->hasPermission("view_reports"))
-        homeTabs.append({m_reportsTab, "统计图表"});
     QWidget *homePage = makeDynamicWrapper(homeTabs);
 
     // 2. Employee Page Wrapper
@@ -152,6 +146,43 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
     QWidget *rbacPage = SessionManager::instance()->hasPermission("manage_rbac") ? m_rbacTab : nullptr;
 
     ui->sidebar->setIconSize(QSize(20, 20));
+    ui->sidebar->setMinimumWidth(110);
+    ui->sidebar->setMaximumWidth(110);
+
+    // Collapsible sidebar container
+    m_sidebarContainer = new QWidget(this);
+    m_sidebarContainer->setFixedWidth(110);
+    QVBoxLayout *containerLayout = new QVBoxLayout(m_sidebarContainer);
+    containerLayout->setContentsMargins(0, 0, 0, 0);
+    containerLayout->setSpacing(0);
+
+    QPushButton *toggleBtn = new QPushButton("☰", m_sidebarContainer);
+    toggleBtn->setFlat(true);
+    toggleBtn->setObjectName("toggleSidebarBtn");
+    toggleBtn->setCursor(Qt::PointingHandCursor);
+    toggleBtn->setStyleSheet(
+        "QPushButton#toggleSidebarBtn {"
+        "  font-size: 16px;"
+        "  color: #475569;"
+        "  border: none;"
+        "  background: #ffffff;"
+        "  padding: 12px 0px;"
+        "  border-right: 1px solid #e2e8f0;"
+        "}"
+        "QPushButton#toggleSidebarBtn:hover {"
+        "  background-color: #f1f5f9;"
+        "  color: #2563eb;"
+        "}"
+    );
+    containerLayout->addWidget(toggleBtn);
+
+    // Re-parent sidebar into container layout
+    ui->mainLayout->removeWidget(ui->sidebar);
+    containerLayout->addWidget(ui->sidebar);
+    ui->mainLayout->insertWidget(0, m_sidebarContainer);
+
+    connect(toggleBtn, &QPushButton::clicked, this, &MainWindow::toggleSidebar);
+
     addNavItem("🏠", "首页",    homePage,    homePage != nullptr);
     addNavItem("👥", "员工",    empPage,     empPage != nullptr);
     addNavItem("⏰", "考勤",    attPage,     attPage != nullptr);
@@ -200,7 +231,6 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
     connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_dashboard, &DashboardTab::refresh);
     connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_empTab, &EmployeeTab::refresh);
     connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_orgTab, &OrgTab::refresh);
-    connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_reportsTab, &ReportsTab::refresh);
     connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_payrollTab, &PayrollTab::refresh);
     connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, this, []() {
         SessionManager::instance()->reloadPermissions();
@@ -222,7 +252,31 @@ void MainWindow::addNavItem(const QString &icon, const QString &label, QWidget *
     item->setSizeHint(QSize(110, 60));
     ui->sidebar->addItem(item);
     ui->stackedWidget->addWidget(page);
+    m_navItems.append({icon, label, item});
 }
+
+void MainWindow::toggleSidebar()
+{
+    m_sidebarCollapsed = !m_sidebarCollapsed;
+    int targetWidth = m_sidebarCollapsed ? 50 : 110;
+    
+    ui->sidebar->setMinimumWidth(targetWidth);
+    ui->sidebar->setMaximumWidth(targetWidth);
+    m_sidebarContainer->setFixedWidth(targetWidth);
+    
+    for (const auto &nav : m_navItems) {
+        if (m_sidebarCollapsed) {
+            nav.listItem->setText(nav.icon);
+            nav.listItem->setSizeHint(QSize(50, 45));
+            nav.listItem->setToolTip(nav.label);
+        } else {
+            nav.listItem->setText(nav.icon + "\n" + nav.label);
+            nav.listItem->setSizeHint(QSize(110, 60));
+            nav.listItem->setToolTip("");
+        }
+    }
+}
+
 
 void MainWindow::updateStatusBar()
 {
@@ -244,7 +298,6 @@ void MainWindow::refreshActiveTab()
         if (currentWidget->findChild<DashboardTab*>()) activePage = m_dashboard;
         else if (currentWidget->findChild<EmployeeTab*>()) activePage = m_empTab;
         else if (currentWidget->findChild<OrgTab*>()) activePage = m_orgTab;
-        else if (currentWidget->findChild<ReportsTab*>()) activePage = m_reportsTab;
         else if (currentWidget->findChild<PayrollTab*>()) activePage = m_payrollTab;
         else if (currentWidget->findChild<AuditTab*>()) activePage = m_auditTab;
         else if (currentWidget->findChild<ProfileChangeTab*>()) activePage = m_profileTab;
@@ -259,7 +312,6 @@ void MainWindow::refreshActiveTab()
     if (activePage == m_dashboard) m_dashboard->refresh();
     else if (activePage == m_empTab) m_empTab->refresh();
     else if (activePage == m_orgTab) m_orgTab->refresh();
-    else if (activePage == m_reportsTab) m_reportsTab->refresh();
     else if (activePage == m_payrollTab) m_payrollTab->refresh();
     else if (activePage == m_auditTab) m_auditTab->refresh();
     else if (activePage == m_profileTab) m_profileTab->refresh();

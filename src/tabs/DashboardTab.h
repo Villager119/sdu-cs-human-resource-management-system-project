@@ -4,6 +4,8 @@
 #include <QWidget>
 #include <QLabel>
 
+#include <QtCharts/QChartView>
+
 class DashboardTab : public QWidget
 {
     Q_OBJECT
@@ -27,6 +29,18 @@ private:
     QLabel *m_infoPhone;
     QLabel *m_infoHireDate;
     QLabel *m_infoEdu;
+
+    QChartView *m_chartView;
+    class QComboBox *m_chartCombo;
+    class QPushButton *m_exportPdfBtn;
+    bool m_isAdmin = false;
+
+private slots:
+    void onChartTypeChanged(int index);
+    void exportPDF();
+
+private:
+    void refreshChart();
 };
 
 #endif

@@ -1,4 +1,5 @@
 #include "ProfileChangeTab.h"
+#include "../utils/Toast.h"
 #include "../core/GlobalEvents.h"
 #include "../core/SessionManager.h"
 #include <QVBoxLayout>
@@ -75,7 +76,9 @@ ProfileChangeTab::ProfileChangeTab(int empId, const QString &role,
     connect(btnSubmit, &QPushButton::clicked, this, &ProfileChangeTab::submitRequest);
 
     // 审批按钮行
-    auto *approveRow = new QHBoxLayout;
+    auto *approveWidget = new QWidget;
+    auto *approveRow = new QHBoxLayout(approveWidget);
+    approveRow->setContentsMargins(0, 0, 0, 0);
     m_btnApprove = new QPushButton("同意");
     m_btnReject = new QPushButton("拒绝");
     approveRow->addStretch();
@@ -83,8 +86,7 @@ ProfileChangeTab::ProfileChangeTab(int empId, const QString &role,
     approveRow->addWidget(m_btnReject);
 
     if (!SessionManager::instance()->hasPermission("approve_profile_change")) {
-        m_btnApprove->setVisible(false);
-        m_btnReject->setVisible(false);
+        approveWidget->setVisible(false);
     }
 
     m_btnApprove->setEnabled(false);
@@ -105,7 +107,7 @@ ProfileChangeTab::ProfileChangeTab(int empId, const QString &role,
     });
 
     layout->addWidget(panel);
-    layout->addLayout(approveRow);
+    layout->addWidget(approveWidget);
 
     if (!SessionManager::instance()->hasPermission("request_profile_change")) {
         panel->setVisible(false);
@@ -123,7 +125,7 @@ void ProfileChangeTab::submitRequest()
     QString fieldName = m_fieldCombo->currentText();
     QString nv = m_newValueEdit->text().trimmed();
     QString reason = m_reasonEdit->text().trimmed();
-    if (nv.isEmpty() || reason.isEmpty()) { QMessageBox::warning(this, "提示", "新值和理由不能为空"); return; }
+    if (nv.isEmpty() || reason.isEmpty()) { Toast::show(this, "新值和理由不能为空", Toast::Warning); return; }
 
     QSqlQuery q;
     q.prepare("SELECT " + field + " FROM employees WHERE emp_id=?");
@@ -133,7 +135,7 @@ void ProfileChangeTab::submitRequest()
     q.prepare("INSERT INTO profile_change_requests(emp_id,field_name,old_value,new_value,reason) VALUES(?,?,?,?,?)");
     q.addBindValue(m_empId); q.addBindValue(field); q.addBindValue(ov); q.addBindValue(nv); q.addBindValue(reason);
     if (q.exec()) {
-        QMessageBox::information(this, "成功", "你的修改申请已提交，请等待管理员审批");
+        Toast::show(this, "修改申请已提交，等待审批", Toast::Success);
         m_log("提交信息修改申请", fieldName + " → " + nv);
         m_notify(0, "信息修改申请", QString("员工申请修改%1为%2").arg(fieldName, nv));
         m_model->select();
@@ -146,7 +148,7 @@ void ProfileChangeTab::submitRequest()
 void ProfileChangeTab::approve()
 {
     int row = m_table->currentIndex().row();
-    if (row < 0) { QMessageBox::warning(this, "提示", "请选中一条申请"); return; }
+    if (row < 0) { Toast::show(this, "请选中一条申请", Toast::Warning); return; }
     int id = m_model->data(m_model->index(row, 0)).toInt();
     QString field = m_model->data(m_model->index(row, 2)).toString();
     QString nv = m_model->data(m_model->index(row, 4)).toString();
@@ -167,7 +169,7 @@ void ProfileChangeTab::approve()
     QString fn = fieldDisplayName(field);
     m_log("同意信息修改", QString("申请#%1 %2→%3").arg(id).arg(fn, nv));
     m_notify(eid, "信息修改已批准", QString("你的%1修改申请已通过审批").arg(fn));
-    QMessageBox::information(this, "成功", "已批准，数据已更新");
+    Toast::show(this, "信息修改申请已批准，数据已更新", Toast::Success);
     m_model->select();
     GlobalEvents::instance()->dataChanged();
 }
@@ -175,7 +177,7 @@ void ProfileChangeTab::approve()
 void ProfileChangeTab::reject()
 {
     int row = m_table->currentIndex().row();
-    if (row < 0) { QMessageBox::warning(this, "提示", "请选中一条申请"); return; }
+    if (row < 0) { Toast::show(this, "请选中一条申请", Toast::Warning); return; }
     int id = m_model->data(m_model->index(row, 0)).toInt();
     int eid = 0;
     {
@@ -190,7 +192,7 @@ void ProfileChangeTab::reject()
     if (q.exec()) {
         m_log("拒绝信息修改", QString("申请#%1 %2").arg(id).arg(fieldDisplayName(field)));
         m_notify(eid, "信息修改已拒绝", QString("你的%1修改申请未通过审批").arg(fieldDisplayName(field)));
-        QMessageBox::information(this, "成功", "已拒绝该申请");
+        Toast::show(this, "已拒绝该修改申请", Toast::Info);
         m_model->select();
         GlobalEvents::instance()->dataChanged();
     } else {

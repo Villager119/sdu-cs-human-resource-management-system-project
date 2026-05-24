@@ -21,7 +21,6 @@ set(PROJECT_SOURCES
     src/tabs/LeaveTab.cpp src/tabs/LeaveTab.h
     src/tabs/PayrollTab.cpp src/tabs/PayrollTab.h
     src/tabs/AuditTab.cpp src/tabs/AuditTab.h
-    src/tabs/ReportsTab.cpp src/tabs/ReportsTab.h
     src/tabs/DashboardTab.cpp src/tabs/DashboardTab.h
     src/tabs/PerformanceTab.cpp src/tabs/PerformanceTab.h
     src/tabs/ProfileChangeTab.cpp src/tabs/ProfileChangeTab.h

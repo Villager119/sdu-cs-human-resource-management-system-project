@@ -1,4 +1,5 @@
 #include "OrgTab.h"
+#include "../utils/Toast.h"
 #include "../widgets/OrgChartView.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -191,7 +192,7 @@ void OrgTab::onTreeSelectionChanged()
 void OrgTab::saveDepartment()
 {
     QString name = m_nameEdit->text().trimmed();
-    if (name.isEmpty()) { QMessageBox::warning(this, "提示", "请输入部门名称"); return; }
+    if (name.isEmpty()) { Toast::show(this, "请输入部门名称", Toast::Warning); return; }
     QVariant pid = m_parentCombo->currentData(), mid = m_managerCombo->currentData();
     QSqlQuery q;
     if (m_selectedDeptId > 0) {
@@ -210,18 +211,19 @@ void OrgTab::saveDepartment()
         if (!q.exec()) { QMessageBox::critical(this,"错误",q.lastError().text()); return; }
         m_log("新增部门", name);
     }
-    QMessageBox::information(this,"成功","部门信息已保存");
+    Toast::show(this, "部门信息已保存", Toast::Success);
     m_selectedDeptId = -1; m_nameEdit->clear(); m_btnDel->setEnabled(false); refresh();
 }
 
 void OrgTab::removeDepartment()
 {
-    if (m_selectedDeptId <= 0) { QMessageBox::warning(this,"提示","请先选中要删除的部门"); return; }
+    if (m_selectedDeptId <= 0) { Toast::show(this, "请先选中要删除的部门", Toast::Warning); return; }
     if (QMessageBox::question(this,"确认",QString("确定删除\"%1\"吗？子部门将移为顶级。").arg(m_nameEdit->text()),
                                QMessageBox::Yes|QMessageBox::No) != QMessageBox::Yes) return;
     QSqlQuery q;
     q.prepare("UPDATE departments SET parent_id=NULL WHERE parent_id=?"); q.addBindValue(m_selectedDeptId); q.exec();
     q.prepare("DELETE FROM departments WHERE dept_id=?"); q.addBindValue(m_selectedDeptId); q.exec();
     m_log("删除部门", m_nameEdit->text());
+    Toast::show(this, "部门已成功删除", Toast::Success);
     m_selectedDeptId = -1; m_nameEdit->clear(); m_btnDel->setEnabled(false); refresh();
 }

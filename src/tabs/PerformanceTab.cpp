@@ -1,4 +1,5 @@
 #include "PerformanceTab.h"
+#include "../utils/Toast.h"
 #include <QVBoxLayout>
 #include "../core/SessionManager.h"
 #include <QHBoxLayout>
@@ -101,11 +102,11 @@ void PerformanceTab::submitScore()
     int a1 = m_s1->value(), a2 = m_s2->value(), a3 = m_s3->value(), a4 = m_s4->value();
     int total = a1 + a2 + a3 + a4;
     QString comment = m_commentEdit->toPlainText().trimmed();
-    if (month.isEmpty()) { QMessageBox::warning(this, "提示", "请输入考核月份"); return; }
+    if (month.isEmpty()) { Toast::show(this, "请输入考核月份", Toast::Warning); return; }
 
     QRegularExpression re("^\\d{4}-(0[1-9]|1[0-2])$");
     if (!re.match(month).hasMatch()) {
-        QMessageBox::warning(this, "格式错误", "考核月份格式不正确，请输入标准的 YYYY-MM 格式（如 2026-05）！");
+        Toast::show(this, "考核月份格式不正确，请输入 YYYY-MM 格式", Toast::Warning);
         return;
     }
 
@@ -124,7 +125,7 @@ void PerformanceTab::submitScore()
     if (!q.exec()) { QMessageBox::critical(this, "错误", q.lastError().text()); return; }
     m_log("绩效评分", QString("%1 %2月 态度%3 能力%4 协作%5 创新%6 → 总分%7")
           .arg(m_empCombo->currentText(), month).arg(a1).arg(a2).arg(a3).arg(a4).arg(total));
-    QMessageBox::information(this, "成功", QString("已提交 %1 月份绩效: 总分 %2").arg(month).arg(total));
+    Toast::show(this, QString("%1月份绩效已提交，总分: %2").arg(month).arg(total), Toast::Success);
     m_model->select();
 }
 

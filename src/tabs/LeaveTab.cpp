@@ -1,4 +1,5 @@
 #include "LeaveTab.h"
+#include "../utils/Toast.h"
 #include "../core/Constants.h"
 #include "../core/GlobalEvents.h"
 #include "../core/SessionManager.h"
@@ -59,18 +60,19 @@ LeaveTab::LeaveTab(int empId, const QString &role,
     }
 
     // 审批按钮行
-    auto *approveRow = new QHBoxLayout;
+    auto *approveWidget = new QWidget;
+    auto *approveRow = new QHBoxLayout(approveWidget);
+    approveRow->setContentsMargins(0, 0, 0, 0);
     approveRow->addStretch();
     m_btnApprove = new QPushButton("同意");
     m_btnReject = new QPushButton("拒绝");
     approveRow->addWidget(m_btnApprove);
     approveRow->addWidget(m_btnReject);
-    layout->addLayout(approveRow);
+    layout->addWidget(approveWidget);
 
     if (!SessionManager::instance()->hasPermission("approve_leave")) {
         m_model->setFilter(QString("leave_requests.emp_id=%1").arg(m_empId));
-        m_btnApprove->setVisible(false);
-        m_btnReject->setVisible(false);
+        approveWidget->setVisible(false);
     }
 
     m_btnApprove->setEnabled(false);
@@ -101,8 +103,8 @@ void LeaveTab::applyLeave()
 {
     QDate s = m_start->date(), e = m_end->date();
     QString r = m_reason->text().trimmed();
-    if (s > e) { QMessageBox::warning(this, "填写错误", "结束日期不能早于开始日期，请重新选择"); return; }
-    if (r.isEmpty()) { QMessageBox::warning(this, "填写错误", "请假理由不能为空"); return; }
+    if (s > e) { Toast::show(this, "结束日期不能早于开始日期", Toast::Warning); return; }
+    if (r.isEmpty()) { Toast::show(this, "请假理由不能为空", Toast::Warning); return; }
 
     QSqlQuery check;
     check.prepare("SELECT COUNT(*) FROM leave_requests WHERE emp_id = ? AND status != ? AND NOT (end_date < ? OR start_date > ?)");
@@ -111,7 +113,7 @@ void LeaveTab::applyLeave()
     check.addBindValue(s.toString("yyyy-MM-dd"));
     check.addBindValue(e.toString("yyyy-MM-dd"));
     if (check.exec() && check.next() && check.value(0).toInt() > 0) {
-        QMessageBox::warning(this, "申请失败", "您在选择的日期段内已有尚未拒绝的请假申请，请勿重复申请！");
+        Toast::show(this, "在该日期段内已有尚未拒绝的请假申请", Toast::Warning);
         return;
     }
 
@@ -122,7 +124,7 @@ void LeaveTab::applyLeave()
     q.bindValue(":e2", e.toString("yyyy-MM-dd"));
     q.bindValue(":r", r);
     if (q.exec()) {
-        QMessageBox::information(this, "成功", "你的请假申请已成功提交，请等待管理员审批");
+        Toast::show(this, "请假申请已提交，等待审批", Toast::Success);
         m_log("提交请假申请", s.toString("MM-dd") + " ~ " + e.toString("MM-dd"));
         m_notify(0, "请假申请", QString("员工提交了请假申请 %1~%2").arg(s.toString("MM-dd"), e.toString("MM-dd")));
         m_model->select();
@@ -138,7 +140,7 @@ void LeaveTab::applyLeave()
 void LeaveTab::approve()
 {
     int row = m_table->currentIndex().row();
-    if (row < 0) { QMessageBox::warning(this, "提示", "请选中请假单"); return; }
+    if (row < 0) { Toast::show(this, "请选中要审批的请假单", Toast::Warning); return; }
     int id = m_model->data(m_model->index(row, 0)).toInt();
     int eid = 0;
     {
@@ -150,7 +152,7 @@ void LeaveTab::approve()
     q.prepare(QString("UPDATE leave_requests SET status='%1' WHERE request_id=?").arg(HR::LeaveStatus::APPROVED));
     q.addBindValue(id);
     if (q.exec()) {
-        QMessageBox::information(this, "审批成功", "已成功批改请假申请");
+        Toast::show(this, "已同意该请假申请", Toast::Success);
         m_log("同意请假", "请假单号: " + QString::number(id));
         m_notify(eid, "请假已批准", "你的请假申请已通过审批");
         m_model->select();
@@ -163,7 +165,7 @@ void LeaveTab::approve()
 void LeaveTab::reject()
 {
     int row = m_table->currentIndex().row();
-    if (row < 0) { QMessageBox::warning(this, "提示", "请选中请假单"); return; }
+    if (row < 0) { Toast::show(this, "请选中要审批的请假单", Toast::Warning); return; }
     int id = m_model->data(m_model->index(row, 0)).toInt();
     int eid = 0;
     {
@@ -175,7 +177,7 @@ void LeaveTab::reject()
     q.prepare(QString("UPDATE leave_requests SET status='%1' WHERE request_id=?").arg(HR::LeaveStatus::REJECTED));
     q.addBindValue(id);
     if (q.exec()) {
-        QMessageBox::information(this, "审批成功", "已拒绝请假申请");
+        Toast::show(this, "已拒绝该请假申请", Toast::Info);
         m_log("拒绝请假", "请假单号: " + QString::number(id));
         m_notify(eid, "请假已拒绝", "你的请假申请未通过审批");
         m_model->select();

@@ -1,4 +1,5 @@
 #include "AttendTaxTab.h"
+#include "../utils/Toast.h"
 #include "../core/GlobalEvents.h"
 #include "../core/Constants.h"
 #include "../core/SessionManager.h"
@@ -277,7 +278,7 @@ void AttendTaxTab::clockIn()
     q.prepare("SELECT att_id FROM attendances WHERE emp_id=? AND att_date=?");
     q.addBindValue(m_empId); q.addBindValue(today); q.exec();
     if (q.next()) {
-        QMessageBox::warning(this, "提示", "今天已打卡，请勿重复");
+        Toast::show(this, "今天已打卡，请勿重复", Toast::Warning);
         return;
     }
 
@@ -290,7 +291,7 @@ void AttendTaxTab::clockIn()
     q.prepare("INSERT INTO attendances(emp_id,att_date,clock_in,status) VALUES(?,?,?,?)");
     q.addBindValue(m_empId); q.addBindValue(today); q.addBindValue(now); q.addBindValue(status);
     if (q.exec()) {
-        QMessageBox::information(this, "打卡成功", QString("签到 %1  %2").arg(today, now));
+        Toast::show(this, QString("上班打卡成功 (%1)").arg(now), Toast::Success);
         m_log("上班打卡", today);
         m_attModel->select();
     } else {
@@ -306,7 +307,7 @@ void AttendTaxTab::clockOut()
     QSqlQuery q;
     q.prepare("SELECT att_id, status FROM attendances WHERE emp_id=? AND att_date=?");
     q.addBindValue(m_empId); q.addBindValue(today); q.exec();
-    if (!q.next()) { QMessageBox::warning(this, "提示", "请先打上班卡"); return; }
+    if (!q.next()) { Toast::show(this, "请先打上班卡", Toast::Warning); return; }
 
     QSqlQuery sq("SELECT end_time FROM shifts WHERE shift_id=1");
     sq.exec();
@@ -319,7 +320,7 @@ void AttendTaxTab::clockOut()
     q.prepare("UPDATE attendances SET clock_out=?, status=? WHERE emp_id=? AND att_date=?");
     q.addBindValue(now); q.addBindValue(status); q.addBindValue(m_empId); q.addBindValue(today);
     if (q.exec()) {
-        QMessageBox::information(this, "打卡成功", QString("签退 %1  %2  [%3]").arg(today, now, status));
+        Toast::show(this, QString("下班打卡成功 (%1) [%2]").arg(now, status), Toast::Success);
         m_log("下班打卡", today);
         m_attModel->select();
     }
@@ -332,13 +333,13 @@ void AttendTaxTab::submitMakeup()
     QString type = m_makeupType->currentData().toString();
     QString time = m_makeupTime->time().toString("HH:mm:ss");
     QString reason = m_makeupReason->text().trimmed();
-    if (reason.isEmpty()) { QMessageBox::warning(this, "提示", "请填写理由"); return; }
+    if (reason.isEmpty()) { Toast::show(this, "请填写理由", Toast::Warning); return; }
 
     QSqlQuery q;
     q.prepare("INSERT INTO makeup_requests(emp_id,att_date,request_type,request_time,reason) VALUES(?,?,?,?,?)");
     q.addBindValue(m_empId); q.addBindValue(date); q.addBindValue(type); q.addBindValue(time); q.addBindValue(reason);
     if (q.exec()) {
-        QMessageBox::information(this, "成功", "补卡申请已提交");
+        Toast::show(this, "补卡申请已提交", Toast::Success);
         m_log("补卡申请", date);
         m_notify(0, "补卡申请", QString("员工提交了补卡申请 %1").arg(date));
         m_makeupModel->select();
@@ -351,7 +352,7 @@ void AttendTaxTab::submitMakeup()
 void AttendTaxTab::approveMakeup()
 {
     int row = m_makeupTable->currentIndex().row();
-    if (row < 0) { QMessageBox::warning(this, "提示", "请选中一条补卡申请"); return; }
+    if (row < 0) { Toast::show(this, "请选中一条补卡申请", Toast::Warning); return; }
     int mid = m_makeupModel->data(m_makeupModel->index(row, 0)).toInt();
     int eid = 0;
     {
@@ -364,7 +365,7 @@ void AttendTaxTab::approveMakeup()
     QString time = m_makeupModel->data(m_makeupModel->index(row, 4)).toString();
 
     if (type != "clock_in" && type != "clock_out") {
-        QMessageBox::warning(this, "错误", "无效的补卡类型");
+        Toast::show(this, "无效的补卡类型", Toast::Error);
         return;
     }
 
@@ -386,13 +387,13 @@ void AttendTaxTab::approveMakeup()
     m_makeupModel->select();
     m_attModel->select();
     GlobalEvents::instance()->dataChanged();
-    QMessageBox::information(this, "成功", "补卡已批准");
+    Toast::show(this, "补卡已批准", Toast::Success);
 }
 
 void AttendTaxTab::rejectMakeup()
 {
     int row = m_makeupTable->currentIndex().row();
-    if (row < 0) { QMessageBox::warning(this, "提示", "请选中一条补卡申请"); return; }
+    if (row < 0) { Toast::show(this, "请选中一条补卡申请", Toast::Warning); return; }
     int mid = m_makeupModel->data(m_makeupModel->index(row, 0)).toInt();
     QSqlQuery q;
     q.prepare("UPDATE makeup_requests SET status='已拒绝' WHERE makeup_id=?");
@@ -408,7 +409,7 @@ void AttendTaxTab::rejectMakeup()
         m_notify(eid, "补卡已拒绝", "你的补卡申请未通过审批");
         m_makeupModel->select();
         GlobalEvents::instance()->dataChanged();
-        QMessageBox::information(this, "成功", "已拒绝");
+        Toast::show(this, "已拒绝补卡申请", Toast::Info);
     }
 }
 

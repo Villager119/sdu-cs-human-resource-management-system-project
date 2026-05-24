@@ -7,18 +7,45 @@
 #include "../core/SessionManager.h"
 #include <QSqlError>
 #include <QDebug>
+#include <QComboBox>
+#include <QPushButton>
+#include <QFileDialog>
+#include <QPdfWriter>
+#include <QPainter>
+#include <QMessageBox>
+#include <QtCharts/QPieSeries>
+#include <QtCharts/QPieSlice>
+#include <QtCharts/QBarSeries>
+#include <QtCharts/QBarSet>
+#include <QtCharts/QBarCategoryAxis>
+#include <QtCharts/QValueAxis>
+#include <QtCharts/QLineSeries>
+#include <QChart>
 
 DashboardTab::DashboardTab(QWidget *parent)
     : QWidget(parent)
 {
     auto *mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(20, 20, 20, 20);
+    mainLayout->setSpacing(15);
 
     m_alertLabel = new QLabel;
     m_alertLabel->setVisible(false);
     m_alertLabel->setStyleSheet("background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 12px 18px; color: #b45309; font-size: 13px; font-weight: bold;");
     m_alertLabel->setWordWrap(true);
     mainLayout->addWidget(m_alertLabel);
+
+    // Create horizontal layout to hold left metrics and right chart
+    auto *contentLayout = new QHBoxLayout;
+    contentLayout->setSpacing(20);
+    mainLayout->addLayout(contentLayout);
+
+    // Left Container
+    auto *leftContainer = new QWidget(this);
+    auto *leftLayout = new QVBoxLayout(leftContainer);
+    leftLayout->setContentsMargins(0, 0, 0, 0);
+    leftLayout->setSpacing(15);
+    contentLayout->addWidget(leftContainer, 5);
 
     // 个人信息卡片面板
     m_profileFrame = new QFrame;
@@ -67,22 +94,22 @@ DashboardTab::DashboardTab(QWidget *parent)
     addInfoItem("入职日期:", m_infoHireDate, 1, 1);
     addInfoItem("最高学历:", m_infoEdu, 1, 2);
 
-    mainLayout->addWidget(m_profileFrame);
+    leftLayout->addWidget(m_profileFrame);
 
     auto *grid = new QGridLayout;
     grid->setSpacing(15);
-    mainLayout->addLayout(grid);
+    leftLayout->addLayout(grid);
 
     QString titles[] = {"总员工数", "在职人数", "离职人数", "本月请假", "待审批", "本月薪资总额"};
     QString icons[] = {"👥", "✅", "🚪", "📋", "⏳", "💰"};
     for (int i = 0; i < 6; i++) {
         auto *frame = new QFrame;
-        frame->setMinimumSize(200, 110);
+        frame->setMinimumSize(180, 110);
         frame->setStyleSheet("QFrame { background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; } QFrame:hover { border: 1px solid #3b82f6; }");
 
         auto *l = new QVBoxLayout(frame);
         l->setSpacing(4);
-        l->setContentsMargins(20, 16, 20, 16);
+        l->setContentsMargins(18, 14, 18, 14);
 
         m_iconLabels[i] = new QLabel(icons[i]);
         m_iconLabels[i]->setAlignment(Qt::AlignLeft);
@@ -94,13 +121,76 @@ DashboardTab::DashboardTab(QWidget *parent)
 
         m_labels[i] = new QLabel("-");
         m_labels[i]->setAlignment(Qt::AlignRight | Qt::AlignBottom);
-        m_labels[i]->setStyleSheet("font-size: 30px; font-weight: 700; color: #2563eb; border: none; background: transparent;");
+        m_labels[i]->setStyleSheet("font-size: 26px; font-weight: 700; color: #2563eb; border: none; background: transparent;");
 
         l->addWidget(m_iconLabels[i]);
         l->addWidget(m_titleLabels[i]);
         l->addWidget(m_labels[i], 1);
-        grid->addWidget(frame, i / 3, i % 3);
+        grid->addWidget(frame, i / 2, i % 2); // Arrange KPI cards in 3x2 format
     }
+
+    // Right Container: Chart Panel
+    QFrame *chartPanel = new QFrame(this);
+    chartPanel->setObjectName("chartPanel");
+    chartPanel->setStyleSheet("QFrame#chartPanel { background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; }");
+    chartPanel->setMinimumWidth(400);
+
+    QVBoxLayout *chartPanelLayout = new QVBoxLayout(chartPanel);
+    chartPanelLayout->setContentsMargins(15, 15, 15, 15);
+    chartPanelLayout->setSpacing(10);
+
+    // Chart header widget (combobox and export button)
+    QWidget *chartHeaderWidget = new QWidget(chartPanel);
+    QHBoxLayout *chartHeaderLayout = new QHBoxLayout(chartHeaderWidget);
+    chartHeaderLayout->setContentsMargins(0, 0, 0, 0);
+    chartHeaderLayout->setSpacing(8);
+
+    chartHeaderLayout->addWidget(new QLabel("分析图表:", chartHeaderWidget));
+
+    m_chartCombo = new QComboBox(chartHeaderWidget);
+    m_chartCombo->addItems({
+        "部门人数分布",
+        "在职/离职比例",
+        "学历分布",
+        "婚姻状况比例",
+        "岗位分布",
+        "入职年份分布",
+        "工资区间统计",
+        "各部门平均薪资",
+        "月度请假统计",
+        "月度薪资趋势"
+    });
+    chartHeaderLayout->addWidget(m_chartCombo, 1);
+
+    m_exportPdfBtn = new QPushButton("导出PDF", chartHeaderWidget);
+    m_exportPdfBtn->setStyleSheet(
+        "QPushButton {"
+        "  background-color: #0284c7;"
+        "  border: 1px solid #0369a1;"
+        "  color: #ffffff;"
+        "  padding: 5px 12px;"
+        "  border-radius: 4px;"
+        "}"
+        "QPushButton:hover {"
+        "  background-color: #0ea5e9;"
+        "}"
+    );
+    chartHeaderLayout->addWidget(m_exportPdfBtn);
+
+    chartPanelLayout->addWidget(chartHeaderWidget);
+
+    m_chartView = new QChartView(chartPanel);
+    m_chartView->setRenderHint(QPainter::Antialiasing);
+    m_chartView->setStyleSheet("background: transparent; border: none;");
+    chartPanelLayout->addWidget(m_chartView, 1);
+
+    contentLayout->addWidget(chartPanel, 4);
+
+    m_isAdmin = SessionManager::instance()->hasPermission("view_reports");
+    chartHeaderWidget->setVisible(m_isAdmin);
+
+    connect(m_chartCombo, &QComboBox::currentIndexChanged, this, &DashboardTab::onChartTypeChanged);
+    connect(m_exportPdfBtn, &QPushButton::clicked, this, &DashboardTab::exportPDF);
 }
 
 void DashboardTab::refresh()
@@ -285,4 +375,323 @@ void DashboardTab::refresh()
             m_alertLabel->setVisible(false);
         }
     }
+
+    // Dynamic Chart rendering
+    m_isAdmin = SessionManager::instance()->hasPermission("view_reports");
+    m_chartCombo->parentWidget()->setVisible(m_isAdmin);
+    refreshChart();
+}
+
+void DashboardTab::onChartTypeChanged(int)
+{
+    refreshChart();
+}
+
+void DashboardTab::exportPDF()
+{
+    QString path = QFileDialog::getSaveFileName(this, "导出PDF", "报表.pdf", "PDF文件 (*.pdf)");
+    if (path.isEmpty()) return;
+
+    QPdfWriter w(path);
+    w.setPageSize(QPageSize(QPageSize::A4));
+    w.setPageOrientation(QPageLayout::Landscape);
+    w.setResolution(300);
+
+    QPainter p(&w);
+    m_chartView->render(&p);
+    p.end();
+
+    QMessageBox::information(this, "导出成功", "报表已导出至:\n" + path);
+}
+
+void DashboardTab::refreshChart()
+{
+    auto *old = m_chartView->chart();
+    auto *chart = new QChart;
+    chart->setTheme(QChart::ChartThemeLight);
+    chart->setAnimationOptions(QChart::SeriesAnimations);
+    chart->setBackgroundRoundness(10);
+
+    QFont font = chart->titleFont();
+    font.setFamily("Microsoft YaHei");
+    font.setPointSize(11);
+    font.setBold(true);
+    chart->setTitleFont(font);
+
+    QSqlQuery q;
+
+    if (!m_isAdmin) {
+        chart->setTitle("本月个人考勤状态统计");
+
+        QPieSeries *series = new QPieSeries();
+        int normalCount = 0, lateCount = 0, earlyCount = 0;
+        int empId = SessionManager::instance()->empId;
+
+        QSqlQuery aq;
+        aq.prepare("SELECT status, COUNT(*) FROM attendances "
+                   "WHERE emp_id = ? AND att_date LIKE ? "
+                   "GROUP BY status");
+        aq.addBindValue(empId);
+        aq.addBindValue(QDate::currentDate().toString("yyyy-MM") + "%");
+        if (aq.exec()) {
+            while (aq.next()) {
+                QString status = aq.value(0).toString();
+                int count = aq.value(1).toInt();
+                if (status == "正常") normalCount += count;
+                else if (status == "迟到") lateCount += count;
+                else if (status == "早退") earlyCount += count;
+            }
+        }
+
+        if (normalCount > 0) series->append("正常出勤", normalCount);
+        if (lateCount > 0) series->append("迟到", lateCount);
+        if (earlyCount > 0) series->append("早退", earlyCount);
+
+        if (series->isEmpty()) {
+            series->append("无打卡记录", 1);
+        }
+
+        series->setLabelsVisible(true);
+        series->setLabelsPosition(QPieSlice::LabelOutside);
+        for (auto *slice : series->slices()) {
+            if (slice->label() == "正常出勤") {
+                slice->setBrush(QBrush(QColor("#10b981"))); // Modern Green
+            } else if (slice->label() == "迟到") {
+                slice->setBrush(QBrush(QColor("#f59e0b"))); // Modern Orange
+            } else if (slice->label() == "早退") {
+                slice->setBrush(QBrush(QColor("#ef4444"))); // Modern Red
+            } else {
+                slice->setBrush(QBrush(QColor("#94a3b8"))); // Slate Grey
+            }
+
+            slice->setLabel(QString("%1: %2次")
+                .arg(slice->label())
+                .arg(slice->value()));
+
+            connect(slice, &QPieSlice::hovered, this, [slice](bool hovered) {
+                slice->setExploded(hovered);
+            });
+        }
+        chart->addSeries(series);
+        chart->legend()->setVisible(true);
+        chart->legend()->setAlignment(Qt::AlignBottom);
+    } else {
+        int type = m_chartCombo->currentIndex();
+        switch (type) {
+        case 0: {
+            q.exec("SELECT department, COUNT(*) FROM employees WHERE status='在职' GROUP BY department");
+            auto *s = new QPieSeries;
+            while (q.next()) {
+                QString d = q.value(0).toString();
+                if (d.isEmpty()) d = "未分配";
+                s->append(d, q.value(1).toInt());
+            }
+            s->setLabelsVisible(true);
+            s->setLabelsPosition(QPieSlice::LabelOutside);
+            for (auto *slice : s->slices()) {
+                slice->setLabel(QString("%1: %2人 (%3%)")
+                    .arg(slice->label())
+                    .arg(slice->value())
+                    .arg(QString::number(slice->percentage() * 100, 'f', 1)));
+                connect(slice, &QPieSlice::hovered, this, [slice](bool hovered) {
+                    slice->setExploded(hovered);
+                });
+            }
+            chart->addSeries(s);
+            chart->setTitle("部门人数分布");
+            chart->legend()->setVisible(true);
+            chart->legend()->setAlignment(Qt::AlignBottom);
+            break;
+        }
+        case 1: {
+            q.exec("SELECT status, COUNT(*) FROM employees GROUP BY status");
+            auto *s = new QPieSeries;
+            while (q.next()) s->append(q.value(0).toString(), q.value(1).toInt());
+            s->setLabelsVisible(true);
+            s->setLabelsPosition(QPieSlice::LabelOutside);
+            for (auto *slice : s->slices()) {
+                slice->setLabel(QString("%1: %2人 (%3%)")
+                    .arg(slice->label())
+                    .arg(slice->value())
+                    .arg(QString::number(slice->percentage() * 100, 'f', 1)));
+                connect(slice, &QPieSlice::hovered, this, [slice](bool hovered) {
+                    slice->setExploded(hovered);
+                });
+            }
+            chart->addSeries(s);
+            chart->setTitle("在职/离职比例");
+            chart->legend()->setVisible(true);
+            chart->legend()->setAlignment(Qt::AlignBottom);
+            break;
+        }
+        case 2: {
+            q.exec("SELECT education, COUNT(*) FROM employees WHERE status='在职' GROUP BY education");
+            auto *s = new QPieSeries;
+            while (q.next()) {
+                QString label = q.value(0).toString().trimmed();
+                if (label.isEmpty()) label = "未填写";
+                s->append(label, q.value(1).toInt());
+            }
+            s->setLabelsVisible(true);
+            s->setLabelsPosition(QPieSlice::LabelOutside);
+            for (auto *slice : s->slices()) {
+                slice->setLabel(QString("%1: %2人 (%3%)")
+                    .arg(slice->label())
+                    .arg(slice->value())
+                    .arg(QString::number(slice->percentage() * 100, 'f', 1)));
+                connect(slice, &QPieSlice::hovered, this, [slice](bool hovered) {
+                    slice->setExploded(hovered);
+                });
+            }
+            chart->addSeries(s);
+            chart->setTitle("学历分布");
+            chart->legend()->setVisible(true);
+            chart->legend()->setAlignment(Qt::AlignBottom);
+            break;
+        }
+        case 3: {
+            q.exec("SELECT marital_status, COUNT(*) FROM employees WHERE status='在职' GROUP BY marital_status");
+            auto *s = new QPieSeries;
+            while (q.next()) {
+                QString label = q.value(0).toString().trimmed();
+                if (label.isEmpty()) label = "未填写";
+                s->append(label, q.value(1).toInt());
+            }
+            s->setLabelsVisible(true);
+            s->setLabelsPosition(QPieSlice::LabelOutside);
+            for (auto *slice : s->slices()) {
+                slice->setLabel(QString("%1: %2人 (%3%)")
+                    .arg(slice->label())
+                    .arg(slice->value())
+                    .arg(QString::number(slice->percentage() * 100, 'f', 1)));
+                connect(slice, &QPieSlice::hovered, this, [slice](bool hovered) {
+                    slice->setExploded(hovered);
+                });
+            }
+            chart->addSeries(s);
+            chart->setTitle("婚姻状况比例");
+            chart->legend()->setVisible(true);
+            chart->legend()->setAlignment(Qt::AlignBottom);
+            break;
+        }
+        case 4: {
+            q.exec("SELECT position, COUNT(*) FROM employees WHERE status='在职' GROUP BY position");
+            auto *s = new QPieSeries;
+            while (q.next()) {
+                QString label = q.value(0).toString().trimmed();
+                if (label.isEmpty()) label = "未指定";
+                s->append(label, q.value(1).toInt());
+            }
+            s->setLabelsVisible(true);
+            s->setLabelsPosition(QPieSlice::LabelOutside);
+            for (auto *slice : s->slices()) {
+                slice->setLabel(QString("%1: %2人 (%3%)")
+                    .arg(slice->label())
+                    .arg(slice->value())
+                    .arg(QString::number(slice->percentage() * 100, 'f', 1)));
+                connect(slice, &QPieSlice::hovered, this, [slice](bool hovered) {
+                    slice->setExploded(hovered);
+                });
+            }
+            chart->addSeries(s);
+            chart->setTitle("岗位分布");
+            chart->legend()->setVisible(true);
+            chart->legend()->setAlignment(Qt::AlignBottom);
+            break;
+        }
+        case 5: {
+            q.exec("SELECT DATE_FORMAT(hire_date, '%Y'), COUNT(*) FROM employees WHERE hire_date IS NOT NULL GROUP BY 1 ORDER BY 1");
+            auto *set = new QBarSet("入职人数");
+            QStringList cats;
+            while (q.next()) {
+                cats << q.value(0).toString() + "年";
+                *set << q.value(1).toInt();
+            }
+            auto *s = new QBarSeries; s->append(set);
+            chart->addSeries(s);
+            auto *ax = new QBarCategoryAxis; ax->append(cats);
+            chart->addAxis(ax, Qt::AlignBottom); s->attachAxis(ax);
+            auto *ay = new QValueAxis; ay->setTitleText("人数");
+            chart->addAxis(ay, Qt::AlignLeft); s->attachAxis(ay);
+            chart->setTitle("入职年份分布");
+            chart->legend()->setVisible(false);
+            break;
+        }
+        case 6: {
+            q.exec("SELECT "
+                   "SUM(CASE WHEN base_salary < 5000 THEN 1 ELSE 0 END), "
+                   "SUM(CASE WHEN base_salary >= 5000 AND base_salary < 10000 THEN 1 ELSE 0 END), "
+                   "SUM(CASE WHEN base_salary >= 10000 AND base_salary < 20000 THEN 1 ELSE 0 END), "
+                   "SUM(CASE WHEN base_salary >= 20000 THEN 1 ELSE 0 END) "
+                   "FROM employees WHERE status='在职'");
+            auto *set = new QBarSet("员工人数");
+            QStringList cats = {"<5000元", "5000-10000元", "10000-20000元", ">=20000元"};
+            if (q.next()) {
+                *set << q.value(0).toInt()
+                     << q.value(1).toInt()
+                     << q.value(2).toInt()
+                     << q.value(3).toInt();
+            } else {
+                *set << 0 << 0 << 0 << 0;
+            }
+            auto *s = new QBarSeries; s->append(set);
+            chart->addSeries(s);
+            auto *ax = new QBarCategoryAxis; ax->append(cats);
+            chart->addAxis(ax, Qt::AlignBottom); s->attachAxis(ax);
+            auto *ay = new QValueAxis; ay->setTitleText("人数");
+            chart->addAxis(ay, Qt::AlignLeft); s->attachAxis(ay);
+            chart->setTitle("员工工资区间分布");
+            chart->legend()->setVisible(false);
+            break;
+        }
+        case 7: {
+            q.exec("SELECT department, AVG(base_salary) FROM employees WHERE base_salary>0 AND status='在职' GROUP BY department");
+            auto *set = new QBarSet("平均薪资");
+            QStringList cats;
+            while (q.next()) { cats << q.value(0).toString(); *set << q.value(1).toDouble(); }
+            auto *s = new QBarSeries; s->append(set);
+            chart->addSeries(s);
+            auto *ax = new QBarCategoryAxis; ax->append(cats);
+            chart->addAxis(ax, Qt::AlignBottom); s->attachAxis(ax);
+            auto *ay = new QValueAxis; ay->setTitleText("元");
+            chart->addAxis(ay, Qt::AlignLeft); s->attachAxis(ay);
+            chart->setTitle("各部门平均薪资");
+            chart->legend()->setVisible(false);
+            break;
+        }
+        case 8: {
+            q.exec("SELECT DATE_FORMAT(start_date,'%Y-%m'), COUNT(*) FROM leave_requests GROUP BY 1 ORDER BY 1");
+            auto *set = new QBarSet("请假人次");
+            QStringList cats;
+            while (q.next()) { cats << q.value(0).toString(); *set << q.value(1).toInt(); }
+            auto *s = new QBarSeries; s->append(set);
+            chart->addSeries(s);
+            auto *ax = new QBarCategoryAxis; ax->append(cats);
+            chart->addAxis(ax, Qt::AlignBottom); s->attachAxis(ax);
+            auto *ay = new QValueAxis; ay->setTitleText("人次");
+            chart->addAxis(ay, Qt::AlignLeft); s->attachAxis(ay);
+            chart->setTitle("月度请假统计");
+            chart->legend()->setVisible(false);
+            break;
+        }
+        case 9: {
+            q.exec("SELECT month, SUM(net_salary) FROM payroll GROUP BY month ORDER BY month");
+            auto *s = new QLineSeries;
+            s->setName("薪资总额");
+            QStringList cats;
+            while (q.next()) { cats << q.value(0).toString(); s->append(cats.size()-1, q.value(1).toDouble()); }
+            chart->addSeries(s);
+            auto *ax = new QBarCategoryAxis; ax->append(cats);
+            chart->addAxis(ax, Qt::AlignBottom); s->attachAxis(ax);
+            auto *ay = new QValueAxis; ay->setTitleText("元");
+            chart->addAxis(ay, Qt::AlignLeft); s->attachAxis(ay);
+            chart->setTitle("月度薪资趋势");
+            chart->legend()->setVisible(false);
+            break;
+        }
+        }
+    }
+
+    m_chartView->setChart(chart);
+    delete old;
 }

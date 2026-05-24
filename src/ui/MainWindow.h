@@ -10,7 +10,7 @@ namespace Ui { class MainWindow; }
 QT_END_NAMESPACE
 
 class EmployeeTab; class LeaveTab; class PayrollTab; class AuditTab;
-class ReportsTab; class DashboardTab; class PerformanceTab;
+class DashboardTab; class PerformanceTab;
 class OrgTab; class ProfileChangeTab; class AttendTaxTab; class RbacTab;
 
 class MainWindow : public QMainWindow
@@ -35,6 +35,16 @@ private:
     void addNavItem(const QString &icon, const QString &label, QWidget *page, bool visible = true);
     void updateStatusBar();
     void refreshActiveTab();
+    void toggleSidebar();
+
+    struct NavItemInfo {
+        QString icon;
+        QString label;
+        class QListWidgetItem *listItem;
+    };
+    QList<NavItemInfo> m_navItems;
+    bool m_sidebarCollapsed = false;
+    QWidget *m_sidebarContainer = nullptr;
 
     Ui::MainWindow *ui;
     QPushButton *m_bellBtn;
@@ -43,7 +53,7 @@ private:
     bool m_bellFlashState = false;
 
     DashboardTab *m_dashboard; EmployeeTab *m_empTab; LeaveTab *m_leaveTab;
-    PayrollTab *m_payrollTab; AuditTab *m_auditTab; ReportsTab *m_reportsTab;
+    PayrollTab *m_payrollTab; AuditTab *m_auditTab;
     PerformanceTab *m_perfTab; ProfileChangeTab *m_profileTab;
     AttendTaxTab *m_attTaxTab; OrgTab *m_orgTab; RbacTab *m_rbacTab;
 

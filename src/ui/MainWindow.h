@@ -9,9 +9,9 @@ QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
 QT_END_NAMESPACE
 
-class EmployeeTab; class LeaveTab; class PayrollTab; class AuditTab;
+class EmployeeTab; class MyAttendanceTab; class AttendManageTab; class PayrollTab; class AuditTab;
 class DashboardTab; class PerformanceTab;
-class OrgTab; class ProfileChangeTab; class AttendTaxTab; class RbacTab;
+class OrgTab; class ProfileChangeTab; class RbacTab;
 
 class MainWindow : public QMainWindow
 {
@@ -52,10 +52,10 @@ private:
     class QTimer *m_pollTimer;
     bool m_bellFlashState = false;
 
-    DashboardTab *m_dashboard; EmployeeTab *m_empTab; LeaveTab *m_leaveTab;
-    PayrollTab *m_payrollTab; AuditTab *m_auditTab;
+    DashboardTab *m_dashboard; EmployeeTab *m_empTab; MyAttendanceTab *m_myAttendTab;
+    AttendManageTab *m_attendManageTab; PayrollTab *m_payrollTab; AuditTab *m_auditTab;
     PerformanceTab *m_perfTab; ProfileChangeTab *m_profileTab;
-    AttendTaxTab *m_attTaxTab; OrgTab *m_orgTab; RbacTab *m_rbacTab;
+    OrgTab *m_orgTab; RbacTab *m_rbacTab;
 
     int m_empId; QString m_role; QString m_empName;
 };

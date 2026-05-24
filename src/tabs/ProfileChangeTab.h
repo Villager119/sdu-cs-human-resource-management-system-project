@@ -29,7 +29,8 @@ private:
     QSqlRelationalTableModel *m_model;
     QTableView *m_table;
     QComboBox *m_fieldCombo;
-    QLineEdit *m_newValueEdit, *m_reasonEdit;
+    QLineEdit *m_newValueEdit;
+    class QTextEdit *m_reasonEdit;
     QPushButton *m_btnApprove, *m_btnReject;
     int m_empId;
     QString m_role;

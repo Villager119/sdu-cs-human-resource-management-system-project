@@ -18,13 +18,13 @@ set(PROJECT_SOURCES
     src/ui/ChangePasswordDialog.cpp src/ui/ChangePasswordDialog.h
     src/ui/RecoverPasswordDialog.cpp src/ui/RecoverPasswordDialog.h
     src/tabs/EmployeeTab.cpp src/tabs/EmployeeTab.h
-    src/tabs/LeaveTab.cpp src/tabs/LeaveTab.h
+    src/tabs/MyAttendanceTab.cpp src/tabs/MyAttendanceTab.h
     src/tabs/PayrollTab.cpp src/tabs/PayrollTab.h
     src/tabs/AuditTab.cpp src/tabs/AuditTab.h
     src/tabs/DashboardTab.cpp src/tabs/DashboardTab.h
     src/tabs/PerformanceTab.cpp src/tabs/PerformanceTab.h
     src/tabs/ProfileChangeTab.cpp src/tabs/ProfileChangeTab.h
-    src/tabs/AttendTaxTab.cpp src/tabs/AttendTaxTab.h
+    src/tabs/AttendManageTab.cpp src/tabs/AttendManageTab.h
     src/tabs/OrgTab.cpp src/tabs/OrgTab.h
     src/tabs/RbacTab.cpp src/tabs/RbacTab.h
     src/widgets/PaginationBar.cpp src/widgets/PaginationBar.h

@@ -3,14 +3,14 @@
 #include "ChangePasswordDialog.h"
 #include "LoginWindow.h"
 #include "../tabs/EmployeeTab.h"
-#include "../tabs/LeaveTab.h"
+#include "../tabs/MyAttendanceTab.h"
 #include "../tabs/PayrollTab.h"
 #include "../tabs/AuditTab.h"
 #include "../tabs/DashboardTab.h"
 #include "../tabs/PerformanceTab.h"
 #include "../tabs/OrgTab.h"
 #include "../tabs/ProfileChangeTab.h"
-#include "../tabs/AttendTaxTab.h"
+#include "../tabs/AttendManageTab.h"
 #include "../tabs/RbacTab.h"
 #include "../widgets/TaxConfigPanel.h"
 #include "../core/GlobalEvents.h"
@@ -42,21 +42,21 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
     // 创建所有原生页面
     m_dashboard = new DashboardTab(this);
     m_empTab    = new EmployeeTab(logFn, this);
-    m_leaveTab  = new LeaveTab(m_empId, m_role, logFn, notifyFn, this);
+    m_myAttendTab = new MyAttendanceTab(m_empId, m_role, logFn, notifyFn, this);
+    m_attendManageTab = new AttendManageTab(m_empId, m_role, logFn, notifyFn, this);
     m_payrollTab= new PayrollTab(m_empId, m_role, logFn, this);
     m_auditTab  = new AuditTab(this);
     m_orgTab    = new OrgTab(logFn, this);
     m_perfTab   = new PerformanceTab(m_empId, m_role, logFn, this);
     m_profileTab= new ProfileChangeTab(m_empId, m_role, logFn, notifyFn, this);
-    m_attTaxTab = new AttendTaxTab(m_empId, m_role, logFn, notifyFn, this);
     m_rbacTab   = new RbacTab(logFn, this);
 
     // Hide only unauthorized tabs to prevent them from rendering as floating child widgets at (0,0)
     if (!SessionManager::instance()->hasPermission("view_dashboard")) m_dashboard->hide();
     if (!SessionManager::instance()->hasPermission("manage_employees")) m_empTab->hide();
     if (!(SessionManager::instance()->hasPermission("request_profile_change") || SessionManager::instance()->hasPermission("approve_profile_change"))) m_profileTab->hide();
-    if (!(SessionManager::instance()->hasPermission("apply_leave_makeup") || SessionManager::instance()->hasPermission("approve_makeup"))) m_attTaxTab->hide();
-    if (!(SessionManager::instance()->hasPermission("apply_leave") || SessionManager::instance()->hasPermission("approve_leave"))) m_leaveTab->hide();
+    if (!(SessionManager::instance()->hasPermission("apply_leave_makeup") || SessionManager::instance()->hasPermission("apply_leave"))) m_myAttendTab->hide();
+    if (!(SessionManager::instance()->hasPermission("approve_leave") || SessionManager::instance()->hasPermission("approve_makeup"))) m_attendManageTab->hide();
     if (!(SessionManager::instance()->hasPermission("view_personal_payroll") || SessionManager::instance()->hasPermission("calculate_payroll"))) m_payrollTab->hide();
     if (!(SessionManager::instance()->hasPermission("view_personal_performance") || SessionManager::instance()->hasPermission("evaluate_performance"))) m_perfTab->hide();
     if (!SessionManager::instance()->hasPermission("manage_org")) m_orgTab->hide();
@@ -93,8 +93,8 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
     m_dashboard->setObjectName("仪表盘");
     m_empTab->setObjectName("员工管理");
     m_profileTab->setObjectName("信息变更");
-    m_attTaxTab->setObjectName("打卡补卡");
-    m_leaveTab->setObjectName("请假审批");
+    m_myAttendTab->setObjectName("我的考勤");
+    m_attendManageTab->setObjectName("考勤管理");
     m_payrollTab->setObjectName("工资条");
     m_perfTab->setObjectName("绩效评分");
     m_rbacTab->setObjectName("权限管理");
@@ -115,13 +115,7 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
         empTabs.append({m_profileTab, "信息变更"});
     QWidget *empPage = makeDynamicWrapper(empTabs);
 
-    // 3. Attendance Page Wrapper
-    QList<QPair<QWidget*, QString>> attTabs;
-    if (SessionManager::instance()->hasPermission("apply_leave_makeup") || SessionManager::instance()->hasPermission("approve_makeup"))
-        attTabs.append({m_attTaxTab, "打卡补卡"});
-    if (SessionManager::instance()->hasPermission("apply_leave") || SessionManager::instance()->hasPermission("approve_leave"))
-        attTabs.append({m_leaveTab, "请假审批"});
-    QWidget *attPage = makeDynamicWrapper(attTabs);
+    // 3. Attendance Pages are loaded directly without tab wrappers to prevent nested tabs
 
     // 4. Compensation Page Wrapper
     QList<QPair<QWidget*, QString>> payTabs;
@@ -183,9 +177,13 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
 
     connect(toggleBtn, &QPushButton::clicked, this, &MainWindow::toggleSidebar);
 
+    bool showMyAttend = SessionManager::instance()->hasPermission("apply_leave_makeup") || SessionManager::instance()->hasPermission("apply_leave");
+    bool showAttendManage = SessionManager::instance()->hasPermission("approve_leave") || SessionManager::instance()->hasPermission("approve_makeup");
+
     addNavItem("🏠", "首页",    homePage,    homePage != nullptr);
     addNavItem("👥", "员工",    empPage,     empPage != nullptr);
-    addNavItem("⏰", "考勤",    attPage,     attPage != nullptr);
+    addNavItem("⏰", "我的考勤",  m_myAttendTab, showMyAttend);
+    addNavItem("📊", "考勤管理",  m_attendManageTab, showAttendManage);
     addNavItem("💰", "薪酬",    payPage,     payPage != nullptr);
     addNavItem("🏢", "组织",    orgPage,     orgPage != nullptr);
     addNavItem("📜", "日志",    auditPage,   auditPage != nullptr);
@@ -301,8 +299,8 @@ void MainWindow::refreshActiveTab()
         else if (currentWidget->findChild<PayrollTab*>()) activePage = m_payrollTab;
         else if (currentWidget->findChild<AuditTab*>()) activePage = m_auditTab;
         else if (currentWidget->findChild<ProfileChangeTab*>()) activePage = m_profileTab;
-        else if (currentWidget->findChild<AttendTaxTab*>()) activePage = m_attTaxTab;
-        else if (currentWidget->findChild<LeaveTab*>()) activePage = m_leaveTab;
+        else if (currentWidget->findChild<MyAttendanceTab*>()) activePage = m_myAttendTab;
+        else if (currentWidget->findChild<AttendManageTab*>()) activePage = m_attendManageTab;
         else if (currentWidget->findChild<PerformanceTab*>()) activePage = m_perfTab;
         else if (currentWidget->findChild<RbacTab*>()) activePage = m_rbacTab;
     }
@@ -315,8 +313,8 @@ void MainWindow::refreshActiveTab()
     else if (activePage == m_payrollTab) m_payrollTab->refresh();
     else if (activePage == m_auditTab) m_auditTab->refresh();
     else if (activePage == m_profileTab) m_profileTab->refresh();
-    else if (activePage == m_attTaxTab) m_attTaxTab->refresh();
-    else if (activePage == m_leaveTab) m_leaveTab->refresh();
+    else if (activePage == m_myAttendTab) m_myAttendTab->refresh();
+    else if (activePage == m_attendManageTab) m_attendManageTab->refresh();
     else if (activePage == m_perfTab) m_perfTab->refresh();
 }
 

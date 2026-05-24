@@ -2,8 +2,8 @@
 
 > **标准符合性声明**：本说明书参考软件架构描述的最新国际标准 **ISO/IEC/IEEE 42010:2011(E)** 进行编写，旨在从多视角、多维度系统地描述系统架构设计，确保利益相关者的架构关注点得到全面解决。
 >
-> **版本**：V1.0 (初稿)  
-> **日期**：2026-05-22  
+> **版本**：V1.1 (初稿)  
+> **日期**：2026-05-24  
 > **项目代号**：HRMS  
 
 ---
@@ -150,24 +150,26 @@ classDiagram
     class Tabs_Business {
         +DashboardTab
         +EmployeeTab
-        +AttendTaxTab
-        +LeaveTab
+        +MyAttendanceTab
+        +AttendManageTab
         +OrgTab
         +ProfileChangeTab
         +AuditTab
+        +RbacTab
     }
     
     class Tabs_Finance {
         +PayrollTab
         +PerformanceTab
-        +ReportsTab
     }
 
     class Widgets_Custom {
         +PaginationBar
         +ComboDelegate
+        +SafeEditDelegate
         +TaxConfigPanel
         +OrgChartView
+        +Toast
     }
 
     MainEntrance --> UI_Main : "1. 引导启动登录"
@@ -528,7 +530,7 @@ graph TD
 ### 4.1 视图间对应规则
 
 1. **Logical-to-Data 对应规则**：逻辑视图（C++ 代码类）中的各业务 Tab 类（如 `EmployeeTab`、`LeaveTab`、`PayrollTab`）必须与数据视图（E-R图）中的物理表（`employees`、`leave_requests`、`payroll`）建立强对应的映射。每一个 Tab 类对数据库的操作必须在 E-R 图关联范围之内，严禁越权直接操作无关表。
-2. **Process-to-Data 对应规则**：在运行过程视图中定义的数据库自愈迁移（Idempotent Schema Migration）表序列必须严格涵盖数据视图（E-R图）中出现的全部 13 张表结构，确保系统在首次运行或补全字段时能自动初始化数据结构。
+2. **Process-to-Data 对应规则**：在运行过程视图中定义的数据库自愈迁移（Idempotent Schema Migration）表序列必须严格涵盖数据视图（E-R图）中出现的全部 16 张表结构，确保系统在首次运行或补全字段时能自动初始化数据结构。
 3. **Deployment-to-Process 对应规则**：物理部署视图中加载的 `config.ini` 参数必须作为运行过程视图中引导流程（main 引导）的直接入参输入，保证连接链路能够成功建立。
 
 ### 4.2 架构冲突与折中分析 (Refactoring & Anti-Normalization)

@@ -13,6 +13,10 @@
 #include <QSqlError>
 #include <QDate>
 #include <QMap>
+#include <QTextEdit>
+#include <QStyledItemDelegate>
+#include <QPainter>
+#include <QHeaderView>
 
 static QString fieldDisplayName(const QString &field)
 {
@@ -22,6 +26,90 @@ static QString fieldDisplayName(const QString &field)
     };
     return map.value(field, field);
 }
+
+class ProfileChangeDelegate : public QStyledItemDelegate
+{
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+
+    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
+    {
+        QStyleOptionViewItem opt = option;
+        initStyleOption(&opt, index);
+
+        if (index.column() == 2) { // 字段 column
+            QString rawField = index.data(Qt::DisplayRole).toString();
+            opt.text = fieldDisplayName(rawField);
+            QStyledItemDelegate::paint(painter, opt, index);
+        }
+        else if (index.column() == 5) { // 状态 column
+            QString status = index.data(Qt::DisplayRole).toString();
+            
+            painter->save();
+            painter->setRenderHint(QPainter::Antialiasing);
+
+            // Draw background pill/badge
+            QColor bgColor, textColor;
+            if (status == "待审批" || status == "审批中") {
+                bgColor = QColor("#eab308"); // Yellow
+                textColor = QColor("#ffffff");
+                status = "审批中";
+            } else if (status == "已同意" || status == "已通过") {
+                bgColor = QColor("#22c55e"); // Green
+                textColor = QColor("#ffffff");
+                status = "已通过";
+            } else if (status == "已拒绝" || status == "已驳回") {
+                bgColor = QColor("#ef4444"); // Red
+                textColor = QColor("#ffffff");
+                status = "已驳回";
+            } else {
+                bgColor = QColor("#94a3b8"); // Gray
+                textColor = QColor("#ffffff");
+            }
+
+            // Draw pill rectangle
+            int paddingX = 8;
+            int paddingY = 3;
+            QFont font = opt.font;
+            font.setPointSize(9);
+            font.setBold(true);
+            painter->setFont(font);
+
+            QFontMetrics fm(font);
+            int textWidth = fm.horizontalAdvance(status);
+            int textHeight = fm.height();
+
+            int pillWidth = textWidth + paddingX * 2;
+            int pillHeight = textHeight + paddingY * 2;
+
+            // Center the pill in the cell
+            int pillX = opt.rect.x() + (opt.rect.width() - pillWidth) / 2;
+            int pillY = opt.rect.y() + (opt.rect.height() - pillHeight) / 2;
+
+            QRect pillRect(pillX, pillY, pillWidth, pillHeight);
+            painter->setBrush(bgColor);
+            painter->setPen(Qt::NoPen);
+            painter->drawRoundedRect(pillRect, pillHeight / 2.0, pillHeight / 2.0);
+
+            // Draw text
+            painter->setPen(textColor);
+            painter->drawText(pillRect, Qt::AlignCenter, status);
+
+            painter->restore();
+        }
+        else {
+            if (opt.state & QStyle::State_Selected) {
+                painter->save();
+                painter->fillRect(opt.rect, QColor("#f1f5f9"));
+                painter->restore();
+                opt.state &= ~QStyle::State_Selected;
+                opt.palette.setColor(QPalette::Text, QColor("#1e293b"));
+                opt.palette.setColor(QPalette::HighlightedText, QColor("#1e293b"));
+            }
+            QStyledItemDelegate::paint(painter, opt, index);
+        }
+    }
+};
 
 ProfileChangeTab::ProfileChangeTab(int empId, const QString &role,
                                    std::function<void(const QString&, const QString&)> logFn,
@@ -44,46 +132,271 @@ ProfileChangeTab::ProfileChangeTab(int empId, const QString &role,
     if (!SessionManager::instance()->hasPermission("approve_profile_change"))
         m_model->setFilter(QString("emp_id=%1").arg(m_empId));
 
-    m_table = new QTableView;
+    // Main layout
+    auto *mainLayout = new QHBoxLayout(this);
+    mainLayout->setContentsMargins(15, 15, 15, 15);
+    mainLayout->setSpacing(15);
+
+    // Left Panel: Apply Modification Form
+    QFrame *leftPanel = new QFrame(this);
+    leftPanel->setObjectName("leftPanel");
+    leftPanel->setStyleSheet(
+        "QFrame#leftPanel {"
+        "  background-color: #ffffff;"
+        "  border: 1px solid #e2e8f0;"
+        "  border-radius: 10px;"
+        "}"
+    );
+    leftPanel->setFixedWidth(320);
+
+    QVBoxLayout *leftLayout = new QVBoxLayout(leftPanel);
+    leftLayout->setContentsMargins(20, 20, 20, 20);
+    leftLayout->setSpacing(12);
+
+    QLabel *leftTitle = new QLabel("申请修改个人信息", leftPanel);
+    leftTitle->setStyleSheet("font-size: 16px; font-weight: bold; color: #1d4ed8; border: none; background: transparent;");
+    leftLayout->addWidget(leftTitle);
+
+    QLabel *fieldLabel = new QLabel("修改字段", leftPanel);
+    fieldLabel->setStyleSheet("font-size: 13px; font-weight: bold; color: #475569; border: none; background: transparent;");
+    leftLayout->addWidget(fieldLabel);
+
+    m_fieldCombo = new QComboBox(leftPanel);
+    m_fieldCombo->addItem("📞 联系电话", "phone");
+    m_fieldCombo->addItem("🎓 学历", "education");
+    m_fieldCombo->addItem("💍 婚姻状况", "marital_status");
+    m_fieldCombo->setStyleSheet(
+        "QComboBox {"
+        "  border: 1px solid #cbd5e1;"
+        "  border-radius: 6px;"
+        "  padding: 8px 12px;"
+        "  font-size: 13px;"
+        "  color: #1e293b;"
+        "  background-color: #ffffff;"
+        "}"
+        "QComboBox:hover {"
+        "  border: 1px solid #3b82f6;"
+        "}"
+    );
+    leftLayout->addWidget(m_fieldCombo);
+
+    QLabel *newValueLabel = new QLabel("新值", leftPanel);
+    newValueLabel->setStyleSheet("font-size: 13px; font-weight: bold; color: #475569; border: none; background: transparent;");
+    leftLayout->addWidget(newValueLabel);
+
+    QWidget *inputContainer = new QWidget(leftPanel);
+    inputContainer->setObjectName("inputContainer");
+    inputContainer->setStyleSheet(
+        "QWidget#inputContainer {"
+        "  border: 1px solid #cbd5e1;"
+        "  border-radius: 6px;"
+        "  background-color: #ffffff;"
+        "}"
+        "QWidget#inputContainer:hover {"
+        "  border: 1px solid #3b82f6;"
+        "}"
+    );
+    QHBoxLayout *inputLayout = new QHBoxLayout(inputContainer);
+    inputLayout->setContentsMargins(10, 4, 10, 4);
+    inputLayout->setSpacing(6);
+
+    QLabel *inputIconLabel = new QLabel("📞", inputContainer);
+    inputIconLabel->setStyleSheet("font-size: 14px; border: none; background: transparent;");
+    inputLayout->addWidget(inputIconLabel);
+
+    m_newValueEdit = new QLineEdit(inputContainer);
+    m_newValueEdit->setObjectName("newValueEdit");
+    m_newValueEdit->setPlaceholderText("请输入新的电话号码");
+    m_newValueEdit->setStyleSheet(
+        "QLineEdit#newValueEdit {"
+        "  border: none;"
+        "  background: transparent;"
+        "  font-size: 13px;"
+        "  color: #1e293b;"
+        "  padding: 4px 0px;"
+        "}"
+    );
+    inputLayout->addWidget(m_newValueEdit, 1);
+    leftLayout->addWidget(inputContainer);
+
+    QLabel *reasonLabel = new QLabel("理由", leftPanel);
+    reasonLabel->setStyleSheet("font-size: 13px; font-weight: bold; color: #475569; border: none; background: transparent;");
+    leftLayout->addWidget(reasonLabel);
+
+    m_reasonEdit = new QTextEdit(leftPanel);
+    m_reasonEdit->setObjectName("reasonEdit");
+    m_reasonEdit->setPlaceholderText("申请理由 (必填)");
+    m_reasonEdit->setStyleSheet(
+        "QTextEdit#reasonEdit {"
+        "  border: 1px solid #cbd5e1;"
+        "  border-radius: 6px;"
+        "  padding: 8px 12px;"
+        "  font-size: 13px;"
+        "  color: #1e293b;"
+        "  background-color: #ffffff;"
+        "}"
+        "QTextEdit#reasonEdit:focus {"
+        "  border: 1px solid #3b82f6;"
+        "}"
+    );
+    leftLayout->addWidget(m_reasonEdit);
+
+    connect(m_fieldCombo, &QComboBox::currentIndexChanged, this, [inputIconLabel, this](int index) {
+        if (index == 0) {
+            inputIconLabel->setText("📞");
+            m_newValueEdit->setPlaceholderText("请输入新的电话号码");
+        } else if (index == 1) {
+            inputIconLabel->setText("🎓");
+            m_newValueEdit->setPlaceholderText("请输入新的学历 (如：硕士)");
+        } else if (index == 2) {
+            inputIconLabel->setText("💍");
+            m_newValueEdit->setPlaceholderText("请输入新的婚姻状况 (如：已婚)");
+        }
+    });
+
+    auto *btnSubmitLayout = new QHBoxLayout;
+    btnSubmitLayout->setContentsMargins(0, 0, 0, 0);
+    btnSubmitLayout->addStretch();
+
+    QPushButton *btnSubmit = new QPushButton("提交申请", leftPanel);
+    btnSubmit->setObjectName("btnSubmit");
+    btnSubmit->setStyleSheet(
+        "QPushButton#btnSubmit {"
+        "  background-color: #2563eb;"
+        "  color: #ffffff;"
+        "  border: none;"
+        "  border-radius: 6px;"
+        "  padding: 8px 20px;"
+        "  font-size: 13px;"
+        "  font-weight: bold;"
+        "}"
+        "QPushButton#btnSubmit:hover {"
+        "  background-color: #1d4ed8;"
+        "}"
+        "QPushButton#btnSubmit:pressed {"
+        "  background-color: #1e40af;"
+        "}"
+    );
+    btnSubmitLayout->addWidget(btnSubmit);
+    leftLayout->addLayout(btnSubmitLayout);
+
+    connect(btnSubmit, &QPushButton::clicked, this, &ProfileChangeTab::submitRequest);
+
+    mainLayout->addWidget(leftPanel);
+
+    // Right Panel: History and Management table
+    QFrame *rightPanel = new QFrame(this);
+    rightPanel->setObjectName("rightPanel");
+    rightPanel->setStyleSheet(
+        "QFrame#rightPanel {"
+        "  background-color: #ffffff;"
+        "  border: 1px solid #e2e8f0;"
+        "  border-radius: 10px;"
+        "}"
+    );
+    QVBoxLayout *rightLayout = new QVBoxLayout(rightPanel);
+    rightLayout->setContentsMargins(20, 20, 20, 20);
+    rightLayout->setSpacing(15);
+
+    QLabel *rightTitle = new QLabel("历史申请记录", rightPanel);
+    rightTitle->setStyleSheet("font-size: 16px; font-weight: bold; color: #0f172a; border: none; background: transparent;");
+    rightLayout->addWidget(rightTitle);
+
+    m_table = new QTableView(rightPanel);
     m_table->setModel(m_model);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_table->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_table->setShowGrid(false);
+    m_table->setAlternatingRowColors(false);
+    m_table->verticalHeader()->setVisible(false);
+    m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    m_table->horizontalHeader()->setStyleSheet(
+        "QHeaderView::section {"
+        "  background-color: #f1f5f9;"
+        "  color: #475569;"
+        "  padding: 8px;"
+        "  border: none;"
+        "  font-weight: bold;"
+        "  border-bottom: 2px solid #e2e8f0;"
+        "}"
+    );
+    m_table->setStyleSheet(
+        "QTableView {"
+        "  border: none;"
+        "  background-color: #ffffff;"
+        "  gridline-color: #f1f5f9;"
+        "  selection-background-color: #f1f5f9;"
+        "  selection-color: #0f172a;"
+        "}"
+        "QTableView::item {"
+        "  padding: 8px;"
+        "  border-bottom: 1px solid #f1f5f9;"
+        "}"
+    );
+    m_table->setItemDelegate(new ProfileChangeDelegate(m_table));
+    rightLayout->addWidget(m_table, 1);
 
-    auto *layout = new QVBoxLayout(this);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->addWidget(m_table, 1);
-
-    // 申请面板（普通员工使用）
-    auto *panel = new QGroupBox("申请修改个人信息");
-    auto *form = new QFormLayout(panel);
-
-    m_fieldCombo = new QComboBox;
-    m_fieldCombo->addItem("联系电话", "phone");
-    m_fieldCombo->addItem("学历", "education");
-    m_fieldCombo->addItem("婚姻状况", "marital_status");
-    form->addRow("修改字段:", m_fieldCombo);
-
-    m_newValueEdit = new QLineEdit;
-    m_newValueEdit->setPlaceholderText("请输入新的值");
-    form->addRow("新值:", m_newValueEdit);
-
-    m_reasonEdit = new QLineEdit;
-    m_reasonEdit->setPlaceholderText("申请理由（必填）");
-    form->addRow("理由:", m_reasonEdit);
-
-    auto *btnSubmit = new QPushButton("提交申请");
-    form->addRow(btnSubmit);
-    connect(btnSubmit, &QPushButton::clicked, this, &ProfileChangeTab::submitRequest);
-
-    // 审批按钮行
-    auto *approveWidget = new QWidget;
+    // Approval row
+    auto *approveWidget = new QWidget(rightPanel);
     auto *approveRow = new QHBoxLayout(approveWidget);
     approveRow->setContentsMargins(0, 0, 0, 0);
-    m_btnApprove = new QPushButton("同意");
-    m_btnReject = new QPushButton("拒绝");
+    approveRow->setSpacing(10);
+
+    m_btnApprove = new QPushButton("同意", approveWidget);
+    m_btnApprove->setStyleSheet(
+        "QPushButton {"
+        "  background-color: #22c55e;"
+        "  color: #ffffff;"
+        "  border: none;"
+        "  border-radius: 6px;"
+        "  padding: 8px 20px;"
+        "  font-size: 13px;"
+        "  font-weight: bold;"
+        "}"
+        "QPushButton:hover {"
+        "  background-color: #16a34a;"
+        "}"
+        "QPushButton:pressed {"
+        "  background-color: #15803d;"
+        "}"
+        "QPushButton:disabled {"
+        "  background-color: #f1f5f9;"
+        "  color: #94a3b8;"
+        "  border: 1px solid #e2e8f0;"
+        "}"
+    );
+
+    m_btnReject = new QPushButton("拒绝", approveWidget);
+    m_btnReject->setStyleSheet(
+        "QPushButton {"
+        "  background-color: #ef4444;"
+        "  color: #ffffff;"
+        "  border: none;"
+        "  border-radius: 6px;"
+        "  padding: 8px 20px;"
+        "  font-size: 13px;"
+        "  font-weight: bold;"
+        "}"
+        "QPushButton:hover {"
+        "  background-color: #dc2626;"
+        "}"
+        "QPushButton:pressed {"
+        "  background-color: #b91c1c;"
+        "}"
+        "QPushButton:disabled {"
+        "  background-color: #f1f5f9;"
+        "  color: #94a3b8;"
+        "  border: 1px solid #e2e8f0;"
+        "}"
+    );
+
     approveRow->addStretch();
     approveRow->addWidget(m_btnApprove);
     approveRow->addWidget(m_btnReject);
+    rightLayout->addWidget(approveWidget);
+
+    mainLayout->addWidget(rightPanel, 1);
 
     if (!SessionManager::instance()->hasPermission("approve_profile_change")) {
         approveWidget->setVisible(false);
@@ -106,11 +419,8 @@ ProfileChangeTab::ProfileChangeTab(int empId, const QString &role,
         }
     });
 
-    layout->addWidget(panel);
-    layout->addWidget(approveWidget);
-
     if (!SessionManager::instance()->hasPermission("request_profile_change")) {
-        panel->setVisible(false);
+        leftPanel->setVisible(false);
     }
 
     connect(m_btnApprove, &QPushButton::clicked, this, &ProfileChangeTab::approve);
@@ -123,8 +433,11 @@ void ProfileChangeTab::submitRequest()
 {
     QString field = m_fieldCombo->currentData().toString();
     QString fieldName = m_fieldCombo->currentText();
+    if (fieldName.startsWith("📞 ") || fieldName.startsWith("🎓 ") || fieldName.startsWith("💍 ")) {
+        fieldName = fieldName.mid(2);
+    }
     QString nv = m_newValueEdit->text().trimmed();
-    QString reason = m_reasonEdit->text().trimmed();
+    QString reason = m_reasonEdit->toPlainText().trimmed();
     if (nv.isEmpty() || reason.isEmpty()) { Toast::show(this, "新值和理由不能为空", Toast::Warning); return; }
 
     QSqlQuery q;
@@ -204,4 +517,3 @@ void ProfileChangeTab::refresh()
 {
     m_model->select();
 }
-

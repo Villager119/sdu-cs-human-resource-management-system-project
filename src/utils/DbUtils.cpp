@@ -292,6 +292,21 @@ bool initDatabaseSchema()
         }
     }
 
+    // 17. Migration: check if status and evaluator columns exist in performance_scores
+    {
+        QSqlQuery ck;
+        if (ck.exec("SHOW COLUMNS FROM performance_scores LIKE 'status'") && !ck.next()) {
+            if (!ck.exec("ALTER TABLE performance_scores ADD COLUMN status VARCHAR(20) DEFAULT '已发布'")) {
+                qDebug() << "Failed to add status column to performance_scores:" << ck.lastError().text();
+            }
+        }
+        if (ck.exec("SHOW COLUMNS FROM performance_scores LIKE 'evaluator'") && !ck.next()) {
+            if (!ck.exec("ALTER TABLE performance_scores ADD COLUMN evaluator VARCHAR(50) DEFAULT '系统管理员'")) {
+                qDebug() << "Failed to add evaluator column to performance_scores:" << ck.lastError().text();
+            }
+        }
+    }
+
     db.commit();
     qDebug() << "Database schema initialized successfully.";
     return true;

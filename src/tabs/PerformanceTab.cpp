@@ -522,6 +522,7 @@ PerformanceTab::PerformanceTab(int empId, const QString &role,
     while (eq.next()) {
         m_empCombo->addItem(createAvatarIcon(eq.value(1).toString()), eq.value(1).toString(), eq.value(0).toInt());
     }
+    eq.finish();
 
     // Connect filters
     connect(m_monthFilter, &QComboBox::currentIndexChanged, this, &PerformanceTab::filterScores);
@@ -677,10 +678,14 @@ void PerformanceTab::submitScore()
     ck.prepare("SELECT COUNT(*) FROM performance_scores WHERE emp_id=? AND eval_month=?");
     ck.addBindValue(eid); 
     ck.addBindValue(month); 
-    ck.exec();
+    bool exists = false;
+    if (ck.exec() && ck.next() && ck.value(0).toInt() > 0) {
+        exists = true;
+    }
+    ck.finish();
     
     QSqlQuery q;
-    if (ck.next() && ck.value(0).toInt() > 0) {
+    if (exists) {
         q.prepare("UPDATE performance_scores SET attitude=?, capability=?, teamwork=?, innovation=?, score=?, comment=?, status='已发布', evaluator=?, created_at=NOW() WHERE emp_id=? AND eval_month=?");
         q.addBindValue(a1); q.addBindValue(a2); q.addBindValue(a3); q.addBindValue(a4);
         q.addBindValue(total); q.addBindValue(comment); q.addBindValue(evaluator);

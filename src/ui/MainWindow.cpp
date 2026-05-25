@@ -222,9 +222,9 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
     refreshBell();
 
     QMenu *sm = ui->menubar->addMenu("系统");
-    sm->addAction("修改密码", this, &MainWindow::on_actionChangePassword_triggered);
+    sm->addAction("修改密码", this, &MainWindow::actionChangePasswordTriggered);
     sm->addSeparator();
-    sm->addAction("退出登录", this, &MainWindow::on_actionLogout_triggered);
+    sm->addAction("退出登录", this, &MainWindow::actionLogoutTriggered);
 
     connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_dashboard, &DashboardTab::refresh);
     connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_empTab, &EmployeeTab::refresh);
@@ -350,7 +350,15 @@ void MainWindow::notifyUser(int empId, const QString &title, const QString &cont
 void MainWindow::notifyAdmins(const QString &title, const QString &content)
 {
     QSqlQuery q("SELECT emp_id FROM employees WHERE role='admin' AND status='在职'");
-    while (q.next()) notifyUser(q.value(0).toInt(), title, content);
+    QList<int> empIds;
+    while (q.next()) {
+        empIds.append(q.value(0).toInt());
+    }
+    q.finish();
+
+    for (int eid : empIds) {
+        notifyUser(eid, title, content);
+    }
 }
 
 void MainWindow::notifyPermittedUsers(const QString &permissionKey, const QString &title, const QString &content)
@@ -470,7 +478,7 @@ void MainWindow::showNotifications()
     }
 }
 
-void MainWindow::on_actionChangePassword_triggered()
+void MainWindow::actionChangePasswordTriggered()
 {
     ChangePasswordDialog dlg(this);
     if (dlg.exec() != QDialog::Accepted) return;
@@ -485,7 +493,7 @@ void MainWindow::on_actionChangePassword_triggered()
     else QMessageBox::critical(this,"失败","密码更新失败: "+q.lastError().text());
 }
 
-void MainWindow::on_actionLogout_triggered()
+void MainWindow::actionLogoutTriggered()
 {
     logAction("退出登录");
 

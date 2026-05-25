@@ -22,8 +22,8 @@ public:
     ~MainWindow();
 
 private slots:
-    void on_actionChangePassword_triggered();
-    void on_actionLogout_triggered();
+    void actionChangePasswordTriggered();
+    void actionLogoutTriggered();
 
 private:
     void logAction(const QString &action, const QString &target = QString());

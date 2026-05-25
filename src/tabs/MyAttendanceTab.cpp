@@ -627,6 +627,7 @@ void MyAttendanceTab::refresh()
         shiftStart = sq.value(0).toString().left(5);
         shiftEnd = sq.value(1).toString().left(5);
     }
+    sq.finish();
 
     // Today's Clock Status
     QSqlQuery q;

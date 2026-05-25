@@ -78,6 +78,7 @@ EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> log
         QStringList roles;
         QSqlQuery rq("SELECT role_name FROM roles ORDER BY role_id");
         while (rq.next()) roles.append(rq.value(0).toString());
+        rq.finish();
         if (roles.isEmpty()) roles << "admin" << "user";
         m_table->setItemDelegateForColumn(m_idxRole, new ComboDelegate(roles, this));
     }
@@ -97,6 +98,7 @@ EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> log
         QStringList depts;
         QSqlQuery dq("SELECT dept_name FROM departments ORDER BY dept_id");
         while (dq.next()) depts.append(dq.value(0).toString());
+        dq.finish();
         m_table->setItemDelegateForColumn(m_idxDept, new ComboDelegate(depts, this));
     }
 
@@ -181,9 +183,9 @@ EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> log
     btnRow->addWidget(btnCSV, 0, 5);
     layout->addLayout(btnRow);
 
-    // 填充部门下拉
     QSqlQuery dq("SELECT dept_name FROM departments ORDER BY dept_id");
     while (dq.next()) m_deptCombo->addItem(dq.value(0).toString());
+    dq.finish();
 
     // 选择变化更新按钮状态
     connect(m_table->selectionModel(), &QItemSelectionModel::selectionChanged,
@@ -504,6 +506,7 @@ void EmployeeTab::refresh()
     m_deptCombo->addItem("全部部门");
     QSqlQuery dq("SELECT dept_name FROM departments ORDER BY dept_id");
     while (dq.next()) m_deptCombo->addItem(dq.value(0).toString());
+    dq.finish();
     int idx = m_deptCombo->findText(curDept);
     m_deptCombo->setCurrentIndex(idx >= 0 ? idx : 0);
     m_deptCombo->blockSignals(false);
@@ -512,6 +515,7 @@ void EmployeeTab::refresh()
         QStringList depts;
         QSqlQuery dq2("SELECT dept_name FROM departments ORDER BY dept_id");
         while (dq2.next()) depts.append(dq2.value(0).toString());
+        dq2.finish();
         m_table->setItemDelegateForColumn(m_idxDept, new ComboDelegate(depts, this));
     }
 
@@ -519,6 +523,7 @@ void EmployeeTab::refresh()
         QStringList roles;
         QSqlQuery rq3("SELECT role_name FROM roles ORDER BY role_id");
         while (rq3.next()) roles.append(rq3.value(0).toString());
+        rq3.finish();
         if (roles.isEmpty()) roles << "admin" << "user";
         m_table->setItemDelegateForColumn(m_idxRole, new ComboDelegate(roles, this));
     }

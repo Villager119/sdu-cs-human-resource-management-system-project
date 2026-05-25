@@ -375,6 +375,7 @@ void DashboardTab::refresh()
             m_alertLabel->setVisible(false);
         }
     }
+    q.finish();
 
     // Dynamic Chart rendering
     m_isAdmin = SessionManager::instance()->hasPermission("view_reports");
@@ -450,6 +451,7 @@ void DashboardTab::refreshChart()
         if (series->isEmpty()) {
             series->append("无打卡记录", 1);
         }
+        aq.finish();
 
         series->setLabelsVisible(true);
         series->setLabelsPosition(QPieSlice::LabelOutside);
@@ -693,5 +695,6 @@ void DashboardTab::refreshChart()
     }
 
     m_chartView->setChart(chart);
+    q.finish();
     delete old;
 }

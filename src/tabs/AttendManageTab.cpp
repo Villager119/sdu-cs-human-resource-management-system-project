@@ -19,6 +19,7 @@
 #include <QPainter>
 #include <QDialog>
 #include <QFileDialog>
+#include <QTimeEdit>
 
 // Status badges
 class ManageAttendanceStatusDelegate : public QStyledItemDelegate
@@ -312,8 +313,12 @@ AttendManageTab::AttendManageTab(int empId, const QString &role,
         "}"
     );
 
+    m_shiftStartEdit = nullptr;
+    m_shiftEndEdit = nullptr;
+
     topTabs->addTab(createBoardWidget(), "📊 考勤看板");
     topTabs->addTab(createApprovalCenterWidget(), "✍ 审批中心");
+    topTabs->addTab(createShiftSettingsWidget(), "⚙ 班次设置");
 
     mainLayout->addWidget(topTabs);
 
@@ -592,6 +597,85 @@ QWidget *AttendManageTab::createApprovalCenterWidget()
     return m_approvalTabs;
 }
 
+QWidget *AttendManageTab::createShiftSettingsWidget()
+{
+    QWidget *w = new QWidget(this);
+    auto *l = new QVBoxLayout(w);
+    l->setContentsMargins(15, 15, 15, 15);
+    l->setSpacing(15);
+
+    QFrame *panel = new QFrame(w);
+    panel->setObjectName("shiftSettingsPanel");
+    panel->setStyleSheet(
+        "QFrame#shiftSettingsPanel {"
+        "  background-color: #ffffff;"
+        "  border: 1px solid #e2e8f0;"
+        "  border-radius: 10px;"
+        "}"
+    );
+    panel->setFixedWidth(400);
+
+    auto *panelLayout = new QVBoxLayout(panel);
+    panelLayout->setContentsMargins(20, 20, 20, 20);
+    panelLayout->setSpacing(15);
+
+    QLabel *title = new QLabel("标准班次工作时间设置", panel);
+    title->setStyleSheet("font-size: 15px; font-weight: bold; color: #1d4ed8; border: none; background: transparent;");
+    panelLayout->addWidget(title);
+
+    panelLayout->addWidget(new QLabel("上班打卡时间:", panel));
+    m_shiftStartEdit = new QTimeEdit(panel);
+    m_shiftStartEdit->setDisplayFormat("HH:mm");
+    m_shiftStartEdit->setStyleSheet(
+        "QTimeEdit {"
+        "  border: 1px solid #cbd5e1;"
+        "  border-radius: 6px;"
+        "  padding: 6px 10px;"
+        "  font-size: 13px;"
+        "}"
+        "QTimeEdit:focus { border: 1px solid #3b82f6; }"
+    );
+    panelLayout->addWidget(m_shiftStartEdit);
+
+    panelLayout->addWidget(new QLabel("下班打卡时间:", panel));
+    m_shiftEndEdit = new QTimeEdit(panel);
+    m_shiftEndEdit->setDisplayFormat("HH:mm");
+    m_shiftEndEdit->setStyleSheet(
+        "QTimeEdit {"
+        "  border: 1px solid #cbd5e1;"
+        "  border-radius: 6px;"
+        "  padding: 6px 10px;"
+        "  font-size: 13px;"
+        "}"
+        "QTimeEdit:focus { border: 1px solid #3b82f6; }"
+    );
+    panelLayout->addWidget(m_shiftEndEdit);
+
+    auto *btnRow = new QHBoxLayout;
+    btnRow->addStretch();
+    QPushButton *btnSave = new QPushButton("保存设置", panel);
+    btnSave->setStyleSheet(
+        "QPushButton {"
+        "  background-color: #2563eb;"
+        "  color: white;"
+        "  border: none;"
+        "  border-radius: 6px;"
+        "  padding: 8px 20px;"
+        "  font-weight: bold;"
+        "}"
+        "QPushButton:hover { background-color: #1d4ed8; }"
+    );
+    btnRow->addWidget(btnSave);
+    panelLayout->addLayout(btnRow);
+
+    connect(btnSave, &QPushButton::clicked, this, &AttendManageTab::saveShiftSettings);
+
+    l->addWidget(panel);
+    l->addStretch(1);
+
+    return w;
+}
+
 void AttendManageTab::refresh()
 {
     filterAttendance();
@@ -601,6 +685,15 @@ void AttendManageTab::refresh()
 
     m_makeupModel->setFilter("makeup_requests.status = '待审批'");
     m_makeupModel->select();
+
+    // Load shift times for the shift configuration tab
+    QSqlQuery sq("SELECT start_time, end_time FROM shifts WHERE shift_id = 1");
+    if (sq.exec() && sq.next()) {
+        QTime start = QTime::fromString(sq.value(0).toString(), "HH:mm:ss");
+        QTime end = QTime::fromString(sq.value(1).toString(), "HH:mm:ss");
+        if (m_shiftStartEdit) m_shiftStartEdit->setTime(start);
+        if (m_shiftEndEdit) m_shiftEndEdit->setTime(end);
+    }
 }
 
 void AttendManageTab::filterAttendance()
@@ -742,4 +835,28 @@ void AttendManageTab::openMakeupApproval()
 
     refresh();
     GlobalEvents::instance()->dataChanged();
+}
+
+void AttendManageTab::saveShiftSettings()
+{
+    QTime start = m_shiftStartEdit->time();
+    QTime end = m_shiftEndEdit->time();
+
+    if (start >= end) {
+        Toast::show(this, "下班时间不能早于或等于上班时间", Toast::Warning);
+        return;
+    }
+
+    QSqlQuery q;
+    q.prepare("UPDATE shifts SET start_time = ?, end_time = ? WHERE shift_id = 1");
+    q.addBindValue(start.toString("HH:mm:ss"));
+    q.addBindValue(end.toString("HH:mm:ss"));
+
+    if (q.exec()) {
+        m_log("修改工作时间", QString("上班: %1, 下班: %2").arg(start.toString("HH:mm"), end.toString("HH:mm")));
+        Toast::show(this, "工作时间设置已更新", Toast::Success);
+        GlobalEvents::instance()->dataChanged();
+    } else {
+        QMessageBox::critical(this, "错误", "更新工作时间失败: " + q.lastError().text());
+    }
 }

@@ -12,6 +12,8 @@
 #include <QTabWidget>
 #include <functional>
 
+class QTimeEdit;
+
 class AttendManageTab : public QWidget
 {
     Q_OBJECT
@@ -28,6 +30,7 @@ private slots:
     void exportCsv();
     void openLeaveApproval();
     void openMakeupApproval();
+    void saveShiftSettings();
 
 private:
     int m_empId;
@@ -53,8 +56,13 @@ private:
     QPushButton *m_btnApproveLeave;
     QPushButton *m_btnApproveMakeup;
 
+    // Shift settings
+    QTimeEdit *m_shiftStartEdit;
+    QTimeEdit *m_shiftEndEdit;
+
     QWidget *createBoardWidget();
     QWidget *createApprovalCenterWidget();
+    QWidget *createShiftSettingsWidget();
 };
 
 #endif // ATTENDMANAGETAB_H

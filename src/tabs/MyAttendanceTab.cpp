@@ -619,6 +619,15 @@ QWidget *MyAttendanceTab::createAppCenterWidget()
 
 void MyAttendanceTab::refresh()
 {
+    // Fetch standard shift start and end times dynamically
+    QSqlQuery sq("SELECT start_time, end_time FROM shifts WHERE shift_id = 1");
+    QString shiftStart = "09:00";
+    QString shiftEnd = "18:00";
+    if (sq.exec() && sq.next()) {
+        shiftStart = sq.value(0).toString().left(5);
+        shiftEnd = sq.value(1).toString().left(5);
+    }
+
     // Today's Clock Status
     QSqlQuery q;
     q.prepare("SELECT clock_in, clock_out, status FROM attendances WHERE emp_id = ? AND att_date = ?");
@@ -646,8 +655,8 @@ void MyAttendanceTab::refresh()
             m_btnClockOut->setText("下班打卡");
         }
         
-        m_lblStatus->setText(QString("今日考勤状态: %1 (上班: %2 | 下班: %3)")
-            .arg(status, 
+        m_lblStatus->setText(QString("今日排班: 标准班 (%1 - %2) | 考勤状态: %3 (上班: %4 | 下班: %5)")
+            .arg(shiftStart, shiftEnd, status, 
                  clockInTime.isEmpty() ? "未打卡" : clockInTime.left(5),
                  clockOutTime.isEmpty() ? "未打卡" : clockOutTime.left(5)));
     } else {
@@ -655,7 +664,7 @@ void MyAttendanceTab::refresh()
         m_btnClockIn->setText("上班打卡");
         m_btnClockOut->setEnabled(true);
         m_btnClockOut->setText("下班打卡");
-        m_lblStatus->setText("今日考勤状态: 未打卡");
+        m_lblStatus->setText(QString("今日排班: 标准班 (%1 - %2) | 考勤状态: 未打卡").arg(shiftStart, shiftEnd));
     }
 
     // Tables selection

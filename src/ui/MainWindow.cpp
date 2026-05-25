@@ -230,6 +230,8 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
     connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_empTab, &EmployeeTab::refresh);
     connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_orgTab, &OrgTab::refresh);
     connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_payrollTab, &PayrollTab::refresh);
+    connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_myAttendTab, &MyAttendanceTab::refresh);
+    connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_attendManageTab, &AttendManageTab::refresh);
     connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, this, []() {
         SessionManager::instance()->reloadPermissions();
     });

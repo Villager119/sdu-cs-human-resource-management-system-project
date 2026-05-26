@@ -120,7 +120,10 @@ void PayrollTab::calculate()
     double wd = 21.75;
     {
         QSqlQuery sq; sq.exec("SELECT value FROM system_settings WHERE key_name='work_days_per_month'");
-        if (sq.next()) wd = sq.value(0).toDouble();
+        if (sq.next()) {
+            double temp = sq.value(0).toDouble();
+            if (temp > 0) wd = temp;
+        }
     }
     struct TaxItem { QString name; double rate; };
     QList<TaxItem> taxItems;
@@ -138,24 +141,46 @@ void PayrollTab::calculate()
     QSqlDatabase db = QSqlDatabase::database();
     db.transaction();
 
-    QSqlQuery emp("SELECT emp_id, base_salary FROM employees WHERE status='在职'");
+    struct ActiveEmp {
+        int emp_id;
+        double base_salary;
+    };
+    QList<ActiveEmp> activeEmployees;
+    {
+        QSqlQuery emp("SELECT emp_id, base_salary FROM employees WHERE status='在职'");
+        while (emp.next()) {
+            activeEmployees.append({emp.value(0).toInt(), emp.value(1).toDouble()});
+        }
+    } // QSqlQuery emp goes out of scope and frees the connection statement handle here
+
     int ok = 0;
-    while (emp.next()) {
-        int eid = emp.value("emp_id").toInt();
-        double bs = emp.value("base_salary").toDouble();
-        QSqlQuery lv; lv.prepare("SELECT SUM(DATEDIFF(end_date, start_date)+1) FROM leave_requests WHERE emp_id=? AND status='已同意' AND start_date LIKE ?");
-        lv.addBindValue(eid); lv.addBindValue(month + "%"); lv.exec();
-        int days = (lv.next()) ? lv.value(0).toInt() : 0;
+    for (const auto &emp : activeEmployees) {
+        int eid = emp.emp_id;
+        double bs = emp.base_salary;
+        int days = 0;
+        {
+            QSqlQuery lv;
+            lv.prepare("SELECT SUM(DATEDIFF(end_date, start_date)+1) FROM leave_requests WHERE emp_id=? AND status='已同意' AND start_date LIKE ?");
+            lv.addBindValue(eid); lv.addBindValue(month + "%");
+            if (lv.exec() && lv.next()) {
+                days = lv.value(0).toInt();
+            }
+        }
         double ded = (bs / wd) * days;
+
         // 绩效奖金：>=90 分 10%，>=70 分 5%
         double perf = 0.0;
-        QSqlQuery pq; pq.prepare("SELECT score FROM performance_scores WHERE emp_id=? AND eval_month=?");
-        pq.addBindValue(eid); pq.addBindValue(month); pq.exec();
-        if (pq.next()) {
-            double s = pq.value(0).toDouble();
-            if (s >= 90) perf = bs * 0.10;
-            else if (s >= 70) perf = bs * 0.05;
+        {
+            QSqlQuery pq;
+            pq.prepare("SELECT score FROM performance_scores WHERE emp_id=? AND eval_month=?");
+            pq.addBindValue(eid); pq.addBindValue(month);
+            if (pq.exec() && pq.next()) {
+                double s = pq.value(0).toDouble();
+                if (s >= 90) perf = bs * 0.10;
+                else if (s >= 70) perf = bs * 0.05;
+            }
         }
+
         // 五险一金
         double pension = 0, medical = 0, unemployment = 0, housing = 0;
         for (const auto &ti : taxItems) {
@@ -175,14 +200,21 @@ void PayrollTab::calculate()
         if (tax < 0) tax = 0;
 
         double net = bs - ded + perf - pension - medical - unemployment - housing - tax;
-        QSqlQuery ins; ins.prepare("INSERT INTO payroll(emp_id,month,base_salary,leave_deduction,performance_bonus,pension,medical,unemployment,housing_fund,income_tax,net_salary,issue_date) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)");
-        ins.addBindValue(eid); ins.addBindValue(month); ins.addBindValue(bs);
-        ins.addBindValue(ded); ins.addBindValue(perf);
-        ins.addBindValue(pension); ins.addBindValue(medical); ins.addBindValue(unemployment); ins.addBindValue(housing); ins.addBindValue(tax);
-        ins.addBindValue(net); ins.addBindValue(today);
-        if (!ins.exec()) {
+        bool insOk = false;
+        QString insErr;
+        {
+            QSqlQuery ins;
+            ins.prepare("INSERT INTO payroll(emp_id,month,base_salary,leave_deduction,performance_bonus,pension,medical,unemployment,housing_fund,income_tax,net_salary,issue_date) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)");
+            ins.addBindValue(eid); ins.addBindValue(month); ins.addBindValue(bs);
+            ins.addBindValue(ded); ins.addBindValue(perf);
+            ins.addBindValue(pension); ins.addBindValue(medical); ins.addBindValue(unemployment); ins.addBindValue(housing); ins.addBindValue(tax);
+            ins.addBindValue(net); ins.addBindValue(today);
+            insOk = ins.exec();
+            if (!insOk) insErr = ins.lastError().text();
+        }
+        if (!insOk) {
             db.rollback();
-            QMessageBox::critical(this, "核算失败", "写入工资条时出错: " + ins.lastError().text());
+            QMessageBox::critical(this, "核算失败", "写入工资条时出错: " + insErr);
             return;
         }
         ok++;
@@ -198,7 +230,7 @@ void PayrollTab::exportCSV()
 {
     QString path = QFileDialog::getSaveFileName(this, "导出工资表", "薪酬数据.csv", "CSV文件 (*.csv)");
     if (path.isEmpty()) return;
-    exportModelToCSV(m_model, path);
+    exportModelToCSVAsync(m_model, path, this);
 }
 
 void PayrollTab::refresh()
@@ -229,9 +261,11 @@ void PayrollTab::refreshMonthCombo()
     m_monthCombo->clear();
     m_monthCombo->addItem("全部月份");
     
-    QSqlQuery q("SELECT DISTINCT month FROM payroll ORDER BY month DESC");
-    while (q.next()) {
-        m_monthCombo->addItem(q.value(0).toString());
+    {
+        QSqlQuery q("SELECT DISTINCT month FROM payroll ORDER BY month DESC");
+        while (q.next()) {
+            m_monthCombo->addItem(q.value(0).toString());
+        }
     }
     
     int idx = m_monthCombo->findText(curMonth);

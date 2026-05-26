@@ -7,6 +7,7 @@
 #include <QFileInfo>
 #include <QFile>
 #include <QTextStream>
+#include <QTimer>
 #include "ui/LoginWindow.h"
 #include "utils/DbUtils.h"
 #include "core/Logger.h"
@@ -67,6 +68,10 @@ int main(int argc, char *argv[]) {
     loginWin.setConfigPath(configPath);
     loginWin.setDbConnected(dbOk);
     loginWin.show();
+
+    if (app.arguments().contains("--test")) {
+        QTimer::singleShot(10000, &app, &QCoreApplication::quit);
+    }
 
     return app.exec();
 }

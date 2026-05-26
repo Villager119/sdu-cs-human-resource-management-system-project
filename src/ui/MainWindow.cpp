@@ -217,7 +217,17 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
     m_pollTimer = new QTimer(this);
     m_pollTimer->setInterval(5000); // 5 seconds polling
     connect(m_pollTimer, &QTimer::timeout, this, &MainWindow::refreshBell);
+    connect(m_pollTimer, &QTimer::timeout, this, &MainWindow::checkAuditLogs);
     m_pollTimer->start();
+
+    // Initialize the last processed log_id
+    {
+        QSqlQuery q("SELECT MAX(log_id) FROM audit_logs");
+        if (q.next()) {
+            m_lastMaxLogId = q.value(0).toInt();
+        }
+        q.finish();
+    }
 
     refreshBell();
 
@@ -323,7 +333,14 @@ void MainWindow::refreshActiveTab()
 void MainWindow::logAction(const QString &action, const QString &target)
 {
     QSqlQuery q; q.prepare("INSERT INTO audit_logs(emp_id,emp_name,action,target,log_time) VALUES(?,?,?,?,NOW())");
-    q.addBindValue(m_empId); q.addBindValue(m_empName); q.addBindValue(action); q.addBindValue(target); q.exec();
+    q.addBindValue(m_empId); q.addBindValue(m_empName); q.addBindValue(action); q.addBindValue(target);
+    if (q.exec()) {
+        qlonglong lastId = q.lastInsertId().toLongLong();
+        if (lastId > m_lastMaxLogId) {
+            m_lastMaxLogId = lastId;
+        }
+    }
+    q.finish();
     emit GlobalEvents::instance()->auditRefresh();
 }
 
@@ -342,8 +359,10 @@ void MainWindow::notifyUser(int empId, const QString &title, const QString &cont
         }
         return;
     }
-    QSqlQuery q; q.prepare("INSERT INTO notifications(emp_id,title,content) VALUES(?,?,?)");
-    q.addBindValue(empId); q.addBindValue(title); q.addBindValue(content); q.exec();
+    {
+        QSqlQuery q; q.prepare("INSERT INTO notifications(emp_id,title,content) VALUES(?,?,?)");
+        q.addBindValue(empId); q.addBindValue(title); q.addBindValue(content); q.exec();
+    }
     if (empId == m_empId) refreshBell();
 }
 
@@ -376,6 +395,7 @@ void MainWindow::notifyPermittedUsers(const QString &permissionKey, const QStrin
     while (q.next()) {
         empIds.append(q.value(0).toInt());
     }
+    q.finish();
 
     // Always include admin as backup
     QSqlQuery qAdmin("SELECT emp_id FROM employees WHERE role='admin' AND status='在职'");
@@ -385,6 +405,7 @@ void MainWindow::notifyPermittedUsers(const QString &permissionKey, const QStrin
             empIds.append(adminId);
         }
     }
+    qAdmin.finish();
 
     for (int eid : empIds) {
         notifyUser(eid, title, content);
@@ -396,6 +417,7 @@ void MainWindow::refreshBell()
     QSqlQuery q; q.prepare("SELECT COUNT(*) FROM notifications WHERE emp_id=? AND is_read=0");
     q.addBindValue(m_empId); q.exec();
     int count = (q.next() ? q.value(0).toInt() : 0);
+    q.finish();
     if (count > 0) {
         m_bellBtn->setText(QString("🔔 %1").arg(count));
         if (!m_bellTimer->isActive()) {
@@ -440,6 +462,7 @@ void MainWindow::showNotifications()
         act->setData(notifId);
         notifActions.append(act);
     }
+    q.finish();
     
     if (notifActions.isEmpty()) {
         QAction *act = menu.addAction("暂无通知");
@@ -454,23 +477,29 @@ void MainWindow::showNotifications()
     if (!triggered) return;
     
     if (triggered == markAllRead) {
-        QSqlQuery u;
-        u.prepare("UPDATE notifications SET is_read=1 WHERE emp_id=?");
-        u.addBindValue(m_empId);
-        u.exec();
+        {
+            QSqlQuery u;
+            u.prepare("UPDATE notifications SET is_read=1 WHERE emp_id=?");
+            u.addBindValue(m_empId);
+            u.exec();
+        }
         refreshBell();
     } else if (triggered == clearRead) {
-        QSqlQuery u;
-        u.prepare("DELETE FROM notifications WHERE emp_id=? AND is_read=1");
-        u.addBindValue(m_empId);
-        u.exec();
+        {
+            QSqlQuery u;
+            u.prepare("DELETE FROM notifications WHERE emp_id=? AND is_read=1");
+            u.addBindValue(m_empId);
+            u.exec();
+        }
         refreshBell();
     } else if (notifActions.contains(triggered)) {
         int notifId = triggered->data().toInt();
-        QSqlQuery u;
-        u.prepare("UPDATE notifications SET is_read=1 WHERE notif_id=?");
-        u.addBindValue(notifId);
-        u.exec();
+        {
+            QSqlQuery u;
+            u.prepare("UPDATE notifications SET is_read=1 WHERE notif_id=?");
+            u.addBindValue(notifId);
+            u.exec();
+        }
         refreshBell();
         
         // Show details in QMessageBox
@@ -482,15 +511,32 @@ void MainWindow::actionChangePasswordTriggered()
 {
     ChangePasswordDialog dlg(this);
     if (dlg.exec() != QDialog::Accepted) return;
-    QSqlQuery q; q.prepare("SELECT password_hash FROM employees WHERE emp_id=?"); q.addBindValue(m_empId); q.exec();
-    if (q.next()) {
-        QString oh = QString(QCryptographicHash::hash(dlg.oldPassword().toUtf8(), QCryptographicHash::Sha256).toHex());
-        if (q.value("password_hash").toString() != oh) { QMessageBox::warning(this,"失败","旧密码错误！"); return; }
+    
+    bool oldPwdOk = false;
+    {
+        QSqlQuery q; q.prepare("SELECT password_hash FROM employees WHERE emp_id=?"); q.addBindValue(m_empId); q.exec();
+        if (q.next()) {
+            QString oh = QString(QCryptographicHash::hash(dlg.oldPassword().toUtf8(), QCryptographicHash::Sha256).toHex());
+            if (q.value("password_hash").toString() == oh) {
+                oldPwdOk = true;
+            }
+        }
     }
+    
+    if (!oldPwdOk) { QMessageBox::warning(this,"失败","旧密码错误！"); return; }
+    
     QString nh = QString(QCryptographicHash::hash(dlg.newPassword().toUtf8(), QCryptographicHash::Sha256).toHex());
-    q.prepare("UPDATE employees SET password_hash=? WHERE emp_id=?"); q.addBindValue(nh); q.addBindValue(m_empId);
-    if (q.exec()) { QMessageBox::information(this,"成功","密码修改成功！"); logAction("修改密码"); }
-    else QMessageBox::critical(this,"失败","密码更新失败: "+q.lastError().text());
+    bool updateOk = false;
+    QString err;
+    {
+        QSqlQuery q;
+        q.prepare("UPDATE employees SET password_hash=? WHERE emp_id=?"); q.addBindValue(nh); q.addBindValue(m_empId);
+        updateOk = q.exec();
+        if (!updateOk) err = q.lastError().text();
+    }
+    
+    if (updateOk) { QMessageBox::information(this,"成功","密码修改成功！"); logAction("修改密码"); }
+    else QMessageBox::critical(this,"失败","密码更新失败: "+err);
 }
 
 void MainWindow::actionLogoutTriggered()
@@ -519,4 +565,26 @@ void MainWindow::actionLogoutTriggered()
     w->setAttribute(Qt::WA_DeleteOnClose);
     w->show();
     deleteLater();
+}
+
+void MainWindow::checkAuditLogs()
+{
+    int maxId = -1;
+    bool hasLog = false;
+    {
+        QSqlQuery q;
+        if (q.exec("SELECT MAX(log_id) FROM audit_logs") && q.next()) {
+            maxId = q.value(0).toInt();
+            hasLog = true;
+        }
+    }
+    if (hasLog) {
+        if (m_lastMaxLogId == -1) {
+            m_lastMaxLogId = maxId;
+        } else if (maxId > m_lastMaxLogId) {
+            m_lastMaxLogId = maxId;
+            emit GlobalEvents::instance()->dataChanged();
+            emit GlobalEvents::instance()->auditRefresh();
+        }
+    }
 }

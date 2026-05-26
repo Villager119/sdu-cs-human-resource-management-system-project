@@ -2,6 +2,7 @@
 #include "../utils/Toast.h"
 #include "../core/GlobalEvents.h"
 #include "../core/SessionManager.h"
+#include "../widgets/CommonDelegates.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFormLayout>
@@ -26,90 +27,6 @@ static QString fieldDisplayName(const QString &field)
     };
     return map.value(field, field);
 }
-
-class ProfileChangeDelegate : public QStyledItemDelegate
-{
-public:
-    using QStyledItemDelegate::QStyledItemDelegate;
-
-    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
-    {
-        QStyleOptionViewItem opt = option;
-        initStyleOption(&opt, index);
-
-        if (index.column() == 2) { // 字段 column
-            QString rawField = index.data(Qt::DisplayRole).toString();
-            opt.text = fieldDisplayName(rawField);
-            QStyledItemDelegate::paint(painter, opt, index);
-        }
-        else if (index.column() == 5) { // 状态 column
-            QString status = index.data(Qt::DisplayRole).toString();
-            
-            painter->save();
-            painter->setRenderHint(QPainter::Antialiasing);
-
-            // Draw background pill/badge
-            QColor bgColor, textColor;
-            if (status == "待审批" || status == "审批中") {
-                bgColor = QColor("#eab308"); // Yellow
-                textColor = QColor("#ffffff");
-                status = "审批中";
-            } else if (status == "已同意" || status == "已通过") {
-                bgColor = QColor("#22c55e"); // Green
-                textColor = QColor("#ffffff");
-                status = "已通过";
-            } else if (status == "已拒绝" || status == "已驳回") {
-                bgColor = QColor("#ef4444"); // Red
-                textColor = QColor("#ffffff");
-                status = "已驳回";
-            } else {
-                bgColor = QColor("#94a3b8"); // Gray
-                textColor = QColor("#ffffff");
-            }
-
-            // Draw pill rectangle
-            int paddingX = 8;
-            int paddingY = 3;
-            QFont font = opt.font;
-            font.setPointSize(9);
-            font.setBold(true);
-            painter->setFont(font);
-
-            QFontMetrics fm(font);
-            int textWidth = fm.horizontalAdvance(status);
-            int textHeight = fm.height();
-
-            int pillWidth = textWidth + paddingX * 2;
-            int pillHeight = textHeight + paddingY * 2;
-
-            // Center the pill in the cell
-            int pillX = opt.rect.x() + (opt.rect.width() - pillWidth) / 2;
-            int pillY = opt.rect.y() + (opt.rect.height() - pillHeight) / 2;
-
-            QRect pillRect(pillX, pillY, pillWidth, pillHeight);
-            painter->setBrush(bgColor);
-            painter->setPen(Qt::NoPen);
-            painter->drawRoundedRect(pillRect, pillHeight / 2.0, pillHeight / 2.0);
-
-            // Draw text
-            painter->setPen(textColor);
-            painter->drawText(pillRect, Qt::AlignCenter, status);
-
-            painter->restore();
-        }
-        else {
-            if (opt.state & QStyle::State_Selected) {
-                painter->save();
-                painter->fillRect(opt.rect, QColor("#f1f5f9"));
-                painter->restore();
-                opt.state &= ~QStyle::State_Selected;
-                opt.palette.setColor(QPalette::Text, QColor("#1e293b"));
-                opt.palette.setColor(QPalette::HighlightedText, QColor("#1e293b"));
-            }
-            QStyledItemDelegate::paint(painter, opt, index);
-        }
-    }
-};
 
 ProfileChangeTab::ProfileChangeTab(int empId, const QString &role,
                                    std::function<void(const QString&, const QString&)> logFn,
@@ -440,21 +357,27 @@ void ProfileChangeTab::submitRequest()
     QString reason = m_reasonEdit->toPlainText().trimmed();
     if (nv.isEmpty() || reason.isEmpty()) { Toast::show(this, "新值和理由不能为空", Toast::Warning); return; }
 
-    QSqlQuery q;
-    q.prepare("SELECT " + field + " FROM employees WHERE emp_id=?");
-    q.addBindValue(m_empId); q.exec();
-    QString ov = q.next() ? q.value(0).toString() : "";
+    bool ok = false;
+    QString err;
+    {
+        QSqlQuery q;
+        q.prepare("SELECT " + field + " FROM employees WHERE emp_id=?");
+        q.addBindValue(m_empId); q.exec();
+        QString ov = q.next() ? q.value(0).toString() : "";
 
-    q.prepare("INSERT INTO profile_change_requests(emp_id,field_name,old_value,new_value,reason) VALUES(?,?,?,?,?)");
-    q.addBindValue(m_empId); q.addBindValue(field); q.addBindValue(ov); q.addBindValue(nv); q.addBindValue(reason);
-    if (q.exec()) {
+        q.prepare("INSERT INTO profile_change_requests(emp_id,field_name,old_value,new_value,reason) VALUES(?,?,?,?,?)");
+        q.addBindValue(m_empId); q.addBindValue(field); q.addBindValue(ov); q.addBindValue(nv); q.addBindValue(reason);
+        ok = q.exec();
+        if (!ok) err = q.lastError().text();
+    }
+    if (ok) {
         Toast::show(this, "修改申请已提交，等待审批", Toast::Success);
         m_log("提交信息修改申请", fieldName + " → " + nv);
         m_notify(0, "信息修改申请", QString("员工申请修改%1为%2").arg(fieldName, nv));
         m_model->select();
         m_newValueEdit->clear(); m_reasonEdit->clear();
     } else {
-        QMessageBox::critical(this, "错误", q.lastError().text());
+        QMessageBox::critical(this, "错误", err);
     }
 }
 
@@ -472,13 +395,23 @@ void ProfileChangeTab::approve()
         if (eq.next()) eid = eq.value(0).toInt();
     }
 
-    QSqlQuery q;
-    q.prepare("UPDATE employees SET " + field + "=? WHERE emp_id=?");
-    q.addBindValue(nv); q.addBindValue(eid);
-    if (!q.exec()) { QMessageBox::critical(this, "失败", q.lastError().text()); return; }
+    bool ok = false;
+    QString err;
+    {
+        QSqlQuery q;
+        q.prepare("UPDATE employees SET " + field + "=? WHERE emp_id=?");
+        q.addBindValue(nv); q.addBindValue(eid);
+        if (q.exec()) {
+            q.prepare("UPDATE profile_change_requests SET status='已同意' WHERE request_id=?");
+            q.addBindValue(id);
+            ok = q.exec();
+            if (!ok) err = q.lastError().text();
+        } else {
+            err = q.lastError().text();
+        }
+    }
+    if (!ok) { QMessageBox::critical(this, "失败", err); return; }
 
-    q.prepare("UPDATE profile_change_requests SET status='已同意' WHERE request_id=?");
-    q.addBindValue(id); q.exec();
     QString fn = fieldDisplayName(field);
     m_log("同意信息修改", QString("申请#%1 %2→%3").arg(id).arg(fn, nv));
     m_notify(eid, "信息修改已批准", QString("你的%1修改申请已通过审批").arg(fn));
@@ -499,17 +432,23 @@ void ProfileChangeTab::reject()
         if (eq.next()) eid = eq.value(0).toInt();
     }
     QString field = m_model->data(m_model->index(row, 2)).toString();
-    QSqlQuery q;
-    q.prepare("UPDATE profile_change_requests SET status='已拒绝' WHERE request_id=?");
-    q.addBindValue(id);
-    if (q.exec()) {
+    bool ok = false;
+    QString err;
+    {
+        QSqlQuery q;
+        q.prepare("UPDATE profile_change_requests SET status='已拒绝' WHERE request_id=?");
+        q.addBindValue(id);
+        ok = q.exec();
+        if (!ok) err = q.lastError().text();
+    }
+    if (ok) {
         m_log("拒绝信息修改", QString("申请#%1 %2").arg(id).arg(fieldDisplayName(field)));
         m_notify(eid, "信息修改已拒绝", QString("你的%1修改申请未通过审批").arg(fieldDisplayName(field)));
         Toast::show(this, "已拒绝该修改申请", Toast::Info);
         m_model->select();
         GlobalEvents::instance()->dataChanged();
     } else {
-        QMessageBox::critical(this, "失败", q.lastError().text());
+        QMessageBox::critical(this, "失败", err);
     }
 }
 

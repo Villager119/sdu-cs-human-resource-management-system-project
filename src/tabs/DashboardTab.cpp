@@ -195,9 +195,11 @@ DashboardTab::DashboardTab(QWidget *parent)
 
 void DashboardTab::refresh()
 {
-    QSqlQuery q;
     int empId = SessionManager::instance()->empId;
     if (empId == 0) return;
+
+    {
+        QSqlQuery q;
 
     // Query and display personal welcome info card
     q.prepare("SELECT name, role, department, position, phone, hire_date, education FROM employees WHERE emp_id = ?");
@@ -375,7 +377,7 @@ void DashboardTab::refresh()
             m_alertLabel->setVisible(false);
         }
     }
-    q.finish();
+    }
 
     // Dynamic Chart rendering
     m_isAdmin = SessionManager::instance()->hasPermission("view_reports");
@@ -419,8 +421,6 @@ void DashboardTab::refreshChart()
     font.setBold(true);
     chart->setTitleFont(font);
 
-    QSqlQuery q;
-
     if (!m_isAdmin) {
         chart->setTitle("本月个人考勤状态统计");
 
@@ -457,13 +457,13 @@ void DashboardTab::refreshChart()
         series->setLabelsPosition(QPieSlice::LabelOutside);
         for (auto *slice : series->slices()) {
             if (slice->label() == "正常出勤") {
-                slice->setBrush(QBrush(QColor("#10b981"))); // Modern Green
+                slice->setBrush(QBrush(QColor(0x10, 0xb9, 0x81))); // Modern Green
             } else if (slice->label() == "迟到") {
-                slice->setBrush(QBrush(QColor("#f59e0b"))); // Modern Orange
+                slice->setBrush(QBrush(QColor(0xf5, 0x9e, 0x0b))); // Modern Orange
             } else if (slice->label() == "早退") {
-                slice->setBrush(QBrush(QColor("#ef4444"))); // Modern Red
+                slice->setBrush(QBrush(QColor(0xef, 0x44, 0x44))); // Modern Red
             } else {
-                slice->setBrush(QBrush(QColor("#94a3b8"))); // Slate Grey
+                slice->setBrush(QBrush(QColor(0x94, 0xa3, 0xb8))); // Slate Grey
             }
 
             slice->setLabel(QString("%1: %2次")
@@ -478,6 +478,7 @@ void DashboardTab::refreshChart()
         chart->legend()->setVisible(true);
         chart->legend()->setAlignment(Qt::AlignBottom);
     } else {
+        QSqlQuery q;
         int type = m_chartCombo->currentIndex();
         switch (type) {
         case 0: {
@@ -695,6 +696,5 @@ void DashboardTab::refreshChart()
     }
 
     m_chartView->setChart(chart);
-    q.finish();
     delete old;
 }

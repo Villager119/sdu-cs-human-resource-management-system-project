@@ -25,7 +25,7 @@ OrgChartView::OrgChartView(QWidget *parent)
     setRenderHint(QPainter::TextAntialiasing);
     
     // Background style
-    setBackgroundBrush(QBrush(QColor("#1e293b"))); // Modern slate background
+    setBackgroundBrush(QBrush(QColor(0x1e, 0x29, 0x3b))); // Modern slate background
     
     // Enable dragging to pan the view
     setDragMode(QGraphicsView::ScrollHandDrag);
@@ -36,9 +36,7 @@ OrgChartView::OrgChartView(QWidget *parent)
 
 OrgChartView::~OrgChartView()
 {
-    for (auto *root : m_rootNodes) {
-        clearTree(root);
-    }
+    qDeleteAll(m_nodeMap.values());
 }
 
 void OrgChartView::clearTree(OrgNode *node)
@@ -53,9 +51,7 @@ void OrgChartView::clearTree(OrgNode *node)
 void OrgChartView::refresh()
 {
     // Clear previous tree structure
-    for (auto *root : m_rootNodes) {
-        clearTree(root);
-    }
+    qDeleteAll(m_nodeMap.values());
     m_rootNodes.clear();
     m_nodeMap.clear();
     m_scene->clear();
@@ -65,38 +61,44 @@ void OrgChartView::refresh()
 
     // 1. Fetch employee names
     QMap<int, QString> empNames;
-    QSqlQuery eq("SELECT emp_id, name FROM employees");
-    while (eq.next()) {
-        empNames[eq.value(0).toInt()] = eq.value(1).toString();
+    {
+        QSqlQuery eq("SELECT emp_id, name FROM employees");
+        while (eq.next()) {
+            empNames[eq.value(0).toInt()] = eq.value(1).toString();
+        }
     }
 
     // 2. Fetch employee count per department
     QMap<QString, int> empCounts;
-    QSqlQuery ec("SELECT department, COUNT(*) FROM employees WHERE department IS NOT NULL AND department!='' AND status='在职' GROUP BY department");
-    while (ec.next()) {
-        empCounts[ec.value(0).toString()] = ec.value(1).toInt();
+    {
+        QSqlQuery ec("SELECT department, COUNT(*) FROM employees WHERE department IS NOT NULL AND department!='' AND status='在职' GROUP BY department");
+        while (ec.next()) {
+            empCounts[ec.value(0).toString()] = ec.value(1).toInt();
+        }
     }
 
     // 3. Fetch departments
-    QSqlQuery dq("SELECT dept_id, dept_name, parent_id, manager_id FROM departments");
-    while (dq.next()) {
-        int id = dq.value(0).toInt();
-        QString name = dq.value(1).toString();
-        int parentId = dq.value(2).isNull() ? -1 : dq.value(2).toInt();
-        int managerId = dq.value(3).isNull() ? -1 : dq.value(3).toInt();
+    {
+        QSqlQuery dq("SELECT dept_id, dept_name, parent_id, manager_id FROM departments");
+        while (dq.next()) {
+            int id = dq.value(0).toInt();
+            QString name = dq.value(1).toString();
+            int parentId = dq.value(2).isNull() ? -1 : dq.value(2).toInt();
+            int managerId = dq.value(3).isNull() ? -1 : dq.value(3).toInt();
 
-        OrgNode *node = new OrgNode;
-        node->id = id;
-        node->name = name;
-        node->parentId = parentId;
-        node->manager = (managerId != -1) ? empNames.value(managerId, "无") : "无";
-        node->empCount = empCounts.value(name, 0);
+            OrgNode *node = new OrgNode;
+            node->id = id;
+            node->name = name;
+            node->parentId = parentId;
+            node->manager = (managerId != -1) ? empNames.value(managerId, "无") : "无";
+            node->empCount = empCounts.value(name, 0);
 
-        m_nodeMap[id] = node;
+            m_nodeMap[id] = node;
+        }
     }
 
     if (m_nodeMap.isEmpty()) {
-        m_scene->addText("暂无部门信息，请先添加部门。")->setDefaultTextColor(QColor("#94a3b8"));
+        m_scene->addText("暂无部门信息，请先添加部门。")->setDefaultTextColor(QColor(0x94, 0xa3, 0xb8));
         return;
     }
 
@@ -124,7 +126,7 @@ void OrgChartView::refresh()
 
     // 7. Draw interactive overlay label with navigation tips
     QGraphicsTextItem *tips = m_scene->addText("💡 提示：按住鼠标左键拖拽平移，Ctrl + 鼠标滚轮缩放，点击卡片可选中编辑。");
-    tips->setDefaultTextColor(QColor("#64748b"));
+    tips->setDefaultTextColor(QColor(0x64, 0x74, 0x8b));
     QFont tipsFont = tips->font();
     tipsFont.setPointSize(9);
     tips->setFont(tipsFont);
@@ -182,13 +184,13 @@ void OrgChartView::drawTree(OrgNode *node)
     QPainterPath path;
     path.addRoundedRect(node->x, node->y, m_nodeWidth, m_nodeHeight, 8, 8);
     
-    QGraphicsPathItem *card = m_scene->addPath(path, QPen(QColor("#475569"), 1.2), QBrush());
+    QGraphicsPathItem *card = m_scene->addPath(path, QPen(QColor(0x47, 0x55, 0x69), 1.2), QBrush());
     card->setData(0, node->id);
 
     // Apply linear gradient background
     QLinearGradient gradient(node->x, node->y, node->x, node->y + m_nodeHeight);
-    gradient.setColorAt(0, QColor("#1e293b")); // Dark slate top
-    gradient.setColorAt(1, QColor("#0f172a")); // Deeper slate bottom
+    gradient.setColorAt(0, QColor(0x1e, 0x29, 0x3b)); // Dark slate top
+    gradient.setColorAt(1, QColor(0x0f, 0x17, 0x2a)); // Deeper slate bottom
     card->setBrush(QBrush(gradient));
 
     // Shadow effect for visual depth
@@ -200,7 +202,7 @@ void OrgChartView::drawTree(OrgNode *node)
 
     // Add texts inside card
     QGraphicsTextItem *nameText = m_scene->addText(node->name);
-    nameText->setDefaultTextColor(QColor("#f8fafc"));
+    nameText->setDefaultTextColor(QColor(0xf8, 0xfa, 0xfc));
     QFont nameFont = nameText->font();
     nameFont.setBold(true);
     nameFont.setPointSize(11);
@@ -209,7 +211,7 @@ void OrgChartView::drawTree(OrgNode *node)
     nameText->setParentItem(card);
 
     QGraphicsTextItem *managerText = m_scene->addText(QString("负责人: %1").arg(node->manager));
-    managerText->setDefaultTextColor(QColor("#cbd5e1"));
+    managerText->setDefaultTextColor(QColor(0xcb, 0xd5, 0xe1));
     QFont mgrFont = managerText->font();
     mgrFont.setPointSize(9);
     managerText->setFont(mgrFont);
@@ -217,7 +219,7 @@ void OrgChartView::drawTree(OrgNode *node)
     managerText->setParentItem(card);
 
     QGraphicsTextItem *countText = m_scene->addText(QString("在职人数: %1人").arg(node->empCount));
-    countText->setDefaultTextColor(QColor("#38bdf8")); // Sky blue
+    countText->setDefaultTextColor(QColor(0x38, 0xbd, 0xf8)); // Sky blue
     QFont countFont = countText->font();
     countFont.setPointSize(9);
     countText->setFont(countFont);
@@ -240,7 +242,7 @@ void OrgChartView::drawConnection(OrgNode *parent, OrgNode *child)
     path.lineTo(childTopX, midY);
     path.lineTo(childTopX, childTopY);
     
-    QGraphicsPathItem *lineItem = m_scene->addPath(path, QPen(QColor("#475569"), 1.5));
+    QGraphicsPathItem *lineItem = m_scene->addPath(path, QPen(QColor(0x47, 0x55, 0x69), 1.5));
     lineItem->setZValue(-1); // Connectors drawn behind cards
 }
 

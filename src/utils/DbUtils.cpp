@@ -76,7 +76,8 @@ bool initDatabaseSchema()
                 "title VARCHAR(50) DEFAULT '',"
                 "education VARCHAR(50) DEFAULT '',"
                 "marital_status VARCHAR(50) DEFAULT '',"
-                "position VARCHAR(50) DEFAULT ''"
+                "position VARCHAR(50) DEFAULT '',"
+                "version INT DEFAULT 1"
                 ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4")) {
         qDebug() << "Failed to create employees table:" << q.lastError().text();
         db.rollback();
@@ -268,6 +269,38 @@ bool initDatabaseSchema()
     // Seed default roles
     q.exec("INSERT IGNORE INTO roles (role_name) VALUES ('admin'), ('user')");
 
+    // Seed default permissions
+    q.exec("INSERT IGNORE INTO permissions (permission_key, permission_name) VALUES "
+           "('view_dashboard', '查看仪表盘'),"
+           "('manage_employees', '管理员工信息'),"
+           "('request_profile_change', '申请信息变更'),"
+           "('approve_profile_change', '审批信息变更'),"
+           "('apply_leave_makeup', '打卡与补签'),"
+           "('apply_leave', '请假申请'),"
+           "('approve_leave', '审批请假'),"
+           "('approve_makeup', '审批补卡'),"
+           "('view_personal_payroll', '查看个人工资条'),"
+           "('calculate_payroll', '核算发放工资'),"
+           "('view_personal_performance', '查看个人绩效'),"
+           "('evaluate_performance', '评估绩效'),"
+           "('manage_org', '组织架构管理'),"
+           "('view_audit_logs', '查看审计日志'),"
+           "('manage_rbac', '管理角色权限'),"
+           "('manage_tax_config', '社保比例配置'),"
+           "('view_reports', '查看统计报表')");
+
+    // Seed default role-permission mappings for 'user' role
+    q.exec("INSERT IGNORE INTO role_permissions (role_id, permission_id) "
+           "SELECT (SELECT role_id FROM roles WHERE role_name='user'), permission_id "
+           "FROM permissions WHERE permission_key IN "
+           "('view_dashboard', 'request_profile_change', 'apply_leave_makeup', "
+           "'apply_leave', 'view_personal_payroll', 'view_personal_performance')");
+
+    // Seed default role-permission mappings for 'admin' role
+    q.exec("INSERT IGNORE INTO role_permissions (role_id, permission_id) "
+           "SELECT (SELECT role_id FROM roles WHERE role_name='admin'), permission_id "
+           "FROM permissions");
+
     // Seed default shifts
     q.exec("INSERT IGNORE INTO shifts (shift_name, start_time, end_time) VALUES ('标准班', '09:00:00', '18:00:00')");
 
@@ -294,12 +327,13 @@ bool initDatabaseSchema()
 
     // 17. Migration: check if status and evaluator columns exist in performance_scores
     {
-        QSqlQuery ck;
         bool statusExists = false;
-        if (ck.exec("SHOW COLUMNS FROM performance_scores LIKE 'status'") && ck.next()) {
-            statusExists = true;
+        {
+            QSqlQuery ck;
+            if (ck.exec("SHOW COLUMNS FROM performance_scores LIKE 'status'") && ck.next()) {
+                statusExists = true;
+            }
         }
-        ck.finish();
 
         if (!statusExists) {
             QSqlQuery q;
@@ -309,15 +343,35 @@ bool initDatabaseSchema()
         }
 
         bool evaluatorExists = false;
-        if (ck.exec("SHOW COLUMNS FROM performance_scores LIKE 'evaluator'") && ck.next()) {
-            evaluatorExists = true;
+        {
+            QSqlQuery ck;
+            if (ck.exec("SHOW COLUMNS FROM performance_scores LIKE 'evaluator'") && ck.next()) {
+                evaluatorExists = true;
+            }
         }
-        ck.finish();
 
         if (!evaluatorExists) {
             QSqlQuery q;
             if (!q.exec("ALTER TABLE performance_scores ADD COLUMN evaluator VARCHAR(50) DEFAULT '系统管理员'")) {
                 qDebug() << "Failed to add evaluator column to performance_scores:" << q.lastError().text();
+            }
+        }
+    }
+
+    // 18. Migration: check if version column exists in employees
+    {
+        bool versionExists = false;
+        {
+            QSqlQuery ck;
+            if (ck.exec("SHOW COLUMNS FROM employees LIKE 'version'") && ck.next()) {
+                versionExists = true;
+            }
+        }
+
+        if (!versionExists) {
+            QSqlQuery q;
+            if (!q.exec("ALTER TABLE employees ADD COLUMN version INT DEFAULT 1")) {
+                qDebug() << "Failed to add version column to employees:" << q.lastError().text();
             }
         }
     }

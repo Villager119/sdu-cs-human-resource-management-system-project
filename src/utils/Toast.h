@@ -59,13 +59,6 @@ private:
         layout->addWidget(iconLabel);
         layout->addWidget(textLabel);
         
-        // Add shadow for float/elevation visual style
-        QGraphicsDropShadowEffect *shadow = new QGraphicsDropShadowEffect(this);
-        shadow->setBlurRadius(12);
-        shadow->setOffset(0, 3);
-        shadow->setColor(QColor(0, 0, 0, 50));
-        setGraphicsEffect(shadow);
-
         adjustSize();
         
         // Position at the bottom-right of parent

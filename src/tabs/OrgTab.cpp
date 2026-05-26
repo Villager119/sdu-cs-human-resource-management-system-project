@@ -125,8 +125,10 @@ void OrgTab::refresh()
     m_parentCombo->clear(); m_parentCombo->addItem("(无-顶级)", QVariant());
     m_managerCombo->clear(); m_managerCombo->addItem("(无)", QVariant());
 
-    QSqlQuery eq("SELECT emp_id, name FROM employees WHERE status='在职'");
-    while (eq.next()) m_managerCombo->addItem(eq.value(1).toString(), eq.value(0).toInt());
+    {
+        QSqlQuery eq("SELECT emp_id, name FROM employees WHERE status='在职'");
+        while (eq.next()) m_managerCombo->addItem(eq.value(1).toString(), eq.value(0).toInt());
+    }
 
     // 一次查询获取所有部门的员工计数
     QMap<QString, int> empCountMap;
@@ -138,17 +140,19 @@ void OrgTab::refresh()
 
     QMap<int, QStandardItem *> items;
     QMap<int, int> parentMap;
-    QSqlQuery dq("SELECT dept_id, dept_name, parent_id FROM departments ORDER BY dept_id");
-    while (dq.next()) {
-        int id = dq.value(0).toInt();
-        QString name = dq.value(1).toString();
-        int pid = dq.value(2).isNull() ? -1 : dq.value(2).toInt();
-        parentMap[id] = pid;
-        int cnt = empCountMap.value(name, 0);
-        auto *item = new QStandardItem(QString("%1  (%2人)").arg(name).arg(cnt));
-        item->setData(id, Qt::UserRole);
-        items[id] = item;
-        m_parentCombo->addItem(name, id);
+    {
+        QSqlQuery dq("SELECT dept_id, dept_name, parent_id FROM departments ORDER BY dept_id");
+        while (dq.next()) {
+            int id = dq.value(0).toInt();
+            QString name = dq.value(1).toString();
+            int pid = dq.value(2).isNull() ? -1 : dq.value(2).toInt();
+            parentMap[id] = pid;
+            int cnt = empCountMap.value(name, 0);
+            auto *item = new QStandardItem(QString("%1  (%2人)").arg(name).arg(cnt));
+            item->setData(id, Qt::UserRole);
+            items[id] = item;
+            m_parentCombo->addItem(name, id);
+        }
     }
 
     for (auto it = items.begin(); it != items.end(); ++it) {
@@ -156,6 +160,14 @@ void OrgTab::refresh()
         if (pid == -1 || !items.contains(pid)) m_treeModel->appendRow(it.value());
         else items[pid]->appendRow(it.value());
     }
+
+    // Delete orphaned items in circular references to prevent memory leak
+    for (auto *item : items.values()) {
+        if (!item->model()) {
+            delete item;
+        }
+    }
+
     m_tree->setModel(m_treeModel);
     m_tree->expandAll();
     m_chartView->refresh();
@@ -173,14 +185,26 @@ void OrgTab::onTreeSelectionChanged()
     m_selectedDeptId = item->data(Qt::UserRole).toInt();
     m_btnDel->setEnabled(m_selectedDeptId > 0);
 
-    QSqlQuery q; q.prepare("SELECT dept_name, parent_id, manager_id FROM departments WHERE dept_id=?");
-    q.addBindValue(m_selectedDeptId); q.exec();
-    if (q.next()) {
-        QString name = q.value(0).toString();
+    QString name;
+    int parentId = -1;
+    int managerId = -1;
+    bool found = false;
+    {
+        QSqlQuery q;
+        q.prepare("SELECT dept_name, parent_id, manager_id FROM departments WHERE dept_id=?");
+        q.addBindValue(m_selectedDeptId);
+        if (q.exec() && q.next()) {
+            name = q.value(0).toString();
+            parentId = q.value(1).isNull() ? 0 : q.value(1).toInt();
+            managerId = q.value(2).isNull() ? 0 : q.value(2).toInt();
+            found = true;
+        }
+    }
+    if (found) {
         m_nameEdit->setText(name);
-        int pid = q.value(1).isNull() ? 0 : m_parentCombo->findData(q.value(1).toInt());
+        int pid = parentId > 0 ? m_parentCombo->findData(parentId) : 0;
         m_parentCombo->setCurrentIndex(pid > 0 ? pid : 0);
-        int mid = q.value(2).isNull() ? 0 : m_managerCombo->findData(q.value(2).toInt());
+        int mid = managerId > 0 ? m_managerCombo->findData(managerId) : 0;
         m_managerCombo->setCurrentIndex(mid > 0 ? mid : 0);
         // 显示该部门在职员工
         m_empModel->setFilter(QString("department='%1' AND status='在职'").arg(name.replace("'", "''")));
@@ -194,21 +218,34 @@ void OrgTab::saveDepartment()
     QString name = m_nameEdit->text().trimmed();
     if (name.isEmpty()) { Toast::show(this, "请输入部门名称", Toast::Warning); return; }
     QVariant pid = m_parentCombo->currentData(), mid = m_managerCombo->currentData();
-    QSqlQuery q;
+    bool ok = false;
+    QString errText;
+    {
+        QSqlQuery q;
+        if (m_selectedDeptId > 0) {
+            q.prepare("UPDATE departments SET dept_name=?,parent_id=?,manager_id=? WHERE dept_id=?");
+            q.addBindValue(name);
+            pid.isNull() ? q.addBindValue(QVariant(QMetaType(QMetaType::Int))) : q.addBindValue(pid.toInt());
+            mid.isNull() ? q.addBindValue(QVariant(QMetaType(QMetaType::Int))) : q.addBindValue(mid.toInt());
+            q.addBindValue(m_selectedDeptId);
+            ok = q.exec();
+            if (!ok) errText = q.lastError().text();
+        } else {
+            q.prepare("INSERT IGNORE INTO departments(dept_name,parent_id,manager_id) VALUES(?,?,?)");
+            q.addBindValue(name);
+            pid.isNull() ? q.addBindValue(QVariant(QMetaType(QMetaType::Int))) : q.addBindValue(pid.toInt());
+            mid.isNull() ? q.addBindValue(QVariant(QMetaType(QMetaType::Int))) : q.addBindValue(mid.toInt());
+            ok = q.exec();
+            if (!ok) errText = q.lastError().text();
+        }
+    }
+    if (!ok) {
+        QMessageBox::critical(this, "错误", errText);
+        return;
+    }
     if (m_selectedDeptId > 0) {
-        q.prepare("UPDATE departments SET dept_name=?,parent_id=?,manager_id=? WHERE dept_id=?");
-        q.addBindValue(name);
-        pid.isNull() ? q.addBindValue(QVariant(QMetaType(QMetaType::Int))) : q.addBindValue(pid.toInt());
-        mid.isNull() ? q.addBindValue(QVariant(QMetaType(QMetaType::Int))) : q.addBindValue(mid.toInt());
-        q.addBindValue(m_selectedDeptId);
-        if (!q.exec()) { QMessageBox::critical(this,"错误",q.lastError().text()); return; }
         m_log("修改部门", name);
     } else {
-        q.prepare("INSERT IGNORE INTO departments(dept_name,parent_id,manager_id) VALUES(?,?,?)");
-        q.addBindValue(name);
-        pid.isNull() ? q.addBindValue(QVariant(QMetaType(QMetaType::Int))) : q.addBindValue(pid.toInt());
-        mid.isNull() ? q.addBindValue(QVariant(QMetaType(QMetaType::Int))) : q.addBindValue(mid.toInt());
-        if (!q.exec()) { QMessageBox::critical(this,"错误",q.lastError().text()); return; }
         m_log("新增部门", name);
     }
     Toast::show(this, "部门信息已保存", Toast::Success);
@@ -220,9 +257,11 @@ void OrgTab::removeDepartment()
     if (m_selectedDeptId <= 0) { Toast::show(this, "请先选中要删除的部门", Toast::Warning); return; }
     if (QMessageBox::question(this,"确认",QString("确定删除\"%1\"吗？子部门将移为顶级。").arg(m_nameEdit->text()),
                                QMessageBox::Yes|QMessageBox::No) != QMessageBox::Yes) return;
-    QSqlQuery q;
-    q.prepare("UPDATE departments SET parent_id=NULL WHERE parent_id=?"); q.addBindValue(m_selectedDeptId); q.exec();
-    q.prepare("DELETE FROM departments WHERE dept_id=?"); q.addBindValue(m_selectedDeptId); q.exec();
+    {
+        QSqlQuery q;
+        q.prepare("UPDATE departments SET parent_id=NULL WHERE parent_id=?"); q.addBindValue(m_selectedDeptId); q.exec();
+        q.prepare("DELETE FROM departments WHERE dept_id=?"); q.addBindValue(m_selectedDeptId); q.exec();
+    }
     m_log("删除部门", m_nameEdit->text());
     Toast::show(this, "部门已成功删除", Toast::Success);
     m_selectedDeptId = -1; m_nameEdit->clear(); m_btnDel->setEnabled(false); refresh();

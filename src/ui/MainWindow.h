@@ -24,6 +24,7 @@ public:
 private slots:
     void actionChangePasswordTriggered();
     void actionLogoutTriggered();
+    void checkAuditLogs();
 
 private:
     void logAction(const QString &action, const QString &target = QString());
@@ -58,6 +59,7 @@ private:
     OrgTab *m_orgTab; RbacTab *m_rbacTab;
 
     int m_empId; QString m_role; QString m_empName;
+    int m_lastMaxLogId = -1;
 };
 
 #endif

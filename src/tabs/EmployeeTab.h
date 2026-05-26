@@ -2,7 +2,7 @@
 #define EMPLOYEETAB_H
 
 #include <QWidget>
-#include <QSqlTableModel>
+#include "../widgets/OptimisticSqlTableModel.h"
 #include <QTableView>
 #include <QComboBox>
 #include <QLineEdit>
@@ -34,7 +34,7 @@ private slots:
     void updateDirtyState();
 
 private:
-    QSqlTableModel *m_model;
+    OptimisticSqlTableModel *m_model;
     QTableView *m_table;
     QComboBox *m_deptCombo, *m_statusCombo, *m_maritalCombo, *m_eduCombo;
     QLineEdit *m_nameSearch, *m_posSearch;

@@ -26,19 +26,21 @@ TaxConfigPanel::TaxConfigPanel(std::function<void(const QString&, const QString&
     formLayout->addRow("个人所得税起征点 (元):", m_taxThresholdEdit);
 
     // 加载初始值
-    QSqlQuery q;
-    q.exec("SELECT value FROM system_settings WHERE key_name='work_days_per_month'");
-    if (q.next()) {
-        m_workDaysEdit->setText(q.value(0).toString());
-    } else {
-        m_workDaysEdit->setText("21.75");
-    }
+    {
+        QSqlQuery q;
+        q.exec("SELECT value FROM system_settings WHERE key_name='work_days_per_month'");
+        if (q.next()) {
+            m_workDaysEdit->setText(q.value(0).toString());
+        } else {
+            m_workDaysEdit->setText("21.75");
+        }
 
-    q.exec("SELECT value FROM system_settings WHERE key_name='tax_threshold'");
-    if (q.next()) {
-        m_taxThresholdEdit->setText(q.value(0).toString());
-    } else {
-        m_taxThresholdEdit->setText("5000");
+        q.exec("SELECT value FROM system_settings WHERE key_name='tax_threshold'");
+        if (q.next()) {
+            m_taxThresholdEdit->setText(q.value(0).toString());
+        } else {
+            m_taxThresholdEdit->setText("5000");
+        }
     }
 
     // 社保公积金比例模型
@@ -89,18 +91,26 @@ void TaxConfigPanel::save()
     }
 
     // 保存到 system_settings 表
-    QSqlQuery q;
-    q.prepare("UPDATE system_settings SET value=? WHERE key_name='work_days_per_month'");
-    q.addBindValue(m_workDaysEdit->text().trimmed());
-    if (!q.exec()) {
-        QMessageBox::critical(this, "失败", "保存月工作天数失败: " + q.lastError().text());
-        return;
+    bool ok = false;
+    QString err;
+    {
+        QSqlQuery q;
+        q.prepare("UPDATE system_settings SET value=? WHERE key_name='work_days_per_month'");
+        q.addBindValue(m_workDaysEdit->text().trimmed());
+        if (q.exec()) {
+            q.prepare("UPDATE system_settings SET value=? WHERE key_name='tax_threshold'");
+            q.addBindValue(m_taxThresholdEdit->text().trimmed());
+            if (q.exec()) {
+                ok = true;
+            } else {
+                err = "保存个税起征点失败: " + q.lastError().text();
+            }
+        } else {
+            err = "保存月工作天数失败: " + q.lastError().text();
+        }
     }
-
-    q.prepare("UPDATE system_settings SET value=? WHERE key_name='tax_threshold'");
-    q.addBindValue(m_taxThresholdEdit->text().trimmed());
-    if (!q.exec()) {
-        QMessageBox::critical(this, "失败", "保存个税起征点失败: " + q.lastError().text());
+    if (!ok) {
+        QMessageBox::critical(this, "失败", err);
         return;
     }
 

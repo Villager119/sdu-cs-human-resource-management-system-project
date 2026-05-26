@@ -93,13 +93,15 @@ RbacTab::RbacTab(std::function<void(const QString&, const QString&)> logFn, QWid
 void RbacTab::loadRoles()
 {
     m_roleList->clear();
-    QSqlQuery q;
-    if (q.exec("SELECT role_name FROM roles ORDER BY role_id")) {
-        while (q.next()) {
-            m_roleList->addItem(q.value(0).toString());
+    {
+        QSqlQuery q;
+        if (q.exec("SELECT role_name FROM roles ORDER BY role_id")) {
+            while (q.next()) {
+                m_roleList->addItem(q.value(0).toString());
+            }
+        } else {
+            qDebug() << "Failed to load roles:" << q.lastError().text();
         }
-    } else {
-        qDebug() << "Failed to load roles:" << q.lastError().text();
     }
 
     if (m_roleList->count() > 0) {
@@ -119,26 +121,28 @@ void RbacTab::loadPermissions()
     }
     m_permCheckBoxes.clear();
 
-    QSqlQuery q;
-    if (q.exec("SELECT permission_key, permission_name FROM permissions ORDER BY permission_id")) {
-        QVBoxLayout *layout = qobject_cast<QVBoxLayout*>(m_permsContainer->layout());
-        while (q.next()) {
-            QString key = q.value(0).toString();
-            QString name = q.value(1).toString();
+    {
+        QSqlQuery q;
+        if (q.exec("SELECT permission_key, permission_name FROM permissions ORDER BY permission_id")) {
+            QVBoxLayout *layout = qobject_cast<QVBoxLayout*>(m_permsContainer->layout());
+            while (q.next()) {
+                QString key = q.value(0).toString();
+                QString name = q.value(1).toString();
 
-            QCheckBox *cb = new QCheckBox(QString("%1 (%2)").arg(name, key));
-            cb->setStyleSheet(
-                "QCheckBox { font-size: 13px; color: #334155; spacing: 8px; }"
-                "QCheckBox::indicator { width: 18px; height: 18px; border-radius: 4px; border: 1px solid #cbd5e1; }"
-                "QCheckBox::indicator:unchecked:hover { border-color: #3b82f6; background-color: #f8fafc; }"
-                "QCheckBox::indicator:checked { border-color: #2563eb; background-color: #2563eb; image: url(check.png); /* Fallback to standard check drawing if no image */ }"
-            );
-            layout->addWidget(cb);
-            m_permCheckBoxes.insert(key, cb);
+                QCheckBox *cb = new QCheckBox(QString("%1 (%2)").arg(name, key));
+                cb->setStyleSheet(
+                    "QCheckBox { font-size: 13px; color: #334155; spacing: 8px; }"
+                    "QCheckBox::indicator { width: 18px; height: 18px; border-radius: 4px; border: 1px solid #cbd5e1; }"
+                    "QCheckBox::indicator:unchecked:hover { border-color: #3b82f6; background-color: #f8fafc; }"
+                    "QCheckBox::indicator:checked { border-color: #2563eb; background-color: #2563eb; image: url(check.png); /* Fallback to standard check drawing if no image */ }"
+                );
+                layout->addWidget(cb);
+                m_permCheckBoxes.insert(key, cb);
+            }
+            layout->addStretch(1);
+        } else {
+            qDebug() << "Failed to load permissions:" << q.lastError().text();
         }
-        layout->addStretch(1);
-    } else {
-        qDebug() << "Failed to load permissions:" << q.lastError().text();
     }
 }
 
@@ -165,21 +169,23 @@ void RbacTab::onRoleSelected(QListWidgetItem *current, QListWidgetItem *previous
     m_btnDelRole->setEnabled(!isSystemRole);
 
     // Load active permissions for this role
-    QSqlQuery q;
-    q.prepare("SELECT p.permission_key FROM permissions p "
-              "JOIN role_permissions rp ON p.permission_id = rp.permission_id "
-              "JOIN roles r ON rp.role_id = r.role_id "
-              "WHERE r.role_name = ?");
-    q.addBindValue(roleName);
-    if (q.exec()) {
-        while (q.next()) {
-            QString key = q.value(0).toString();
-            if (m_permCheckBoxes.contains(key)) {
-                m_permCheckBoxes.value(key)->setChecked(true);
+    {
+        QSqlQuery q;
+        q.prepare("SELECT p.permission_key FROM permissions p "
+                  "JOIN role_permissions rp ON p.permission_id = rp.permission_id "
+                  "JOIN roles r ON rp.role_id = r.role_id "
+                  "WHERE r.role_name = ?");
+        q.addBindValue(roleName);
+        if (q.exec()) {
+            while (q.next()) {
+                QString key = q.value(0).toString();
+                if (m_permCheckBoxes.contains(key)) {
+                    m_permCheckBoxes.value(key)->setChecked(true);
+                }
             }
+        } else {
+            qDebug() << "Failed to load permissions for role:" << roleName << q.lastError().text();
         }
-    } else {
-        qDebug() << "Failed to load permissions for role:" << roleName << q.lastError().text();
     }
 }
 
@@ -198,10 +204,17 @@ void RbacTab::addRole()
         return;
     }
 
-    QSqlQuery q;
-    q.prepare("INSERT INTO roles (role_name) VALUES (?)");
-    q.addBindValue(roleName);
-    if (q.exec()) {
+    bool success = false;
+    QString errMsg;
+    {
+        QSqlQuery q;
+        q.prepare("INSERT INTO roles (role_name) VALUES (?)");
+        q.addBindValue(roleName);
+        success = q.exec();
+        if (!success) errMsg = q.lastError().text();
+    }
+
+    if (success) {
         logAction("添加角色", roleName);
         m_newRoleEdit->clear();
         loadRoles();
@@ -217,7 +230,7 @@ void RbacTab::addRole()
         emit GlobalEvents::instance()->dataChanged();
         QMessageBox::information(this, "成功", QString("已成功添加角色 '%1'！").arg(roleName));
     } else {
-        QMessageBox::critical(this, "错误", "无法添加角色，可能已存在同名角色！\n" + q.lastError().text());
+        QMessageBox::critical(this, "错误", "无法添加角色，可能已存在同名角色！\n" + errMsg);
     }
 }
 
@@ -240,23 +253,29 @@ void RbacTab::deleteRole()
     QSqlDatabase db = QSqlDatabase::database();
     db.transaction();
 
-    // 1. Demote employees using this role to 'user'
-    QSqlQuery q1;
-    q1.prepare("UPDATE employees SET role = 'user' WHERE role = ?");
-    q1.addBindValue(roleName);
-    if (!q1.exec()) {
-        db.rollback();
-        QMessageBox::critical(this, "错误", "降级员工角色失败！\n" + q1.lastError().text());
-        return;
+    bool success = true;
+    QString errMsg;
+    {
+        QSqlQuery q1;
+        q1.prepare("UPDATE employees SET role = 'user' WHERE role = ?");
+        q1.addBindValue(roleName);
+        if (!q1.exec()) {
+            success = false;
+            errMsg = q1.lastError().text();
+        } else {
+            QSqlQuery q2;
+            q2.prepare("DELETE FROM roles WHERE role_name = ?");
+            q2.addBindValue(roleName);
+            if (!q2.exec()) {
+                success = false;
+                errMsg = q2.lastError().text();
+            }
+        }
     }
 
-    // 2. Delete role (foreign keys cascade delete role_permissions mapping)
-    QSqlQuery q2;
-    q2.prepare("DELETE FROM roles WHERE role_name = ?");
-    q2.addBindValue(roleName);
-    if (!q2.exec()) {
+    if (!success) {
         db.rollback();
-        QMessageBox::critical(this, "错误", "删除角色失败！\n" + q2.lastError().text());
+        QMessageBox::critical(this, "错误", "删除角色失败！\n" + errMsg);
         return;
     }
 
@@ -284,30 +303,38 @@ void RbacTab::savePermissions()
     QSqlDatabase db = QSqlDatabase::database();
     db.transaction();
 
-    // 1. Clear existing role permission mappings
-    QSqlQuery q1;
-    q1.prepare("DELETE FROM role_permissions WHERE role_id = ?");
-    q1.addBindValue(roleId);
-    if (!q1.exec()) {
-        db.rollback();
-        QMessageBox::critical(this, "错误", "清除旧权限映射失败！\n" + q1.lastError().text());
-        return;
-    }
-
-    // 2. Insert new checked mappings
-    for (auto it = m_permCheckBoxes.begin(); it != m_permCheckBoxes.end(); ++it) {
-        if (it.value()->isChecked()) {
-            QSqlQuery q2;
-            q2.prepare("INSERT INTO role_permissions (role_id, permission_id) "
-                       "SELECT ?, permission_id FROM permissions WHERE permission_key = ?");
-            q2.addBindValue(roleId);
-            q2.addBindValue(it.key());
-            if (!q2.exec()) {
-                db.rollback();
-                QMessageBox::critical(this, "错误", QString("无法插入权限 '%1'！\n%2").arg(it.key(), q2.lastError().text()));
-                return;
+    bool success = true;
+    QString errMsg;
+    {
+        QSqlQuery q1;
+        q1.prepare("DELETE FROM role_permissions WHERE role_id = ?");
+        q1.addBindValue(roleId);
+        if (!q1.exec()) {
+            success = false;
+            errMsg = q1.lastError().text();
+        } else {
+            // 2. Insert new checked mappings
+            for (auto it = m_permCheckBoxes.begin(); it != m_permCheckBoxes.end(); ++it) {
+                if (it.value()->isChecked()) {
+                    QSqlQuery q2;
+                    q2.prepare("INSERT INTO role_permissions (role_id, permission_id) "
+                               "SELECT ?, permission_id FROM permissions WHERE permission_key = ?");
+                    q2.addBindValue(roleId);
+                    q2.addBindValue(it.key());
+                    if (!q2.exec()) {
+                        success = false;
+                        errMsg = q2.lastError().text();
+                        break;
+                    }
+                }
             }
         }
+    }
+
+    if (!success) {
+        db.rollback();
+        QMessageBox::critical(this, "错误", "清除旧权限映射失败！\n" + errMsg);
+        return;
     }
 
     db.commit();
@@ -323,11 +350,13 @@ void RbacTab::savePermissions()
 
 int RbacTab::getRoleId(const QString &roleName)
 {
-    QSqlQuery q;
-    q.prepare("SELECT role_id FROM roles WHERE role_name = ?");
-    q.addBindValue(roleName);
-    if (q.exec() && q.next()) {
-        return q.value(0).toInt();
+    {
+        QSqlQuery q;
+        q.prepare("SELECT role_id FROM roles WHERE role_name = ?");
+        q.addBindValue(roleName);
+        if (q.exec() && q.next()) {
+            return q.value(0).toInt();
+        }
     }
     return -1;
 }
@@ -337,13 +366,15 @@ void RbacTab::logAction(const QString &action, const QString &target)
     if (m_log) {
         m_log(action, target);
     } else {
-        QSqlQuery q;
-        q.prepare("INSERT INTO audit_logs(emp_id,emp_name,action,target,log_time) VALUES(?,?,?,?,NOW())");
-        q.addBindValue(SessionManager::instance()->empId);
-        q.addBindValue(SessionManager::instance()->empName);
-        q.addBindValue(action);
-        q.addBindValue(target);
-        q.exec();
+        {
+            QSqlQuery q;
+            q.prepare("INSERT INTO audit_logs(emp_id,emp_name,action,target,log_time) VALUES(?,?,?,?,NOW())");
+            q.addBindValue(SessionManager::instance()->empId);
+            q.addBindValue(SessionManager::instance()->empName);
+            q.addBindValue(action);
+            q.addBindValue(target);
+            q.exec();
+        }
         emit GlobalEvents::instance()->auditRefresh();
     }
 }

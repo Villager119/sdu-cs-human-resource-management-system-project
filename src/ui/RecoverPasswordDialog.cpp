@@ -198,24 +198,40 @@ void RecoverPasswordDialog::onNextStep()
     }
 
     // Query DB to verify employee
-    QSqlQuery query;
-    query.prepare("SELECT emp_id, name FROM employees WHERE emp_id = :emp_id AND name = :name AND phone = :phone AND status = '在职'");
-    query.bindValue(":emp_id", empIdStr.toInt());
-    query.bindValue(":name", name);
-    query.bindValue(":phone", phone);
+    int verifiedEmpId = -1;
+    QString verifiedEmpName;
+    bool dbErr = false;
+    QString dbErrText;
+    bool matched = false;
+    {
+        QSqlQuery query;
+        query.prepare("SELECT emp_id, name FROM employees WHERE emp_id = :emp_id AND name = :name AND phone = :phone AND status = '在职'");
+        query.bindValue(":emp_id", empIdStr.toInt());
+        query.bindValue(":name", name);
+        query.bindValue(":phone", phone);
 
-    if (!query.exec()) {
-        m_errorLabelPage1->setText("数据库查询失败: " + query.lastError().text());
+        if (!query.exec()) {
+            dbErr = true;
+            dbErrText = query.lastError().text();
+        } else if (query.next()) {
+            verifiedEmpId = query.value("emp_id").toInt();
+            verifiedEmpName = query.value("name").toString();
+            matched = true;
+        }
+    }
+
+    if (dbErr) {
+        m_errorLabelPage1->setText("数据库查询失败: " + dbErrText);
         return;
     }
 
-    if (!query.next()) {
+    if (!matched) {
         m_errorLabelPage1->setText("身份校验失败，工号、姓名或预留手机号不匹配！");
         return;
     }
 
-    m_verifiedEmpId = query.value("emp_id").toInt();
-    m_verifiedEmpName = query.value("name").toString();
+    m_verifiedEmpId = verifiedEmpId;
+    m_verifiedEmpName = verifiedEmpName;
 
     // Switch to step 2 page
     m_stackedWidget->setCurrentIndex(1);
@@ -247,26 +263,34 @@ void RecoverPasswordDialog::onResetPassword()
     QString passwordHash = QString(QCryptographicHash::hash(newPwd.toUtf8(), QCryptographicHash::Sha256).toHex());
 
     // Update password
-    QSqlQuery query;
-    query.prepare("UPDATE employees SET password_hash = :pwd WHERE emp_id = :emp_id");
-    query.bindValue(":pwd", passwordHash);
-    query.bindValue(":emp_id", m_verifiedEmpId);
+    bool updateOk = false;
+    QString err;
+    {
+        QSqlQuery query;
+        query.prepare("UPDATE employees SET password_hash = :pwd WHERE emp_id = :emp_id");
+        query.bindValue(":pwd", passwordHash);
+        query.bindValue(":emp_id", m_verifiedEmpId);
+        updateOk = query.exec();
+        if (!updateOk) err = query.lastError().text();
+    }
 
-    if (!query.exec()) {
-        m_errorLabelPage2->setText("更新密码失败: " + query.lastError().text());
+    if (!updateOk) {
+        m_errorLabelPage2->setText("更新密码失败: " + err);
         return;
     }
 
     // Write audit log
-    QSqlQuery logQuery;
-    logQuery.prepare("INSERT INTO audit_logs(emp_id, emp_name, action, target, log_time) VALUES(?, ?, ?, ?, NOW())");
-    logQuery.addBindValue(m_verifiedEmpId);
-    logQuery.addBindValue(m_verifiedEmpName);
-    logQuery.addBindValue("找回密码");
-    logQuery.addBindValue("通过身份信息自主重置密码");
-    if (!logQuery.exec()) {
-        // Just log the error, don't block the password reset success
-        qWarning() << "Failed to write audit log for password recovery:" << logQuery.lastError().text();
+    {
+        QSqlQuery logQuery;
+        logQuery.prepare("INSERT INTO audit_logs(emp_id, emp_name, action, target, log_time) VALUES(?, ?, ?, ?, NOW())");
+        logQuery.addBindValue(m_verifiedEmpId);
+        logQuery.addBindValue(m_verifiedEmpName);
+        logQuery.addBindValue("找回密码");
+        logQuery.addBindValue("通过身份信息自主重置密码");
+        if (!logQuery.exec()) {
+            // Just log the error, don't block the password reset success
+            qWarning() << "Failed to write audit log for password recovery:" << logQuery.lastError().text();
+        }
     }
 
     QMessageBox::information(this, "成功", "密码重置成功，请使用新密码登录！");

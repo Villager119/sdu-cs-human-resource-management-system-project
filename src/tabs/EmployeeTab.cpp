@@ -26,10 +26,12 @@ EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> log
     : QWidget(parent), m_log(logFn)
 {
     // 自动将员工表中现有的部门导入部门表
-    QSqlQuery q;
-    q.exec("INSERT IGNORE INTO departments (dept_name) SELECT DISTINCT department FROM employees WHERE department IS NOT NULL AND department!=''");
+    {
+        QSqlQuery q;
+        q.exec("INSERT IGNORE INTO departments (dept_name) SELECT DISTINCT department FROM employees WHERE department IS NOT NULL AND department!=''");
+    }
 
-    m_model = new QSqlTableModel(this);
+    m_model = new OptimisticSqlTableModel(this);
     m_model->setTable("employees");
 
     // 解析动态列索引
@@ -69,6 +71,8 @@ EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> log
     m_table->setModel(m_model);
     m_table->setItemDelegate(new SafeEditDelegate(this));
     if (m_idxPwd >= 0) m_table->hideColumn(m_idxPwd);
+    int idxVersion = m_model->fieldIndex("version");
+    if (idxVersion >= 0) m_table->hideColumn(idxVersion);
     m_table->setEditTriggers(QAbstractItemView::DoubleClicked);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
 
@@ -76,9 +80,10 @@ EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> log
     if (m_idxGender >= 0) m_table->setItemDelegateForColumn(m_idxGender, new ComboDelegate({"男", "女"}, this));
     if (m_idxRole >= 0) {
         QStringList roles;
-        QSqlQuery rq("SELECT role_name FROM roles ORDER BY role_id");
-        while (rq.next()) roles.append(rq.value(0).toString());
-        rq.finish();
+        {
+            QSqlQuery rq("SELECT role_name FROM roles ORDER BY role_id");
+            while (rq.next()) roles.append(rq.value(0).toString());
+        }
         if (roles.isEmpty()) roles << "admin" << "user";
         m_table->setItemDelegateForColumn(m_idxRole, new ComboDelegate(roles, this));
     }
@@ -96,9 +101,10 @@ EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> log
     if (m_idxMarital >= 0) m_table->setItemDelegateForColumn(m_idxMarital, new ComboDelegate({"未婚", "已婚", "离异"}, this));
     if (m_idxDept >= 0) {
         QStringList depts;
-        QSqlQuery dq("SELECT dept_name FROM departments ORDER BY dept_id");
-        while (dq.next()) depts.append(dq.value(0).toString());
-        dq.finish();
+        {
+            QSqlQuery dq("SELECT dept_name FROM departments ORDER BY dept_id");
+            while (dq.next()) depts.append(dq.value(0).toString());
+        }
         m_table->setItemDelegateForColumn(m_idxDept, new ComboDelegate(depts, this));
     }
 
@@ -183,9 +189,10 @@ EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> log
     btnRow->addWidget(btnCSV, 0, 5);
     layout->addLayout(btnRow);
 
-    QSqlQuery dq("SELECT dept_name FROM departments ORDER BY dept_id");
-    while (dq.next()) m_deptCombo->addItem(dq.value(0).toString());
-    dq.finish();
+    {
+        QSqlQuery dq("SELECT dept_name FROM departments ORDER BY dept_id");
+        while (dq.next()) m_deptCombo->addItem(dq.value(0).toString());
+    }
 
     // 选择变化更新按钮状态
     connect(m_table->selectionModel(), &QItemSelectionModel::selectionChanged,
@@ -306,10 +313,16 @@ void EmployeeTab::save()
             QMessageBox::warning(this, "校验失败", QString("第 %1 行：所属部门不能为空").arg(r + 1));
             return;
         }
-        QSqlQuery dCheck;
-        dCheck.prepare("SELECT COUNT(*) FROM departments WHERE dept_name=?");
-        dCheck.addBindValue(dept);
-        if (!dCheck.exec() || !dCheck.next() || dCheck.value(0).toInt() == 0) {
+        bool deptExists = false;
+        {
+            QSqlQuery dCheck;
+            dCheck.prepare("SELECT COUNT(*) FROM departments WHERE dept_name=?");
+            dCheck.addBindValue(dept);
+            if (dCheck.exec() && dCheck.next() && dCheck.value(0).toInt() > 0) {
+                deptExists = true;
+            }
+        }
+        if (!deptExists) {
             QMessageBox::warning(this, "校验失败", QString("第 %1 行：部门 '%2' 在系统中不存在，请先在部门管理中创建该部门，或选择已有部门").arg(r + 1).arg(dept));
             return;
         }
@@ -323,10 +336,16 @@ void EmployeeTab::save()
 
         // 6. 系统角色校验
         QString role = (m_idxRole >= 0) ? m_model->data(m_model->index(r, m_idxRole)).toString().trimmed() : "";
-        QSqlQuery rCheck;
-        rCheck.prepare("SELECT COUNT(*) FROM roles WHERE role_name=?");
-        rCheck.addBindValue(role);
-        if (!rCheck.exec() || !rCheck.next() || rCheck.value(0).toInt() == 0) {
+        bool roleExists = false;
+        {
+            QSqlQuery rCheck;
+            rCheck.prepare("SELECT COUNT(*) FROM roles WHERE role_name=?");
+            rCheck.addBindValue(role);
+            if (rCheck.exec() && rCheck.next() && rCheck.value(0).toInt() > 0) {
+                roleExists = true;
+            }
+        }
+        if (!roleExists) {
             QMessageBox::warning(this, "校验失败", QString("第 %1 行：系统角色 '%2' 在系统中不存在").arg(r + 1).arg(role));
             return;
         }
@@ -409,8 +428,18 @@ void EmployeeTab::save()
             return;
         }
     }
-    if (m_model->submitAll()) { m_log("保存员工信息修改", ""); QMessageBox::information(this, "成功", "所有数据修改已成功"); GlobalEvents::instance()->dataChanged(); }
-    else QMessageBox::critical(this, "失败", "保存失败: " + m_model->lastError().text());
+    if (m_model->submitAll()) {
+        m_log("保存员工信息修改", "");
+        QMessageBox::information(this, "成功", "所有数据修改已成功");
+        GlobalEvents::instance()->dataChanged();
+    } else {
+        QSqlError err = m_model->lastError();
+        if (err.driverText() == "OptimisticLockError") {
+            QMessageBox::critical(this, "并发冲突", "保存失败！数据已被其他用户修改，请先查询/重置以刷新到最新数据。");
+        } else {
+            QMessageBox::critical(this, "失败", "保存失败: " + err.text());
+        }
+    }
     updateDirtyState();
 }
 
@@ -424,7 +453,9 @@ void EmployeeTab::batchChangeDept()
         if (m_idxDept >= 0)
             m_model->setData(m_model->index(idx.row(), m_idxDept), dept);
     }
-    QSqlQuery q; q.prepare("INSERT IGNORE INTO departments(dept_name) VALUES(?)"); q.addBindValue(dept); q.exec();
+    {
+        QSqlQuery q; q.prepare("INSERT IGNORE INTO departments(dept_name) VALUES(?)"); q.addBindValue(dept); q.exec();
+    }
     QMessageBox::information(this, "完成", QString("已为 %1 名员工设置部门: %2\n记得点击保存修改").arg(sel.size()).arg(dept));
     m_log("批量调部门", QString("%1人 → %2").arg(sel.size()).arg(dept));
 }
@@ -495,7 +526,7 @@ void EmployeeTab::exportCSV()
     if (path.isEmpty()) return;
     QList<int> skipCols;
     if (m_idxPwd >= 0) skipCols.append(m_idxPwd);
-    exportModelToCSV(m_model, path, skipCols); // 跳过密码列
+    exportModelToCSVAsync(m_model, path, this, skipCols); // 异步导出
 }
 
 void EmployeeTab::refresh()
@@ -504,28 +535,35 @@ void EmployeeTab::refresh()
     QString curDept = m_deptCombo->currentText();
     m_deptCombo->clear();
     m_deptCombo->addItem("全部部门");
-    QSqlQuery dq("SELECT dept_name FROM departments ORDER BY dept_id");
-    while (dq.next()) m_deptCombo->addItem(dq.value(0).toString());
-    dq.finish();
+    {
+        QSqlQuery dq("SELECT dept_name FROM departments ORDER BY dept_id");
+        while (dq.next()) m_deptCombo->addItem(dq.value(0).toString());
+    }
     int idx = m_deptCombo->findText(curDept);
     m_deptCombo->setCurrentIndex(idx >= 0 ? idx : 0);
     m_deptCombo->blockSignals(false);
 
     if (m_idxDept >= 0) {
         QStringList depts;
-        QSqlQuery dq2("SELECT dept_name FROM departments ORDER BY dept_id");
-        while (dq2.next()) depts.append(dq2.value(0).toString());
-        dq2.finish();
+        {
+            QSqlQuery dq2("SELECT dept_name FROM departments ORDER BY dept_id");
+            while (dq2.next()) depts.append(dq2.value(0).toString());
+        }
+        auto *oldDel = m_table->itemDelegateForColumn(m_idxDept);
         m_table->setItemDelegateForColumn(m_idxDept, new ComboDelegate(depts, this));
+        if (oldDel) oldDel->deleteLater();
     }
 
     if (m_idxRole >= 0) {
         QStringList roles;
-        QSqlQuery rq3("SELECT role_name FROM roles ORDER BY role_id");
-        while (rq3.next()) roles.append(rq3.value(0).toString());
-        rq3.finish();
+        {
+            QSqlQuery rq3("SELECT role_name FROM roles ORDER BY role_id");
+            while (rq3.next()) roles.append(rq3.value(0).toString());
+        }
         if (roles.isEmpty()) roles << "admin" << "user";
+        auto *oldDel = m_table->itemDelegateForColumn(m_idxRole);
         m_table->setItemDelegateForColumn(m_idxRole, new ComboDelegate(roles, this));
+        if (oldDel) oldDel->deleteLater();
     }
 
     m_model->select();

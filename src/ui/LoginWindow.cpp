@@ -131,6 +131,8 @@ void LoginWindow::tryReconnect()
     }
 }
 
+#include <QCoreApplication>
+
 void LoginWindow::on_btnLogin_clicked()
 {
     if (!m_dbConnected) {
@@ -148,21 +150,36 @@ void LoginWindow::on_btnLogin_clicked()
     }
     // SHA-256 哈希密码
     QString passwordHash = QString(QCryptographicHash::hash(password.toUtf8(), QCryptographicHash::Sha256).toHex());
-    QSqlQuery query;
-    query.prepare("SELECT emp_id,name,role FROM employees WHERE (name=:account OR phone=:account) AND password_hash=:password");
-    query.bindValue(":account",account);
-    query.bindValue(":password",passwordHash);
-    if(!query.exec()){
-        QMessageBox::critical(this,"数据库错误",query.lastError().text());
+    int empId = 0;
+    QString empName;
+    QString role;
+    bool loginSuccess = false;
+    bool dbError = false;
+    QString dbErrText;
+    {
+        QSqlQuery query;
+        query.prepare("SELECT emp_id,name,role FROM employees WHERE (name=:account OR phone=:account) AND password_hash=:password");
+        query.bindValue(":account",account);
+        query.bindValue(":password",passwordHash);
+        if(!query.exec()){
+            dbError = true;
+            dbErrText = query.lastError().text();
+        } else if(query.next()){
+            empId = query.value("emp_id").toInt();
+            empName = query.value("name").toString();
+            role = query.value("role").toString();
+            loginSuccess = true;
+        }
+    }
+
+    if (dbError) {
+        QMessageBox::critical(this,"数据库错误",dbErrText);
         return;
     }
-    if(!query.next()){
+    if (!loginSuccess) {
         QMessageBox::critical(this,"登录失败","账号或密码错误，请重试！");
         return;
     }
-    int empId=query.value("emp_id").toInt();
-    QString empName=query.value("name").toString();
-    QString role=query.value("role").toString();
     // 记住密码与自动登录
     QSettings settings(m_configPath, QSettings::IniFormat);
     if (ui->checkRemember->isChecked()) {
@@ -175,7 +192,9 @@ void LoginWindow::on_btnLogin_clicked()
         settings.remove("AutoLogin/Enable");
     }
 
-    QMessageBox::information(this,"登录成功","欢迎回来"+empName+"!\n您的权限级别是:"+role);
+    if (!QCoreApplication::arguments().contains("--test")) {
+        QMessageBox::information(this,"登录成功","欢迎回来"+empName+"!\n您的权限级别是:"+role);
+    }
     SessionManager::init(empId, role, empName);
     MainWindow *mainWin=new MainWindow(empId,role);
     mainWin->setAttribute(Qt::WA_DeleteOnClose);

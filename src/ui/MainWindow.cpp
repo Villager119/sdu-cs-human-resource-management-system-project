@@ -15,9 +15,12 @@
 #include "../widgets/TaxConfigPanel.h"
 #include "../core/GlobalEvents.h"
 #include "../core/SessionManager.h"
+#include "../utils/DbUtils.h"
 #include <QMenu>
 #include <QTabWidget>
+#include <QVBoxLayout>
 #include <QMessageBox>
+#include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QCryptographicHash>
 #include <QSqlError>
@@ -33,62 +36,49 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
 {
     ui->setupUi(this);
     setWindowTitle("HRMS");
+    m_backgroundConnectionName = QString("hrms_main_bg_%1").arg(reinterpret_cast<quintptr>(this));
 
-    { QSqlQuery q; q.prepare("SELECT name FROM employees WHERE emp_id=?"); q.addBindValue(m_empId); m_empName = (q.exec()&&q.next()) ? q.value(0).toString() : "未知"; }
+    loadCurrentUserName();
+    createContentTabs();
+    applyPermissionVisibility();
+    setupNavigation();
+    setupNotifications();
+    initializeAuditCursor();
+    setupSystemMenu();
+    connectGlobalRefreshSignals();
+    updateStatusBar();
+    logAction("用户登录");
+    refreshActiveTab();
+}
 
-    auto logFn = [this](const QString &a, const QString &t) { logAction(a, t); };
-    auto notifyFn = [this](int e, const QString &t, const QString &c) { notifyUser(e, t, c); };
+void MainWindow::loadCurrentUserName()
+{
+    QSqlQuery q;
+    q.prepare("SELECT name FROM employees WHERE emp_id=?");
+    q.addBindValue(m_empId);
+    m_empName = (q.exec() && q.next()) ? q.value(0).toString() : "未知";
+    q.finish();
+}
 
-    // 创建所有原生页面
+void MainWindow::createContentTabs()
+{
+    auto logFn = [this](const QString &action, const QString &target) {
+        logAction(action, target);
+    };
+    auto notifyFn = [this](int empId, const QString &title, const QString &content) {
+        notifyUser(empId, title, content);
+    };
+
     m_dashboard = new DashboardTab(this);
-    m_empTab    = new EmployeeTab(logFn, this);
+    m_empTab = new EmployeeTab(logFn, this);
     m_myAttendTab = new MyAttendanceTab(m_empId, m_role, logFn, notifyFn, this);
     m_attendManageTab = new AttendManageTab(m_empId, m_role, logFn, notifyFn, this);
-    m_payrollTab= new PayrollTab(m_empId, m_role, logFn, this);
-    m_auditTab  = new AuditTab(this);
-    m_orgTab    = new OrgTab(logFn, this);
-    m_perfTab   = new PerformanceTab(m_empId, m_role, logFn, this);
-    m_profileTab= new ProfileChangeTab(m_empId, m_role, logFn, notifyFn, this);
-    m_rbacTab   = new RbacTab(logFn, this);
-
-    // Hide only unauthorized tabs to prevent them from rendering as floating child widgets at (0,0)
-    if (!SessionManager::instance()->hasPermission("view_dashboard")) m_dashboard->hide();
-    if (!SessionManager::instance()->hasPermission("manage_employees")) m_empTab->hide();
-    if (!(SessionManager::instance()->hasPermission("request_profile_change") || SessionManager::instance()->hasPermission("approve_profile_change"))) m_profileTab->hide();
-    if (!(SessionManager::instance()->hasPermission("apply_leave_makeup") || SessionManager::instance()->hasPermission("apply_leave"))) m_myAttendTab->hide();
-    if (!(SessionManager::instance()->hasPermission("approve_leave") || SessionManager::instance()->hasPermission("approve_makeup"))) m_attendManageTab->hide();
-    if (!(SessionManager::instance()->hasPermission("view_personal_payroll") || SessionManager::instance()->hasPermission("calculate_payroll"))) m_payrollTab->hide();
-    if (!(SessionManager::instance()->hasPermission("view_personal_performance") || SessionManager::instance()->hasPermission("evaluate_performance"))) m_perfTab->hide();
-    if (!SessionManager::instance()->hasPermission("manage_org")) m_orgTab->hide();
-    if (!SessionManager::instance()->hasPermission("view_audit_logs")) m_auditTab->hide();
-    if (!SessionManager::instance()->hasPermission("manage_rbac")) m_rbacTab->hide();
-
-    auto makeDynamicWrapper = [this](const QList<QPair<QWidget*, QString>> &tabsList) -> QWidget* {
-        QList<QPair<QWidget*, QString>> activeTabs;
-        for (const auto &pair : tabsList) {
-            if (pair.first) {
-                activeTabs.append(pair);
-            }
-        }
-        if (activeTabs.isEmpty()) {
-            return nullptr;
-        }
-        auto *w = new QWidget;
-        auto *l = new QVBoxLayout(w);
-        l->setContentsMargins(0, 0, 0, 0);
-        if (activeTabs.size() > 1) {
-            auto *tabs = new QTabWidget;
-            tabs->setObjectName("subTabWidget");
-            for (const auto &pair : activeTabs) {
-                tabs->addTab(pair.first, pair.second);
-            }
-            connect(tabs, &QTabWidget::currentChanged, this, &MainWindow::refreshActiveTab);
-            l->addWidget(tabs);
-        } else {
-            l->addWidget(activeTabs.first().first);
-        }
-        return w;
-    };
+    m_payrollTab = new PayrollTab(m_empId, m_role, logFn, this);
+    m_auditTab = new AuditTab(this);
+    m_orgTab = new OrgTab(logFn, this);
+    m_perfTab = new PerformanceTab(m_empId, m_role, logFn, this);
+    m_profileTab = new ProfileChangeTab(m_empId, m_role, logFn, notifyFn, this);
+    m_rbacTab = new RbacTab(logFn, this);
 
     m_dashboard->setObjectName("仪表盘");
     m_empTab->setObjectName("员工管理");
@@ -98,59 +88,122 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
     m_payrollTab->setObjectName("工资条");
     m_perfTab->setObjectName("绩效评分");
     m_rbacTab->setObjectName("权限管理");
+}
 
-    TaxConfigPanel *taxPanel = nullptr;
+void MainWindow::applyPermissionVisibility()
+{
+    // Hide unauthorized pages before adding them to wrappers, preventing stray child widgets at (0,0).
+    if (!SessionManager::instance()->hasPermission("view_dashboard")) m_dashboard->hide();
+    if (!SessionManager::instance()->hasPermission("manage_employees")) m_empTab->hide();
+    if (!(SessionManager::instance()->hasPermission("request_profile_change") ||
+          SessionManager::instance()->hasPermission("approve_profile_change"))) {
+        m_profileTab->hide();
+    }
+    if (!(SessionManager::instance()->hasPermission("apply_leave_makeup") ||
+          SessionManager::instance()->hasPermission("apply_leave"))) {
+        m_myAttendTab->hide();
+    }
+    if (!(SessionManager::instance()->hasPermission("approve_leave") ||
+          SessionManager::instance()->hasPermission("approve_makeup"))) {
+        m_attendManageTab->hide();
+    }
+    if (!(SessionManager::instance()->hasPermission("view_personal_payroll") ||
+          SessionManager::instance()->hasPermission("calculate_payroll"))) {
+        m_payrollTab->hide();
+    }
+    if (!(SessionManager::instance()->hasPermission("view_personal_performance") ||
+          SessionManager::instance()->hasPermission("evaluate_performance"))) {
+        m_perfTab->hide();
+    }
+    if (!SessionManager::instance()->hasPermission("manage_org")) m_orgTab->hide();
+    if (!SessionManager::instance()->hasPermission("view_audit_logs")) m_auditTab->hide();
+    if (!SessionManager::instance()->hasPermission("manage_rbac")) m_rbacTab->hide();
+}
 
-    // 1. Home Page Wrapper
+QWidget *MainWindow::makeDynamicWrapper(const QList<QPair<QWidget*, QString>> &tabsList)
+{
+    QList<QPair<QWidget*, QString>> activeTabs;
+    for (const auto &pair : tabsList) {
+        if (pair.first) {
+            activeTabs.append(pair);
+        }
+    }
+    if (activeTabs.isEmpty()) {
+        return nullptr;
+    }
+
+    auto *wrapper = new QWidget;
+    auto *layout = new QVBoxLayout(wrapper);
+    layout->setContentsMargins(0, 0, 0, 0);
+
+    if (activeTabs.size() > 1) {
+        auto *tabs = new QTabWidget;
+        tabs->setObjectName("subTabWidget");
+        for (const auto &pair : activeTabs) {
+            tabs->addTab(pair.first, pair.second);
+        }
+        connect(tabs, &QTabWidget::currentChanged, this, &MainWindow::refreshActiveTab);
+        layout->addWidget(tabs);
+    } else {
+        layout->addWidget(activeTabs.first().first);
+    }
+
+    return wrapper;
+}
+
+void MainWindow::setupNavigation()
+{
+    auto logFn = [this](const QString &action, const QString &target) {
+        logAction(action, target);
+    };
+
     QList<QPair<QWidget*, QString>> homeTabs;
-    if (SessionManager::instance()->hasPermission("view_dashboard"))
+    if (SessionManager::instance()->hasPermission("view_dashboard")) {
         homeTabs.append({m_dashboard, "仪表盘"});
+    }
     QWidget *homePage = makeDynamicWrapper(homeTabs);
 
-    // 2. Employee Page Wrapper
     QList<QPair<QWidget*, QString>> empTabs;
-    if (SessionManager::instance()->hasPermission("manage_employees"))
+    if (SessionManager::instance()->hasPermission("manage_employees")) {
         empTabs.append({m_empTab, "员工管理"});
-    if (SessionManager::instance()->hasPermission("request_profile_change") || SessionManager::instance()->hasPermission("approve_profile_change"))
+    }
+    if (SessionManager::instance()->hasPermission("request_profile_change") ||
+        SessionManager::instance()->hasPermission("approve_profile_change")) {
         empTabs.append({m_profileTab, "信息变更"});
+    }
     QWidget *empPage = makeDynamicWrapper(empTabs);
 
-    // 3. Attendance Pages are loaded directly without tab wrappers to prevent nested tabs
-
-    // 4. Compensation Page Wrapper
     QList<QPair<QWidget*, QString>> payTabs;
-    if (SessionManager::instance()->hasPermission("view_personal_payroll") || SessionManager::instance()->hasPermission("calculate_payroll"))
+    if (SessionManager::instance()->hasPermission("view_personal_payroll") ||
+        SessionManager::instance()->hasPermission("calculate_payroll")) {
         payTabs.append({m_payrollTab, "工资条"});
-    if (SessionManager::instance()->hasPermission("view_personal_performance") || SessionManager::instance()->hasPermission("evaluate_performance"))
+    }
+    if (SessionManager::instance()->hasPermission("view_personal_performance") ||
+        SessionManager::instance()->hasPermission("evaluate_performance")) {
         payTabs.append({m_perfTab, "绩效评分"});
+    }
     if (SessionManager::instance()->hasPermission("manage_tax_config")) {
-        taxPanel = new TaxConfigPanel(logFn);
+        auto *taxPanel = new TaxConfigPanel(logFn);
         taxPanel->setObjectName("社保配置");
         payTabs.append({taxPanel, "社保配置"});
     }
     QWidget *payPage = makeDynamicWrapper(payTabs);
 
-    // 5. Org
     QWidget *orgPage = SessionManager::instance()->hasPermission("manage_org") ? m_orgTab : nullptr;
-
-    // 6. Audit
     QWidget *auditPage = SessionManager::instance()->hasPermission("view_audit_logs") ? m_auditTab : nullptr;
-
-    // 7. Rbac
     QWidget *rbacPage = SessionManager::instance()->hasPermission("manage_rbac") ? m_rbacTab : nullptr;
 
     ui->sidebar->setIconSize(QSize(20, 20));
     ui->sidebar->setMinimumWidth(110);
     ui->sidebar->setMaximumWidth(110);
 
-    // Collapsible sidebar container
     m_sidebarContainer = new QWidget(this);
     m_sidebarContainer->setFixedWidth(110);
-    QVBoxLayout *containerLayout = new QVBoxLayout(m_sidebarContainer);
+    auto *containerLayout = new QVBoxLayout(m_sidebarContainer);
     containerLayout->setContentsMargins(0, 0, 0, 0);
     containerLayout->setSpacing(0);
 
-    QPushButton *toggleBtn = new QPushButton("☰", m_sidebarContainer);
+    auto *toggleBtn = new QPushButton("☰", m_sidebarContainer);
     toggleBtn->setFlat(true);
     toggleBtn->setObjectName("toggleSidebarBtn");
     toggleBtn->setCursor(Qt::PointingHandCursor);
@@ -170,35 +223,38 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
     );
     containerLayout->addWidget(toggleBtn);
 
-    // Re-parent sidebar into container layout
     ui->mainLayout->removeWidget(ui->sidebar);
     containerLayout->addWidget(ui->sidebar);
     ui->mainLayout->insertWidget(0, m_sidebarContainer);
 
     connect(toggleBtn, &QPushButton::clicked, this, &MainWindow::toggleSidebar);
 
-    bool showMyAttend = SessionManager::instance()->hasPermission("apply_leave_makeup") || SessionManager::instance()->hasPermission("apply_leave");
-    bool showAttendManage = SessionManager::instance()->hasPermission("approve_leave") || SessionManager::instance()->hasPermission("approve_makeup");
+    const bool showMyAttend = SessionManager::instance()->hasPermission("apply_leave_makeup") ||
+                              SessionManager::instance()->hasPermission("apply_leave");
+    const bool showAttendManage = SessionManager::instance()->hasPermission("approve_leave") ||
+                                  SessionManager::instance()->hasPermission("approve_makeup");
 
-    addNavItem("🏠", "首页",    homePage,    homePage != nullptr);
-    addNavItem("👥", "员工",    empPage,     empPage != nullptr);
-    addNavItem("⏰", "我的考勤",  m_myAttendTab, showMyAttend);
-    addNavItem("📊", "考勤管理",  m_attendManageTab, showAttendManage);
-    addNavItem("💰", "薪酬",    payPage,     payPage != nullptr);
-    addNavItem("🏢", "组织",    orgPage,     orgPage != nullptr);
-    addNavItem("📜", "日志",    auditPage,   auditPage != nullptr);
-    addNavItem("🔑", "权限",    rbacPage,    rbacPage != nullptr);
+    addNavItem("🏠", "首页", homePage, homePage != nullptr);
+    addNavItem("👥", "员工", empPage, empPage != nullptr);
+    addNavItem("⏰", "我的考勤", m_myAttendTab, showMyAttend);
+    addNavItem("📊", "考勤管理", m_attendManageTab, showAttendManage);
+    addNavItem("💰", "薪酬", payPage, payPage != nullptr);
+    addNavItem("🏢", "组织", orgPage, orgPage != nullptr);
+    addNavItem("📜", "日志", auditPage, auditPage != nullptr);
+    addNavItem("🔑", "权限", rbacPage, rbacPage != nullptr);
 
-    connect(ui->sidebar, &QListWidget::currentRowChanged, this, [this](int r) {
-        if (r >= 0 && r < ui->stackedWidget->count()) {
-            ui->stackedWidget->setCurrentIndex(r);
+    connect(ui->sidebar, &QListWidget::currentRowChanged, this, [this](int row) {
+        if (row >= 0 && row < ui->stackedWidget->count()) {
+            ui->stackedWidget->setCurrentIndex(row);
             refreshActiveTab();
         }
         updateStatusBar();
     });
     ui->sidebar->setCurrentRow(0);
+}
 
-    // 通知铃铛
+void MainWindow::setupNotifications()
+{
     m_bellBtn = new QPushButton;
     m_bellBtn->setFlat(true);
     m_bellBtn->setObjectName("bellButton");
@@ -215,27 +271,34 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
     });
 
     m_pollTimer = new QTimer(this);
-    m_pollTimer->setInterval(5000); // 5 seconds polling
+    m_pollTimer->setInterval(5000);
     connect(m_pollTimer, &QTimer::timeout, this, &MainWindow::refreshBell);
     connect(m_pollTimer, &QTimer::timeout, this, &MainWindow::checkAuditLogs);
     m_pollTimer->start();
 
-    // Initialize the last processed log_id
-    {
-        QSqlQuery q("SELECT MAX(log_id) FROM audit_logs");
-        if (q.next()) {
-            m_lastMaxLogId = q.value(0).toInt();
-        }
-        q.finish();
-    }
-
     refreshBell();
+}
 
-    QMenu *sm = ui->menubar->addMenu("系统");
-    sm->addAction("修改密码", this, &MainWindow::actionChangePasswordTriggered);
-    sm->addSeparator();
-    sm->addAction("退出登录", this, &MainWindow::actionLogoutTriggered);
+void MainWindow::initializeAuditCursor()
+{
+    QSqlQuery q(backgroundDatabase());
+    q.exec("SELECT MAX(log_id) FROM audit_logs");
+    if (q.next()) {
+        m_lastMaxLogId = q.value(0).toInt();
+    }
+    q.finish();
+}
 
+void MainWindow::setupSystemMenu()
+{
+    QMenu *systemMenu = ui->menubar->addMenu("系统");
+    systemMenu->addAction("修改密码", this, &MainWindow::actionChangePasswordTriggered);
+    systemMenu->addSeparator();
+    systemMenu->addAction("退出登录", this, &MainWindow::actionLogoutTriggered);
+}
+
+void MainWindow::connectGlobalRefreshSignals()
+{
     connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_dashboard, &DashboardTab::refresh);
     connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_empTab, &EmployeeTab::refresh);
     connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_orgTab, &OrgTab::refresh);
@@ -246,13 +309,41 @@ MainWindow::MainWindow(int empId, QString role, QWidget *parent)
         SessionManager::instance()->reloadPermissions();
     });
     connect(GlobalEvents::instance(), &GlobalEvents::auditRefresh, m_auditTab, &AuditTab::refresh);
-
-    updateStatusBar();
-    logAction("用户登录");
-    refreshActiveTab();
 }
 
-MainWindow::~MainWindow() { delete ui; }
+MainWindow::~MainWindow()
+{
+    if (m_pollTimer) {
+        m_pollTimer->stop();
+    }
+    if (!m_backgroundConnectionName.isEmpty() && QSqlDatabase::contains(m_backgroundConnectionName)) {
+        {
+            QSqlDatabase db = QSqlDatabase::database(m_backgroundConnectionName);
+            db.close();
+        }
+        QSqlDatabase::removeDatabase(m_backgroundConnectionName);
+    }
+    delete ui;
+}
+
+QSqlDatabase MainWindow::backgroundDatabase()
+{
+    if (m_backgroundConnectionName.isEmpty()) {
+        m_backgroundConnectionName = QString("hrms_main_bg_%1").arg(reinterpret_cast<quintptr>(this));
+    }
+
+    QSqlDatabase db;
+    if (QSqlDatabase::contains(m_backgroundConnectionName)) {
+        db = QSqlDatabase::database(m_backgroundConnectionName);
+    } else {
+        db = QSqlDatabase::cloneDatabase(QSqlDatabase::database(), m_backgroundConnectionName);
+    }
+
+    if (!db.isOpen() && !db.open()) {
+        qWarning() << "Failed to open background DB connection:" << db.lastError().text();
+    }
+    return db;
+}
 
 void MainWindow::addNavItem(const QString &icon, const QString &label, QWidget *page, bool visible)
 {
@@ -332,13 +423,19 @@ void MainWindow::refreshActiveTab()
 
 void MainWindow::logAction(const QString &action, const QString &target)
 {
-    QSqlQuery q; q.prepare("INSERT INTO audit_logs(emp_id,emp_name,action,target,log_time) VALUES(?,?,?,?,NOW())");
-    q.addBindValue(m_empId); q.addBindValue(m_empName); q.addBindValue(action); q.addBindValue(target);
+    QSqlQuery q(backgroundDatabase());
+    q.prepare("INSERT INTO audit_logs(emp_id,emp_name,action,target,log_time) VALUES(?,?,?,?,NOW())");
+    q.addBindValue(m_empId);
+    q.addBindValue(m_empName);
+    q.addBindValue(action);
+    q.addBindValue(target);
     if (q.exec()) {
         qlonglong lastId = q.lastInsertId().toLongLong();
         if (lastId > m_lastMaxLogId) {
             m_lastMaxLogId = lastId;
         }
+    } else {
+        logSqlError(q, "Insert audit log");
     }
     q.finish();
     emit GlobalEvents::instance()->auditRefresh();
@@ -360,15 +457,23 @@ void MainWindow::notifyUser(int empId, const QString &title, const QString &cont
         return;
     }
     {
-        QSqlQuery q; q.prepare("INSERT INTO notifications(emp_id,title,content) VALUES(?,?,?)");
-        q.addBindValue(empId); q.addBindValue(title); q.addBindValue(content); q.exec();
+        QSqlQuery q(backgroundDatabase());
+        q.prepare("INSERT INTO notifications(emp_id,title,content) VALUES(?,?,?)");
+        q.addBindValue(empId);
+        q.addBindValue(title);
+        q.addBindValue(content);
+        if (!q.exec()) {
+            logSqlError(q, "Insert notification");
+        }
+        q.finish();
     }
     if (empId == m_empId) refreshBell();
 }
 
 void MainWindow::notifyAdmins(const QString &title, const QString &content)
 {
-    QSqlQuery q("SELECT emp_id FROM employees WHERE role='admin' AND status='在职'");
+    QSqlQuery q(backgroundDatabase());
+    q.exec("SELECT emp_id FROM employees WHERE role='admin' AND status='在职'");
     QList<int> empIds;
     while (q.next()) {
         empIds.append(q.value(0).toInt());
@@ -382,7 +487,7 @@ void MainWindow::notifyAdmins(const QString &title, const QString &content)
 
 void MainWindow::notifyPermittedUsers(const QString &permissionKey, const QString &title, const QString &content)
 {
-    QSqlQuery q;
+    QSqlQuery q(backgroundDatabase());
     q.prepare("SELECT e.emp_id FROM employees e "
               "INNER JOIN roles r ON e.role = r.role_name "
               "INNER JOIN role_permissions rp ON r.role_id = rp.role_id "
@@ -398,7 +503,8 @@ void MainWindow::notifyPermittedUsers(const QString &permissionKey, const QStrin
     q.finish();
 
     // Always include admin as backup
-    QSqlQuery qAdmin("SELECT emp_id FROM employees WHERE role='admin' AND status='在职'");
+    QSqlQuery qAdmin(backgroundDatabase());
+    qAdmin.exec("SELECT emp_id FROM employees WHERE role='admin' AND status='在职'");
     while (qAdmin.next()) {
         int adminId = qAdmin.value(0).toInt();
         if (!empIds.contains(adminId)) {
@@ -414,8 +520,12 @@ void MainWindow::notifyPermittedUsers(const QString &permissionKey, const QStrin
 
 void MainWindow::refreshBell()
 {
-    QSqlQuery q; q.prepare("SELECT COUNT(*) FROM notifications WHERE emp_id=? AND is_read=0");
-    q.addBindValue(m_empId); q.exec();
+    QSqlQuery q(backgroundDatabase());
+    q.prepare("SELECT COUNT(*) FROM notifications WHERE emp_id=? AND is_read=0");
+    q.addBindValue(m_empId);
+    if (!q.exec()) {
+        logSqlError(q, "Count unread notifications");
+    }
     int count = (q.next() ? q.value(0).toInt() : 0);
     q.finish();
     if (count > 0) {
@@ -438,7 +548,7 @@ void MainWindow::refreshBell()
 void MainWindow::showNotifications()
 {
     QMenu menu;
-    QSqlQuery q;
+    QSqlQuery q(backgroundDatabase());
     q.prepare("SELECT notif_id, title, content, created_at, is_read FROM notifications WHERE emp_id=? ORDER BY created_at DESC LIMIT 10");
     q.addBindValue(m_empId);
     q.exec();
@@ -478,27 +588,36 @@ void MainWindow::showNotifications()
     
     if (triggered == markAllRead) {
         {
-            QSqlQuery u;
+            QSqlQuery u(backgroundDatabase());
             u.prepare("UPDATE notifications SET is_read=1 WHERE emp_id=?");
             u.addBindValue(m_empId);
-            u.exec();
+            if (!u.exec()) {
+                logSqlError(u, "Mark all notifications read");
+            }
+            u.finish();
         }
         refreshBell();
     } else if (triggered == clearRead) {
         {
-            QSqlQuery u;
+            QSqlQuery u(backgroundDatabase());
             u.prepare("DELETE FROM notifications WHERE emp_id=? AND is_read=1");
             u.addBindValue(m_empId);
-            u.exec();
+            if (!u.exec()) {
+                logSqlError(u, "Clear read notifications");
+            }
+            u.finish();
         }
         refreshBell();
     } else if (notifActions.contains(triggered)) {
         int notifId = triggered->data().toInt();
         {
-            QSqlQuery u;
+            QSqlQuery u(backgroundDatabase());
             u.prepare("UPDATE notifications SET is_read=1 WHERE notif_id=?");
             u.addBindValue(notifId);
-            u.exec();
+            if (!u.exec()) {
+                logSqlError(u, "Mark notification read");
+            }
+            u.finish();
         }
         refreshBell();
         
@@ -514,13 +633,17 @@ void MainWindow::actionChangePasswordTriggered()
     
     bool oldPwdOk = false;
     {
-        QSqlQuery q; q.prepare("SELECT password_hash FROM employees WHERE emp_id=?"); q.addBindValue(m_empId); q.exec();
+        QSqlQuery q;
+        q.prepare("SELECT password_hash FROM employees WHERE emp_id=?");
+        q.addBindValue(m_empId);
+        q.exec();
         if (q.next()) {
             QString oh = QString(QCryptographicHash::hash(dlg.oldPassword().toUtf8(), QCryptographicHash::Sha256).toHex());
             if (q.value("password_hash").toString() == oh) {
                 oldPwdOk = true;
             }
         }
+        q.finish();
     }
     
     if (!oldPwdOk) { QMessageBox::warning(this,"失败","旧密码错误！"); return; }
@@ -530,9 +653,12 @@ void MainWindow::actionChangePasswordTriggered()
     QString err;
     {
         QSqlQuery q;
-        q.prepare("UPDATE employees SET password_hash=? WHERE emp_id=?"); q.addBindValue(nh); q.addBindValue(m_empId);
+        q.prepare("UPDATE employees SET password_hash=? WHERE emp_id=?");
+        q.addBindValue(nh);
+        q.addBindValue(m_empId);
         updateOk = q.exec();
         if (!updateOk) err = q.lastError().text();
+        q.finish();
     }
     
     if (updateOk) { QMessageBox::information(this,"成功","密码修改成功！"); logAction("修改密码"); }
@@ -572,11 +698,12 @@ void MainWindow::checkAuditLogs()
     int maxId = -1;
     bool hasLog = false;
     {
-        QSqlQuery q;
+        QSqlQuery q(backgroundDatabase());
         if (q.exec("SELECT MAX(log_id) FROM audit_logs") && q.next()) {
             maxId = q.value(0).toInt();
             hasLog = true;
         }
+        q.finish();
     }
     if (hasLog) {
         if (m_lastMaxLogId == -1) {

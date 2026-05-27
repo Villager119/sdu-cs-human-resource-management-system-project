@@ -113,19 +113,21 @@ void LoginWindow::tryReconnect()
     int     port     = settings.value("Database/Port",     3306).toInt();
     QString database = settings.value("Database/Database", "hrms_db").toString();
     QString uid      = settings.value("Database/UID",      "root").toString();
-    QString pwd      = settings.value("Database/PWD",      "").toString();
+    QString pwd      = decodeConfigPassword(settings.value("Database/PWD", "").toString());
 
     QSqlDatabase db = QSqlDatabase::database();
     db.close();
     db.setDatabaseName(buildDsn(driver, server, port, database, uid, pwd));
 
-    if (db.open()) {
+    if (db.open() && initDatabaseSchema()) {
         m_dbConnected = true;
         ui->label_status->setVisible(false);
         QMessageBox::information(this, "提示", "数据库连接成功！");
     } else {
         m_dbConnected = false;
-        ui->label_status->setText("数据库连接失败: " + db.lastError().text());
+        QString err = db.lastError().text();
+        if (err.isEmpty()) err = "数据库初始化失败，请检查当前账号是否具有建表/迁移权限";
+        ui->label_status->setText("数据库连接失败: " + err);
         ui->label_status->setStyleSheet("color: red;");
         ui->label_status->setVisible(true);
     }
@@ -170,6 +172,7 @@ void LoginWindow::on_btnLogin_clicked()
             role = query.value("role").toString();
             loginSuccess = true;
         }
+        query.finish();
     }
 
     if (dbError) {

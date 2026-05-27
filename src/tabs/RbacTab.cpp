@@ -102,6 +102,7 @@ void RbacTab::loadRoles()
         } else {
             qDebug() << "Failed to load roles:" << q.lastError().text();
         }
+        q.finish();
     }
 
     if (m_roleList->count() > 0) {
@@ -143,6 +144,7 @@ void RbacTab::loadPermissions()
         } else {
             qDebug() << "Failed to load permissions:" << q.lastError().text();
         }
+        q.finish();
     }
 }
 
@@ -186,6 +188,7 @@ void RbacTab::onRoleSelected(QListWidgetItem *current, QListWidgetItem *previous
         } else {
             qDebug() << "Failed to load permissions for role:" << roleName << q.lastError().text();
         }
+        q.finish();
     }
 }
 
@@ -212,6 +215,7 @@ void RbacTab::addRole()
         q.addBindValue(roleName);
         success = q.exec();
         if (!success) errMsg = q.lastError().text();
+        q.finish();
     }
 
     if (success) {
@@ -263,6 +267,7 @@ void RbacTab::deleteRole()
             success = false;
             errMsg = q1.lastError().text();
         } else {
+            q1.finish();
             QSqlQuery q2;
             q2.prepare("DELETE FROM roles WHERE role_name = ?");
             q2.addBindValue(roleName);
@@ -270,6 +275,7 @@ void RbacTab::deleteRole()
                 success = false;
                 errMsg = q2.lastError().text();
             }
+            q2.finish();
         }
     }
 
@@ -313,6 +319,7 @@ void RbacTab::savePermissions()
             success = false;
             errMsg = q1.lastError().text();
         } else {
+            q1.finish();
             // 2. Insert new checked mappings
             for (auto it = m_permCheckBoxes.begin(); it != m_permCheckBoxes.end(); ++it) {
                 if (it.value()->isChecked()) {
@@ -324,8 +331,10 @@ void RbacTab::savePermissions()
                     if (!q2.exec()) {
                         success = false;
                         errMsg = q2.lastError().text();
+                        q2.finish();
                         break;
                     }
+                    q2.finish();
                 }
             }
         }
@@ -355,8 +364,11 @@ int RbacTab::getRoleId(const QString &roleName)
         q.prepare("SELECT role_id FROM roles WHERE role_name = ?");
         q.addBindValue(roleName);
         if (q.exec() && q.next()) {
-            return q.value(0).toInt();
+            int roleId = q.value(0).toInt();
+            q.finish();
+            return roleId;
         }
+        q.finish();
     }
     return -1;
 }
@@ -374,6 +386,7 @@ void RbacTab::logAction(const QString &action, const QString &target)
             q.addBindValue(action);
             q.addBindValue(target);
             q.exec();
+            q.finish();
         }
         emit GlobalEvents::instance()->auditRefresh();
     }

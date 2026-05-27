@@ -1,5 +1,6 @@
 #include "ProfileChangeTab.h"
 #include "../utils/Toast.h"
+#include "../utils/DbUtils.h"
 #include "../core/GlobalEvents.h"
 #include "../core/SessionManager.h"
 #include "../widgets/CommonDelegates.h"
@@ -34,7 +35,7 @@ ProfileChangeTab::ProfileChangeTab(int empId, const QString &role,
                                    QWidget *parent)
     : QWidget(parent), m_empId(empId), m_role(role), m_log(logFn), m_notify(notifyFn)
 {
-    m_model = new QSqlRelationalTableModel(this);
+    m_model = new QSqlRelationalTableModel(this, createClonedDatabaseConnection("profile_change_model"));
     m_model->setTable("profile_change_requests");
     m_model->setRelation(1, QSqlRelation("employees", "emp_id", "name"));
     m_model->setHeaderData(0, Qt::Horizontal, "编号");
@@ -362,13 +363,20 @@ void ProfileChangeTab::submitRequest()
     {
         QSqlQuery q;
         q.prepare("SELECT " + field + " FROM employees WHERE emp_id=?");
-        q.addBindValue(m_empId); q.exec();
+        q.addBindValue(m_empId);
+        q.exec();
         QString ov = q.next() ? q.value(0).toString() : "";
+        q.finish();
 
         q.prepare("INSERT INTO profile_change_requests(emp_id,field_name,old_value,new_value,reason) VALUES(?,?,?,?,?)");
-        q.addBindValue(m_empId); q.addBindValue(field); q.addBindValue(ov); q.addBindValue(nv); q.addBindValue(reason);
+        q.addBindValue(m_empId);
+        q.addBindValue(field);
+        q.addBindValue(ov);
+        q.addBindValue(nv);
+        q.addBindValue(reason);
         ok = q.exec();
         if (!ok) err = q.lastError().text();
+        q.finish();
     }
     if (ok) {
         Toast::show(this, "修改申请已提交，等待审批", Toast::Success);
@@ -390,9 +398,12 @@ void ProfileChangeTab::approve()
     QString nv = m_model->data(m_model->index(row, 4)).toString();
     int eid = 0;
     {
-        QSqlQuery eq; eq.prepare("SELECT emp_id FROM profile_change_requests WHERE request_id=?");
-        eq.addBindValue(id); eq.exec();
+        QSqlQuery eq;
+        eq.prepare("SELECT emp_id FROM profile_change_requests WHERE request_id=?");
+        eq.addBindValue(id);
+        eq.exec();
         if (eq.next()) eid = eq.value(0).toInt();
+        eq.finish();
     }
 
     bool ok = false;
@@ -400,8 +411,10 @@ void ProfileChangeTab::approve()
     {
         QSqlQuery q;
         q.prepare("UPDATE employees SET " + field + "=? WHERE emp_id=?");
-        q.addBindValue(nv); q.addBindValue(eid);
+        q.addBindValue(nv);
+        q.addBindValue(eid);
         if (q.exec()) {
+            q.finish();
             q.prepare("UPDATE profile_change_requests SET status='已同意' WHERE request_id=?");
             q.addBindValue(id);
             ok = q.exec();
@@ -409,6 +422,7 @@ void ProfileChangeTab::approve()
         } else {
             err = q.lastError().text();
         }
+        q.finish();
     }
     if (!ok) { QMessageBox::critical(this, "失败", err); return; }
 
@@ -427,9 +441,12 @@ void ProfileChangeTab::reject()
     int id = m_model->data(m_model->index(row, 0)).toInt();
     int eid = 0;
     {
-        QSqlQuery eq; eq.prepare("SELECT emp_id FROM profile_change_requests WHERE request_id=?");
-        eq.addBindValue(id); eq.exec();
+        QSqlQuery eq;
+        eq.prepare("SELECT emp_id FROM profile_change_requests WHERE request_id=?");
+        eq.addBindValue(id);
+        eq.exec();
         if (eq.next()) eid = eq.value(0).toInt();
+        eq.finish();
     }
     QString field = m_model->data(m_model->index(row, 2)).toString();
     bool ok = false;
@@ -440,6 +457,7 @@ void ProfileChangeTab::reject()
         q.addBindValue(id);
         ok = q.exec();
         if (!ok) err = q.lastError().text();
+        q.finish();
     }
     if (ok) {
         m_log("拒绝信息修改", QString("申请#%1 %2").arg(id).arg(fieldDisplayName(field)));

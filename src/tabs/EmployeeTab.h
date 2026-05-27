@@ -10,6 +10,7 @@
 #include <functional>
 
 class PaginationBar;
+class QVBoxLayout;
 
 class EmployeeTab : public QWidget
 {
@@ -34,6 +35,20 @@ private slots:
     void updateDirtyState();
 
 private:
+    void importExistingDepartments();
+    void setupModel();
+    void setupDelegates();
+    void setupFilterBar(QVBoxLayout *layout);
+    void setupPagination(QVBoxLayout *layout);
+    void setupActionBar(QVBoxLayout *layout);
+    void setupModelSignals();
+    QStringList loadDepartments() const;
+    QStringList loadRoles() const;
+    bool validateRows();
+    bool validateEmployeeRow(int row);
+    bool departmentExists(const QString &department) const;
+    bool roleExists(const QString &role) const;
+
     OptimisticSqlTableModel *m_model;
     QTableView *m_table;
     QComboBox *m_deptCombo, *m_statusCombo, *m_maritalCombo, *m_eduCombo;

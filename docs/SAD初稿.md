@@ -2,8 +2,8 @@
 
 > **标准符合性声明**：本说明书参考软件架构描述的最新国际标准 **ISO/IEC/IEEE 42010:2011(E)** 进行编写，旨在从多视角、多维度系统地描述系统架构设计，确保利益相关者的架构关注点得到全面解决。
 >
-> **版本**：V1.2 (正式稿)  
-> **日期**：2026-05-25  
+> **版本**：V1.3 (正式稿)  
+> **日期**：2026-05-28  
 > **项目代号**：HRMS  
 
 ---
@@ -60,7 +60,7 @@ graph TD
 ### 1.4 参考标准
 
 * **ISO/IEC/IEEE 42010:2011(E)** — Systems and software engineering — Architecture description.
-- **HRMS 软件需求规格说明书 (SRS) V3.0** — 包含核心需求与数据定义。
+- **HRMS 软件需求规格说明书 (SRS) V3.2** — 包含核心需求与数据定义。
 
 ---
 
@@ -137,6 +137,7 @@ classDiagram
     class Utils {
         +DbUtils
         +CsvExport
+        +UiStyles
     }
 
     class UI_Main {
@@ -167,6 +168,7 @@ classDiagram
         +PaginationBar
         +ComboDelegate
         +SafeEditDelegate
+        +OptimisticSqlTableModel
         +TaxConfigPanel
         +OrgChartView
         +Toast
@@ -380,12 +382,14 @@ graph LR
 
     subgraph db_persist ["数据持久化层"]
         DB[("月度工资条记录表<br/>payroll")]
-        P5 -->|事务性写入| DB
+        P5 -->|事务性覆盖写入| DB
     end
 
     style P5 fill:#f9f,stroke:#333,stroke-width:2px
     style DB fill:#ff7f0e,stroke:#333,stroke-width:2px,color:#fff
 ```
+
+覆盖重算工资时，系统先删除当月旧工资条，再批量写入新工资条；删除与写入同属一个数据库事务，任一员工工资条写入失败都会触发整体回滚，保证 payroll 表不会留下半成品数据。
 
 ### 3.3 运行过程视角与视图 (Process View)
 
@@ -398,7 +402,7 @@ graph LR
 ```mermaid
 flowchart TD
     Start([main 引导运行]) --> Pathcheck["查找本地 config.ini 连接文件"]
-    Pathcheck -->|存在文件| Readconf["Base64 解密数据库连接信息"]
+    Pathcheck -->|存在文件| Readconf["Base64 解码数据库连接信息"]
     Pathcheck -->|不存在文件| GuideDialog["弹出 ServerSettingsDialog<br/>强制提示输入主机名与密码"]
     
     Readconf --> ConnTest["测试 MySQL ODBC 连接"]
@@ -503,7 +507,7 @@ sequenceDiagram
 graph TD
     subgraph Office_Workstation ["普通办公终端"]
         ClientApp["客户端可执行程序 (HRMS.exe)<br/>(C++17 Qt 6.5)"]
-        LocalFile["本地配置文件 (config.ini)<br/>(加密连接串及自动登录账号)"]
+        LocalFile["本地配置文件 (config.ini)<br/>(编码遮蔽的连接凭据及自动登录账号)"]
         ClientApp ---|同级目录加载| LocalFile
     end
 
@@ -545,8 +549,8 @@ graph TD
 #### 3.5.2 防御性安全设计
 
 1. **SQL 注入防护 (Parameterized Queries)**：系统在所有涉及外部变量的数据库交互中，杜绝使用字符串拼接 SQL 的做法，统一采用 Qt 的 `prepare()` 以及 `bindValue()` 进行参数占位绑定，利用数据库驱动在底层转义，阻断注入式代码。
-2. **安全散列算法 (SHA-256 Hashing)**：员工在系统中的登录密码绝不以明文存储在 `employees` 表的 `password_hash` 字段中。系统在注册和修改密码时对其进行 SHA-256 加密后再行存取。登录比对也是比对密码的 SHA-256 散列值。
-3. **配置文件敏感数据编码 (Base64 protection)**：为了防止运维人员在服务器共享或直接拷贝 config.ini 时导致生产数据库用户名与密码泄露，配置文件中存储的连接串信息使用 Base64 进行遮蔽混淆。
+2. **安全散列算法 (SHA-256 Hashing)**：员工在系统中的登录密码绝不以明文存储在 `employees` 表的 `password_hash` 字段中。系统在注册和修改密码时对其进行 SHA-256 散列后再行存取。登录比对也是比对密码的 SHA-256 散列值。
+3. **配置文件敏感数据编码 (Base64 protection)**：为了防止运维人员在服务器共享或直接拷贝 config.ini 时导致生产数据库用户名与密码被肉眼直接读取，配置文件中存储的连接凭据使用 Base64 进行遮蔽混淆。
 
 ---
 
@@ -571,7 +575,7 @@ graph TD
 
 ## 5. 架构决策与决策合理性说明 (Architecture Rationale)
 
-在 HRMS 的架构开发中，围绕系统的环境约束和核心质量指标，我们做出了以下四个关键技术决策，并在此处给出其合理性理由解释。
+在 HRMS 的架构开发中，围绕系统的环境约束和核心质量指标，我们做出了以下七个关键技术决策，并在此处给出其合理性理由解释。
 
 ### 决策 1：选用二层 C/S 直连架构，摒弃三层 (B/S 或带有 Java/Go 后端的 C/S) 架构
 
@@ -599,7 +603,7 @@ graph TD
 ### 决策 4：本地配置文件 `config.ini` 使用 Base64 进行连接凭证遮蔽
 
 * **问题描述**：如果将 MySQL 数据库的登录用户名与密码直接以明文写入本地 `config.ini` 文件中，一旦被电脑前的闲杂人员以记事本打开，便会导致后台数据库被不法人员脱库，产生极大的数据泄露风险。
-- **架构决策**：系统在保存连接参数时，对密码等敏感字符串执行 Base64 编码，再存入 `config.ini` 文件中。读取时再由程序还原。
+- **架构决策**：系统在保存连接参数时，对密码等敏感字符串执行 Base64 编码，再存入 `config.ini` 文件中。读取时再由程序解码还原。
 - **决策合理性**：
   - **折中的安全性保障**：虽然 Base64 是可逆的对称混淆，并不具备高强度密码防破解能力。但是在内网 and 局域网教研室物理环境下，它足以有效杜绝周围人“肉眼余光窥探”与不经意的记事本误读。此方案以接近于零的算法开销，低成本地为局域网 C/S 桌面客户端提供了第一道视觉级防御屏障。
 
@@ -620,3 +624,15 @@ graph TD
 - **决策合理性**：
   - **线程安全地提取模型数据**：由于 Qt 的 Model-View 体系是非线程安全的，不能直接从次线程拉取模型数据。先同步提取、再异步写入的设计既保证了模型访问的安全性，又将耗时的磁盘 IO 彻底移出了主线程。
   - **提升用户感知可用性 [U-1]**：配合圆形的非阻塞等待进度条，让用户明确知晓导出进度，防止用户高频重复点击引发冲突。
+
+### 决策 7：QODBC 连接隔离与语句结果显式释放
+
+* **问题描述**：Qt 的 QODBC 驱动在同一数据库连接上同时存在长生命周期 `QSqlTableModel` 结果集、后台轮询查询和临时业务查询时，可能触发 ODBC 驱动管理器的“函数序列错误”。该问题在登录后主窗口初始化、通知轮询、审计轮询与多个表格模型同时加载时更容易暴露。
+- **架构决策**：
+  1. 对普通临时查询，在结果读取完成后显式调用 `finish()`，尽早释放底层语句句柄。
+  2. 对 `QSqlTableModel`、`QSqlRelationalTableModel` 和 `OptimisticSqlTableModel` 等长生命周期模型，使用 `DbUtils::createClonedDatabaseConnection()` 创建独立数据库连接。
+  3. 对主窗口后台审计轮询、通知轮询和日志写入，使用独立后台连接，避免与界面表格模型争用默认连接。
+- **决策合理性**：
+  - **规避驱动级状态冲突**：将表格模型、后台轮询和临时查询分离到不同连接后，每个连接上的语句生命周期更清晰，降低 QODBC 函数序列错误出现概率。
+  - **保持界面响应性**：后台轮询不再阻塞或干扰前台表格模型加载，登录进入主窗口后各模块初始化更稳定。
+  - **便于维护定位**：`DbUtils` 集中提供连接克隆和 SQL 错误日志函数，后续新增 SQL Model 或后台任务时可以沿用统一策略。

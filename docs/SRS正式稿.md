@@ -1,7 +1,7 @@
 # 人力资源管理系统 — 软件需求规格说明书 (SRS)
 
-> 版本：V3.1
-> 日期：2026-05-24
+> 版本：V3.2
+> 日期：2026-05-28
 > 项目代号：HRMS
 
 ---
@@ -232,7 +232,7 @@ graph LR
 | 侧边栏项 | 图标 | 可见角色 | 包含子标签页 |
 |---------|------|---------|-------------|
 | 首页 | 房屋 | admin | 仪表盘 + 统计图表 |
-| 员工 | 人物 | admin | 员工管理 + 信息变更审批 |
+| 员工 | 人物 | 按权限显示 | 员工管理 + 信息变更申请/审批 |
 | 我的考勤 | 闹钟 | 全部 | 打卡 + 请假申请 + 补卡申请 |
 | 考勤管理 | 图表 | admin | 考勤面板 + 审批中心 |
 | 薪酬 | 钱袋 | 全部 | 工资条 + 绩效评分 + 社保配置 |
@@ -246,7 +246,7 @@ graph LR
 
 | 元素 | 类型 | 说明 |
 |------|------|------|
-| 统计卡片区 | QHBoxLayout | 6 张卡片：总人数、在职数、离职数、本月请假数、待审批数、本月工资总额 |
+| 统计卡片区 | QHBoxLayout | 6 张卡片：总人数、在职数、非在职数、本月请假数、待审批数、本月工资总额 |
 | 合同到期提醒 | QLabel | 标记 30 天内合同到期员工，红色预警 |
 | 提醒列表 | QListWidget | 列出即将到期员工的姓名与日期 |
 
@@ -455,8 +455,8 @@ graph LR
 **统计卡片**（6 项，自动刷新）：
 1. 总员工数 — `SELECT COUNT(*) FROM employees`
 2. 在职人数 — `SELECT COUNT(*) FROM employees WHERE status = '在职'`
-3. 离职人数 — `SELECT COUNT(*) FROM employees WHERE status = '离职'`
-4. 本月请假数 — `SELECT COUNT(*) FROM leave_requests WHERE MONTH(start_date) = MONTH(NOW())`
+3. 非在职人数 — `SELECT COUNT(*) FROM employees WHERE status != '在职'`
+4. 本月请假数 — 统计与本月日期区间有交集的请假单：`start_date <= 本月最后一天 AND end_date >= 本月第一天`
 5. 待审批请假 — `SELECT COUNT(*) FROM leave_requests WHERE status = '待审批'`
 6. 本月薪资总额 — `SELECT SUM(net_salary) FROM payroll WHERE month = DATE_FORMAT(NOW(), '%Y-%m')`
 
@@ -580,7 +580,7 @@ graph LR
 5. 从 `salary_config` 加载所有已启用的社保项目及个人缴费比例
 6. 使用数据库事务，遍历 employees 表所有员工，对每个员工：
 
-   a. **请假扣款** = (base_salary / work_days) × 当月已同意请假天数
+   a. **请假扣款** = (base_salary / work_days) × 当月已同意请假天数。跨月请假按与当前核算月份的日期交集计算扣款天数。
 
    b. **绩效奖金** = base_salary × 奖金比例
       - 当月绩效总分 ≥ 90 → 10%
@@ -680,7 +680,7 @@ graph LR
 | 功能模块 / UI控制 | 对应原子权限 Key | 管理员 (admin) 默认 | 普通员工 (user) 默认 |
 |------|-------|------|------|
 | 侧边栏 — 首页（大盘/报表） | `view_dashboard`, `view_reports` | 可见 | **隐藏**（仅大盘） |
-| 侧边栏 — 员工（管理/变更） | `manage_employees`, `approve_profile_change` | 可见 | **隐藏**（可申请变更） |
+| 侧边栏 — 员工（管理/变更） | `manage_employees`, `request_profile_change`, `approve_profile_change` | 可见 | 可见信息变更申请，隐藏员工管理 |
 | 侧边栏 — 考勤（打卡/请假） | `apply_leave_makeup`, `apply_leave` | 可见 | 可见 |
 | 请假/打卡审批按钮（同意/拒绝）| `approve_leave`, `approve_makeup` | 可见 | **隐藏** |
 | 侧边栏 — 薪酬（工资条/绩效）| `view_personal_payroll`, `view_personal_performance`| 可见 | 可见 |
@@ -750,7 +750,7 @@ graph LR
 **处理流程**：
 1. 系统在关键事件发生时自动写入 notifications 表（请假申请/审批结果、补卡审批结果、信息变更审批结果）
 2. 菜单栏铃铛按钮实时显示未读通知数量
-3. 点击铃铛弹出最近 5 条通知
+3. 点击铃铛弹出最近 10 条通知
 4. "全部标已读"一键清除计数
 5. 通知针对特定员工（emp_id），审批类通知向所有管理员广播
 
@@ -851,13 +851,16 @@ graph LR
 - 遵循 Qt 命名规范
 - 数据库迁移采用幂等设计（`CREATE TABLE IF NOT EXISTS`、`SHOW COLUMNS` 检查后 `ALTER TABLE ADD COLUMN`）
 - 全局事件总线解耦跨模块刷新逻辑
+- 主窗口、员工管理、考勤申请、审批中心和薪酬核算按职责拆分初始化、查询、校验和写入辅助函数，降低单函数复杂度
+- 公共界面样式抽取到 `UiStyles`，减少重复 QSS 字符串，统一审批/申请类页面视觉风格
 
 #### NFR-5：可靠性
 - 数据库连接失败时程序终止并打印错误信息
 - 数据修改采用 `OnManualSubmit` 策略，用户可撤销未提交的误操作
 - 薪酬核算使用数据库事务（`transaction`/`commit`/`rollback`）
-- 重复核算当月工资前弹出二次确认
+- 重复核算当月工资前弹出二次确认；删除当月旧工资条与写入新工资条处于同一事务内，任一员工写入失败则整体回滚
 - 扩展字段添加前检查列是否存在，防止重复迁移报错
+- 长生命周期 SQL Model 与后台轮询使用独立克隆数据库连接，临时查询读取完成后显式释放语句结果，降低 QODBC 函数序列错误风险
 
 ### 3.4 数据需求
 
@@ -1074,7 +1077,7 @@ main() 启动
         ├── role == "admin"：全部 8 项侧边栏可见
         │     └── 薪酬 → 社保配置子标签页可见
         └── role == "user"：
-              ├── 隐藏"员工"（员工管理 + 信息变更）
+              ├── 隐藏"员工管理"，保留"信息变更"申请入口
               ├── 隐藏"考勤管理"
               ├── 隐藏"组织"
               ├── 隐藏"日志"
@@ -1126,13 +1129,14 @@ graph TD
 | `src/core/Logger.h/cpp` | 文件日志系统 |
 | `src/core/SessionManager.h/cpp` | 会话管理器：用户会话 + RBAC 权限内存缓存 |
 | `src/core/GlobalEvents.h/cpp` | 全局事件总线（观察者模式） |
-| `src/utils/DbUtils.h/cpp` | 数据库工具：DSN 构建 + 16 表幂等迁移 |
+| `src/utils/DbUtils.h/cpp` | 数据库工具：DSN 构建、配置密码解码、连接克隆、SQL 错误日志、16 表幂等迁移 |
 | `src/utils/CsvExport.h/cpp` | CSV 导出工具（UTF-8 BOM） |
+| `src/utils/UiStyles.h/cpp` | 公共界面样式工具，复用申请/审批页面按钮、表格、输入控件 QSS |
 | `src/utils/Toast.h` | Toast 通知提示组件（纯头文件，4 种类型 + 淡入淡出动画） |
 | `CMakeLists.txt` | CMake 构建配置 (Qt6 Core/Gui/Widgets/Sql/Charts/Network) |
-| `config.ini` | 数据库连接配置 + 自动登录配置（不纳入版本控制） |
+| `config.ini` | 数据库连接配置 + 自动登录配置（演示环境可保留；生产环境不建议纳入版本控制） |
 | `style.qss` | 全局样式表（~390 行，浅石板灰主题 + 动态属性选择器） |
 
 ---
 
-*本文档基于对全部源码文件的审查编写。V3.1 更新于 2026-05-24，反映当前代码库完整功能状态（18 项功能、16 张数据表、10 种统计图表、8 项侧边栏导航、含可折叠侧边栏与可视化组织架构图）。*
+*本文档基于对全部源码文件的审查编写。V3.2 更新于 2026-05-28，反映当前代码库完整功能状态（18 项功能、16 张数据表、10 种统计图表、8 项侧边栏导航、含可折叠侧边栏、可视化组织架构图、QODBC 连接隔离与公共 UI 样式工具）。*

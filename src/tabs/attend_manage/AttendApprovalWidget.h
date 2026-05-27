@@ -23,6 +23,9 @@ private slots:
     void openMakeupApproval();
 
 private:
+    QWidget *createLeaveApprovalPage();
+    QWidget *createMakeupApprovalPage();
+
     int m_empId;
     QString m_role;
 

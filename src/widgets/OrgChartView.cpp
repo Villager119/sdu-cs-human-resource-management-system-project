@@ -62,24 +62,29 @@ void OrgChartView::refresh()
     // 1. Fetch employee names
     QMap<int, QString> empNames;
     {
-        QSqlQuery eq("SELECT emp_id, name FROM employees");
+        QSqlQuery eq;
+        eq.exec("SELECT emp_id, name FROM employees");
         while (eq.next()) {
             empNames[eq.value(0).toInt()] = eq.value(1).toString();
         }
+        eq.finish();
     }
 
     // 2. Fetch employee count per department
     QMap<QString, int> empCounts;
     {
-        QSqlQuery ec("SELECT department, COUNT(*) FROM employees WHERE department IS NOT NULL AND department!='' AND status='在职' GROUP BY department");
+        QSqlQuery ec;
+        ec.exec("SELECT department, COUNT(*) FROM employees WHERE department IS NOT NULL AND department!='' AND status='在职' GROUP BY department");
         while (ec.next()) {
             empCounts[ec.value(0).toString()] = ec.value(1).toInt();
         }
+        ec.finish();
     }
 
     // 3. Fetch departments
     {
-        QSqlQuery dq("SELECT dept_id, dept_name, parent_id, manager_id FROM departments");
+        QSqlQuery dq;
+        dq.exec("SELECT dept_id, dept_name, parent_id, manager_id FROM departments");
         while (dq.next()) {
             int id = dq.value(0).toInt();
             QString name = dq.value(1).toString();
@@ -95,6 +100,7 @@ void OrgChartView::refresh()
 
             m_nodeMap[id] = node;
         }
+        dq.finish();
     }
 
     if (m_nodeMap.isEmpty()) {

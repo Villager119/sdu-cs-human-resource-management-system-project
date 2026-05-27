@@ -3,6 +3,7 @@
 
 #include <QMainWindow>
 #include <QPushButton>
+#include <QSqlDatabase>
 #include <functional>
 
 QT_BEGIN_NAMESPACE
@@ -37,6 +38,16 @@ private:
     void updateStatusBar();
     void refreshActiveTab();
     void toggleSidebar();
+    void loadCurrentUserName();
+    void createContentTabs();
+    void applyPermissionVisibility();
+    QWidget *makeDynamicWrapper(const QList<QPair<QWidget*, QString>> &tabsList);
+    void setupNavigation();
+    void setupNotifications();
+    void initializeAuditCursor();
+    void setupSystemMenu();
+    void connectGlobalRefreshSignals();
+    QSqlDatabase backgroundDatabase();
 
     struct NavItemInfo {
         QString icon;
@@ -60,6 +71,7 @@ private:
 
     int m_empId; QString m_role; QString m_empName;
     int m_lastMaxLogId = -1;
+    QString m_backgroundConnectionName;
 };
 
 #endif

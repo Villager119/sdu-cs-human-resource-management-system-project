@@ -313,6 +313,7 @@ bool PerformanceStatusDelegate::editorEvent(QEvent *event, QAbstractItemModel *m
                 q.addBindValue(newStatus);
                 q.addBindValue(scoreId);
                 ok = q.exec();
+                q.finish();
             }
             if (ok) {
                 model->setData(index, newStatus, Qt::EditRole);

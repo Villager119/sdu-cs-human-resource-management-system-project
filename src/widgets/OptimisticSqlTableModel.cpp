@@ -84,6 +84,7 @@ bool OptimisticSqlTableModel::updateRowInTable(int row, const QSqlRecord &values
     if (!q.exec()) {
         qDebug() << "Optimistic SQL model save query error:" << q.lastError().text() << "SQL:" << updateSql;
         setLastError(q.lastError());
+        q.finish();
         return false;
     }
     
@@ -92,8 +93,10 @@ bool OptimisticSqlTableModel::updateRowInTable(int row, const QSqlRecord &values
         qDebug() << "Optimistic concurrency collision on row" << row << "table" << tblName << "oldVersion" << oldVersion;
         QSqlError collisionError("OptimisticLockError", "数据已被其他用户修改，保存失败。请刷新重试！", QSqlError::UnknownError);
         setLastError(collisionError);
+        q.finish();
         return false;
     }
     
+    q.finish();
     return true;
 }

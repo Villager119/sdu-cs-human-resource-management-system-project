@@ -1,6 +1,7 @@
 #include "DailyClockWidget.h"
 #include "../../widgets/CommonDelegates.h"
 #include "../../utils/Toast.h"
+#include "../../utils/DbUtils.h"
 #include "../../core/Constants.h"
 #include "../../core/GlobalEvents.h"
 #include "../../core/SessionManager.h"
@@ -21,9 +22,16 @@ DailyClockWidget::DailyClockWidget(int empId, const QString &role, QWidget *pare
     auto *l = new QVBoxLayout(this);
     l->setContentsMargins(0, 0, 0, 0);
     l->setSpacing(15);
+    l->addWidget(createClockCard());
+    l->addWidget(createAttendanceTable(), 1);
 
-    // Today's Clock Card Frame
-    QFrame *clockCard = new QFrame(this);
+    setupTimerAndConnections();
+    applyPermissionVisibility();
+}
+
+QWidget *DailyClockWidget::createClockCard()
+{
+    auto *clockCard = new QFrame(this);
     clockCard->setObjectName("clockCard");
     clockCard->setStyleSheet(
         "QFrame#clockCard {"
@@ -93,15 +101,17 @@ DailyClockWidget::DailyClockWidget(int empId, const QString &role, QWidget *pare
     cardLayout->addWidget(m_lblStatus);
     cardLayout->addLayout(btnRow);
 
-    l->addWidget(clockCard);
+    return clockCard;
+}
 
-    // Records Table Frame
-    QGroupBox *box = new QGroupBox("本月考勤记录", this);
+QWidget *DailyClockWidget::createAttendanceTable()
+{
+    auto *box = new QGroupBox("本月考勤记录", this);
     box->setStyleSheet("QGroupBox { font-size: 14px; font-weight: bold; color: #1e3a8a; border: 1px solid #cbd5e1; border-radius: 8px; margin-top: 10px; padding-top: 10px; }");
     auto *boxLayout = new QVBoxLayout(box);
     boxLayout->setContentsMargins(10, 10, 10, 10);
 
-    m_attModel = new QSqlRelationalTableModel(this);
+    m_attModel = new QSqlRelationalTableModel(this, createClonedDatabaseConnection("daily_attendance_model"));
     m_attModel->setTable("attendances");
     m_attModel->setHeaderData(2, Qt::Horizontal, "日期");
     m_attModel->setHeaderData(3, Qt::Horizontal, "签到时间");
@@ -143,8 +153,11 @@ DailyClockWidget::DailyClockWidget(int empId, const QString &role, QWidget *pare
     m_attTable->setItemDelegateForColumn(5, new AttendanceStatusDelegate(m_attTable));
     boxLayout->addWidget(m_attTable);
 
-    l->addWidget(box, 1);
+    return box;
+}
 
+void DailyClockWidget::setupTimerAndConnections()
+{
     m_clockTimer = new QTimer(this);
     connect(m_clockTimer, &QTimer::timeout, this, &DailyClockWidget::updateClock);
     m_clockTimer->start(1000);
@@ -152,8 +165,10 @@ DailyClockWidget::DailyClockWidget(int empId, const QString &role, QWidget *pare
 
     connect(m_btnClockIn, &QPushButton::clicked, this, &DailyClockWidget::clockIn);
     connect(m_btnClockOut, &QPushButton::clicked, this, &DailyClockWidget::clockOut);
+}
 
-    // Apply UI dynamic hiding based on permission
+void DailyClockWidget::applyPermissionVisibility()
+{
     bool hasClockIn = SessionManager::instance()->hasPermission("apply_leave_makeup");
     if (!hasClockIn) {
         m_btnClockIn->setVisible(false);
@@ -173,11 +188,12 @@ void DailyClockWidget::refresh()
     QString shiftStart = "09:00";
     QString shiftEnd = "18:00";
     {
-        QSqlQuery sq("SELECT start_time, end_time FROM shifts WHERE shift_id = 1");
-        if (sq.exec() && sq.next()) {
+        QSqlQuery sq;
+        if (sq.exec("SELECT start_time, end_time FROM shifts WHERE shift_id = 1") && sq.next()) {
             shiftStart = sq.value(0).toString().left(5);
             shiftEnd = sq.value(1).toString().left(5);
         }
+        sq.finish();
     }
 
     // Today's Clock Status
@@ -194,6 +210,7 @@ void DailyClockWidget::refresh()
             status = q.value(2).toString();
             hasTodayAtt = true;
         }
+        q.finish();
     }
     
     bool hasClockInPerm = SessionManager::instance()->hasPermission("apply_leave_makeup");
@@ -243,10 +260,12 @@ void DailyClockWidget::clockIn()
     {
         QSqlQuery q;
         q.prepare("SELECT att_id FROM attendances WHERE emp_id=? AND att_date=?");
-        q.addBindValue(m_empId); q.addBindValue(today);
+        q.addBindValue(m_empId);
+        q.addBindValue(today);
         if (q.exec() && q.next()) {
             alreadyClocked = true;
         }
+        q.finish();
     }
     if (alreadyClocked) {
         Toast::show(this, "今天已打卡，请勿重复", Toast::Warning);
@@ -255,10 +274,11 @@ void DailyClockWidget::clockIn()
 
     QString start = "09:00:00";
     {
-        QSqlQuery sq("SELECT start_time FROM shifts WHERE shift_id=1");
-        if (sq.exec() && sq.next()) {
+        QSqlQuery sq;
+        if (sq.exec("SELECT start_time FROM shifts WHERE shift_id=1") && sq.next()) {
             start = sq.value(0).toString();
         }
+        sq.finish();
     }
     QString status = (now > start) ? "迟到" : "正常";
 
@@ -267,9 +287,13 @@ void DailyClockWidget::clockIn()
     {
         QSqlQuery q;
         q.prepare("INSERT INTO attendances(emp_id,att_date,clock_in,status) VALUES(?,?,?,?)");
-        q.addBindValue(m_empId); q.addBindValue(today); q.addBindValue(now); q.addBindValue(status);
+        q.addBindValue(m_empId);
+        q.addBindValue(today);
+        q.addBindValue(now);
+        q.addBindValue(status);
         insertOk = q.exec();
         if (!insertOk) err = q.lastError().text();
+        q.finish();
     }
 
     if (insertOk) {
@@ -292,20 +316,23 @@ void DailyClockWidget::clockOut()
     {
         QSqlQuery q;
         q.prepare("SELECT att_id, status FROM attendances WHERE emp_id=? AND att_date=?");
-        q.addBindValue(m_empId); q.addBindValue(today);
+        q.addBindValue(m_empId);
+        q.addBindValue(today);
         if (q.exec() && q.next()) {
             currentStatus = q.value(1).toString();
             hasInRecord = true;
         }
+        q.finish();
     }
     if (!hasInRecord) { Toast::show(this, "请先打上班卡", Toast::Warning); return; }
 
     QString end = "18:00:00";
     {
-        QSqlQuery sq("SELECT end_time FROM shifts WHERE shift_id=1");
-        if (sq.exec() && sq.next()) {
+        QSqlQuery sq;
+        if (sq.exec("SELECT end_time FROM shifts WHERE shift_id=1") && sq.next()) {
             end = sq.value(0).toString();
         }
+        sq.finish();
     }
     QString status = (now < end) ? "早退" : "正常";
     if (currentStatus == "迟到") status = "迟到";
@@ -316,9 +343,13 @@ void DailyClockWidget::clockOut()
     {
         QSqlQuery q;
         q.prepare("UPDATE attendances SET clock_out=?, status=? WHERE emp_id=? AND att_date=?");
-        q.addBindValue(now); q.addBindValue(status); q.addBindValue(m_empId); q.addBindValue(today);
+        q.addBindValue(now);
+        q.addBindValue(status);
+        q.addBindValue(m_empId);
+        q.addBindValue(today);
         updateOk = q.exec();
         if (!updateOk) err = q.lastError().text();
+        q.finish();
     }
 
     if (updateOk) {

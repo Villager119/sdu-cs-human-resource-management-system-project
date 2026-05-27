@@ -1,11 +1,12 @@
 #include "AuditTab.h"
+#include "../utils/DbUtils.h"
 #include <QVBoxLayout>
 #include <QSqlQuery>
 
 AuditTab::AuditTab(QWidget *parent)
     : QWidget(parent)
 {
-    m_model = new QSqlTableModel(this);
+    m_model = new QSqlTableModel(this, createClonedDatabaseConnection("audit_model"));
     m_model->setTable("audit_logs");
     m_model->setHeaderData(0, Qt::Horizontal, "日志编号");
     m_model->setHeaderData(1, Qt::Horizontal, "操作人ID");

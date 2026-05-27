@@ -1,6 +1,8 @@
 #include "AttendApprovalWidget.h"
 #include "../../widgets/CommonDelegates.h"
 #include "../../utils/Toast.h"
+#include "../../utils/DbUtils.h"
+#include "../../utils/UiStyles.h"
 #include "../../core/Constants.h"
 #include "../../core/GlobalEvents.h"
 #include "../../core/SessionManager.h"
@@ -34,16 +36,16 @@ public:
         form->setSpacing(8);
 
         QLabel *lblApp = new QLabel(applicant, this);
-        lblApp->setStyleSheet("font-weight: bold; color: #1e293b;");
+        lblApp->setStyleSheet(UiStyles::strongText());
         form->addRow("申请人员:", lblApp);
 
         QLabel *lblDate = new QLabel(QString("%1 至 %2").arg(startDate, endDate), this);
-        lblDate->setStyleSheet("font-weight: bold; color: #1e293b;");
+        lblDate->setStyleSheet(UiStyles::strongText());
         form->addRow("请假日期:", lblDate);
 
         QLabel *lblReason = new QLabel(reason, this);
         lblReason->setWordWrap(true);
-        lblReason->setStyleSheet("font-weight: bold; color: #1e293b;");
+        lblReason->setStyleSheet(UiStyles::strongText());
         form->addRow("请假原因:", lblReason);
 
         l->addLayout(form);
@@ -53,11 +55,11 @@ public:
         btnRow->addStretch();
 
         QPushButton *btnApprove = new QPushButton("同意", this);
-        btnApprove->setStyleSheet("QPushButton { background-color: #22c55e; color: white; border: none; border-radius: 6px; padding: 6px 16px; font-weight: bold; } QPushButton:hover { background-color: #16a34a; }");
+        btnApprove->setStyleSheet(UiStyles::successButton());
         QPushButton *btnReject = new QPushButton("拒绝", this);
-        btnReject->setStyleSheet("QPushButton { background-color: #ef4444; color: white; border: none; border-radius: 6px; padding: 6px 16px; font-weight: bold; } QPushButton:hover { background-color: #dc2626; }");
+        btnReject->setStyleSheet(UiStyles::dangerButton());
         QPushButton *btnCancel = new QPushButton("取消", this);
-        btnCancel->setStyleSheet("QPushButton { background-color: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 16px; } QPushButton:hover { background-color: #e2e8f0; }");
+        btnCancel->setStyleSheet(UiStyles::secondaryButton());
 
         btnRow->addWidget(btnApprove);
         btnRow->addWidget(btnReject);
@@ -88,24 +90,24 @@ public:
         form->setSpacing(8);
 
         QLabel *lblApp = new QLabel(applicant, this);
-        lblApp->setStyleSheet("font-weight: bold; color: #1e293b;");
+        lblApp->setStyleSheet(UiStyles::strongText());
         form->addRow("申请人员:", lblApp);
 
         QLabel *lblDate = new QLabel(date, this);
-        lblDate->setStyleSheet("font-weight: bold; color: #1e293b;");
+        lblDate->setStyleSheet(UiStyles::strongText());
         form->addRow("补卡日期:", lblDate);
 
         QLabel *lblType = new QLabel(type, this);
-        lblType->setStyleSheet("font-weight: bold; color: #1e293b;");
+        lblType->setStyleSheet(UiStyles::strongText());
         form->addRow("补卡类型:", lblType);
 
         QLabel *lblTime = new QLabel(time, this);
-        lblTime->setStyleSheet("font-weight: bold; color: #1e293b;");
+        lblTime->setStyleSheet(UiStyles::strongText());
         form->addRow("补卡时间:", lblTime);
 
         QLabel *lblReason = new QLabel(reason, this);
         lblReason->setWordWrap(true);
-        lblReason->setStyleSheet("font-weight: bold; color: #1e293b;");
+        lblReason->setStyleSheet(UiStyles::strongText());
         form->addRow("补卡原因:", lblReason);
 
         l->addLayout(form);
@@ -115,11 +117,11 @@ public:
         btnRow->addStretch();
 
         QPushButton *btnApprove = new QPushButton("同意", this);
-        btnApprove->setStyleSheet("QPushButton { background-color: #22c55e; color: white; border: none; border-radius: 6px; padding: 6px 16px; font-weight: bold; } QPushButton:hover { background-color: #16a34a; }");
+        btnApprove->setStyleSheet(UiStyles::successButton());
         QPushButton *btnReject = new QPushButton("拒绝", this);
-        btnReject->setStyleSheet("QPushButton { background-color: #ef4444; color: white; border: none; border-radius: 6px; padding: 6px 16px; font-weight: bold; } QPushButton:hover { background-color: #dc2626; }");
+        btnReject->setStyleSheet(UiStyles::dangerButton());
         QPushButton *btnCancel = new QPushButton("取消", this);
-        btnCancel->setStyleSheet("QPushButton { background-color: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 16px; } QPushButton:hover { background-color: #e2e8f0; }");
+        btnCancel->setStyleSheet(UiStyles::secondaryButton());
 
         btnRow->addWidget(btnApprove);
         btnRow->addWidget(btnReject);
@@ -139,18 +141,21 @@ AttendApprovalWidget::AttendApprovalWidget(int empId, const QString &role, QWidg
     l->setContentsMargins(0, 0, 0, 0);
 
     m_approvalTabs = new QTabWidget(this);
-    m_approvalTabs->setStyleSheet(
-        "QTabWidget::panel { border: none; background-color: #ffffff; }"
-        "QTabBar::tab { font-size: 13px; padding: 6px 14px; }"
-    );
+    m_approvalTabs->setStyleSheet(UiStyles::tabWidget());
 
-    // Sub-tab 1: Leave Approval
-    QWidget *leavePage = new QWidget(m_approvalTabs);
+    m_approvalTabs->addTab(createLeaveApprovalPage(), "💬 请假审批");
+    m_approvalTabs->addTab(createMakeupApprovalPage(), "✉ 补卡审批");
+    l->addWidget(m_approvalTabs);
+}
+
+QWidget *AttendApprovalWidget::createLeaveApprovalPage()
+{
+    auto *leavePage = new QWidget(m_approvalTabs);
     auto *l1 = new QVBoxLayout(leavePage);
     l1->setContentsMargins(10, 10, 10, 10);
     l1->setSpacing(10);
 
-    m_leaveModel = new QSqlRelationalTableModel(this);
+    m_leaveModel = new QSqlRelationalTableModel(this, createClonedDatabaseConnection("leave_approval_model"));
     m_leaveModel->setTable("leave_requests");
     m_leaveModel->setRelation(1, QSqlRelation("employees", "emp_id", "name"));
     m_leaveModel->setHeaderData(0, Qt::Horizontal, "编号");
@@ -168,46 +173,14 @@ AttendApprovalWidget::AttendApprovalWidget(int empId, const QString &role, QWidg
     m_leaveTable->setShowGrid(false);
     m_leaveTable->verticalHeader()->setVisible(false);
     m_leaveTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    m_leaveTable->horizontalHeader()->setStyleSheet(
-        "QHeaderView::section {"
-        "  background-color: #f1f5f9;"
-        "  color: #475569;"
-        "  padding: 8px;"
-        "  border: none;"
-        "  font-weight: bold;"
-        "  border-bottom: 2px solid #e2e8f0;"
-        "}"
-    );
-    m_leaveTable->setStyleSheet(
-        "QTableView {"
-        "  border: none;"
-        "  background-color: #ffffff;"
-        "  gridline-color: #f1f5f9;"
-        "  selection-background-color: #f1f5f9;"
-        "  selection-color: #0f172a;"
-        "}"
-        "QTableView::item {"
-        "  padding: 8px;"
-        "  border-bottom: 1px solid #f1f5f9;"
-        "}"
-    );
+    m_leaveTable->horizontalHeader()->setStyleSheet(UiStyles::tableHeader());
+    m_leaveTable->setStyleSheet(UiStyles::tableView());
     m_leaveTable->setItemDelegateForColumn(5, new RequestStatusDelegate(m_leaveTable));
     l1->addWidget(m_leaveTable, 1);
 
     auto *btnRowLeave = new QHBoxLayout;
     m_btnApproveLeave = new QPushButton("办理审批", leavePage);
-    m_btnApproveLeave->setStyleSheet(
-        "QPushButton {"
-        "  background-color: #2563eb;"
-        "  color: white;"
-        "  border: none;"
-        "  border-radius: 6px;"
-        "  padding: 8px 20px;"
-        "  font-weight: bold;"
-        "}"
-        "QPushButton:hover { background-color: #1d4ed8; }"
-        "QPushButton:disabled { background-color: #f1f5f9; color: #94a3b8; border: 1px solid #e2e8f0; }"
-    );
+    m_btnApproveLeave->setStyleSheet(UiStyles::actionButton());
     m_btnApproveLeave->setEnabled(false);
     btnRowLeave->addStretch();
     btnRowLeave->addWidget(m_btnApproveLeave);
@@ -220,15 +193,17 @@ AttendApprovalWidget::AttendApprovalWidget(int empId, const QString &role, QWidg
     connect(m_btnApproveLeave, &QPushButton::clicked, this, &AttendApprovalWidget::openLeaveApproval);
     connect(m_leaveTable, &QTableView::doubleClicked, this, &AttendApprovalWidget::openLeaveApproval);
 
-    m_approvalTabs->addTab(leavePage, "💬 请假审批");
+    return leavePage;
+}
 
-    // Sub-tab 2: Makeup Approval
-    QWidget *makeupPage = new QWidget(m_approvalTabs);
+QWidget *AttendApprovalWidget::createMakeupApprovalPage()
+{
+    auto *makeupPage = new QWidget(m_approvalTabs);
     auto *l2 = new QVBoxLayout(makeupPage);
     l2->setContentsMargins(10, 10, 10, 10);
     l2->setSpacing(10);
 
-    m_makeupModel = new QSqlRelationalTableModel(this);
+    m_makeupModel = new QSqlRelationalTableModel(this, createClonedDatabaseConnection("makeup_approval_model"));
     m_makeupModel->setTable("makeup_requests");
     m_makeupModel->setRelation(1, QSqlRelation("employees", "emp_id", "name"));
     m_makeupModel->setHeaderData(0, Qt::Horizontal, "编号");
@@ -247,47 +222,15 @@ AttendApprovalWidget::AttendApprovalWidget(int empId, const QString &role, QWidg
     m_makeupTable->setShowGrid(false);
     m_makeupTable->verticalHeader()->setVisible(false);
     m_makeupTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    m_makeupTable->horizontalHeader()->setStyleSheet(
-        "QHeaderView::section {"
-        "  background-color: #f1f5f9;"
-        "  color: #475569;"
-        "  padding: 8px;"
-        "  border: none;"
-        "  font-weight: bold;"
-        "  border-bottom: 2px solid #e2e8f0;"
-        "}"
-    );
-    m_makeupTable->setStyleSheet(
-        "QTableView {"
-        "  border: none;"
-        "  background-color: #ffffff;"
-        "  gridline-color: #f1f5f9;"
-        "  selection-background-color: #f1f5f9;"
-        "  selection-color: #0f172a;"
-        "}"
-        "QTableView::item {"
-        "  padding: 8px;"
-        "  border-bottom: 1px solid #f1f5f9;"
-        "}"
-    );
+    m_makeupTable->horizontalHeader()->setStyleSheet(UiStyles::tableHeader());
+    m_makeupTable->setStyleSheet(UiStyles::tableView());
     m_makeupTable->setItemDelegateForColumn(3, new MakeupTypeDelegate(m_makeupTable));
     m_makeupTable->setItemDelegateForColumn(6, new RequestStatusDelegate(m_makeupTable));
     l2->addWidget(m_makeupTable, 1);
 
     auto *btnRowMakeup = new QHBoxLayout;
     m_btnApproveMakeup = new QPushButton("办理审批", makeupPage);
-    m_btnApproveMakeup->setStyleSheet(
-        "QPushButton {"
-        "  background-color: #2563eb;"
-        "  color: white;"
-        "  border: none;"
-        "  border-radius: 6px;"
-        "  padding: 8px 20px;"
-        "  font-weight: bold;"
-        "}"
-        "QPushButton:hover { background-color: #1d4ed8; }"
-        "QPushButton:disabled { background-color: #f1f5f9; color: #94a3b8; border: 1px solid #e2e8f0; }"
-    );
+    m_btnApproveMakeup->setStyleSheet(UiStyles::actionButton());
     m_btnApproveMakeup->setEnabled(false);
     btnRowMakeup->addStretch();
     btnRowMakeup->addWidget(m_btnApproveMakeup);
@@ -300,9 +243,7 @@ AttendApprovalWidget::AttendApprovalWidget(int empId, const QString &role, QWidg
     connect(m_btnApproveMakeup, &QPushButton::clicked, this, &AttendApprovalWidget::openMakeupApproval);
     connect(m_makeupTable, &QTableView::doubleClicked, this, &AttendApprovalWidget::openMakeupApproval);
 
-    m_approvalTabs->addTab(makeupPage, "✉ 补卡审批");
-
-    l->addWidget(m_approvalTabs);
+    return makeupPage;
 }
 
 void AttendApprovalWidget::refresh()
@@ -330,9 +271,12 @@ void AttendApprovalWidget::openLeaveApproval()
 
     int eid = 0;
     {
-        QSqlQuery eq; eq.prepare("SELECT emp_id FROM leave_requests WHERE request_id=?");
-        eq.addBindValue(id); eq.exec();
+        QSqlQuery eq;
+        eq.prepare("SELECT emp_id FROM leave_requests WHERE request_id=?");
+        eq.addBindValue(id);
+        eq.exec();
         if (eq.next()) eid = eq.value(0).toInt();
+        eq.finish();
     }
 
     if (res == QDialog::Accepted) {
@@ -342,6 +286,7 @@ void AttendApprovalWidget::openLeaveApproval()
             q.prepare(QString("UPDATE leave_requests SET status='%1' WHERE request_id=?").arg(HR::LeaveStatus::APPROVED));
             q.addBindValue(id);
             ok = q.exec();
+            q.finish();
         }
         if (ok) {
             emit logRequested("同意请假", "单号: " + QString::number(id));
@@ -355,6 +300,7 @@ void AttendApprovalWidget::openLeaveApproval()
             q.prepare(QString("UPDATE leave_requests SET status='%1' WHERE request_id=?").arg(HR::LeaveStatus::REJECTED));
             q.addBindValue(id);
             ok = q.exec();
+            q.finish();
         }
         if (ok) {
             emit logRequested("拒绝请假", "单号: " + QString::number(id));
@@ -385,18 +331,22 @@ void AttendApprovalWidget::openMakeupApproval()
 
     int eid = 0;
     {
-        QSqlQuery eq; eq.prepare("SELECT emp_id FROM makeup_requests WHERE request_id=?");
-        eq.addBindValue(mid); eq.exec();
+        QSqlQuery eq;
+        eq.prepare("SELECT emp_id FROM makeup_requests WHERE makeup_id=?");
+        eq.addBindValue(mid);
+        eq.exec();
         if (eq.next()) eid = eq.value(0).toInt();
+        eq.finish();
     }
 
     if (res == QDialog::Accepted) {
         bool ok = false;
         {
             QSqlQuery q;
-            q.prepare("UPDATE makeup_requests SET status='已同意' WHERE request_id=?");
+            q.prepare("UPDATE makeup_requests SET status='已同意' WHERE makeup_id=?");
             q.addBindValue(mid);
             ok = q.exec();
+            q.finish();
         }
         if (ok) {
             emit logRequested("同意补卡", "单号: " + QString::number(mid));
@@ -408,23 +358,29 @@ void AttendApprovalWidget::openMakeupApproval()
             {
                 QSqlQuery aq;
                 aq.prepare("SELECT att_id FROM attendances WHERE emp_id=? AND att_date=?");
-                aq.addBindValue(eid); aq.addBindValue(date);
+                aq.addBindValue(eid);
+                aq.addBindValue(date);
                 if (aq.exec() && aq.next()) {
                     attId = aq.value(0).toInt();
                     attExists = true;
                 }
+                aq.finish();
             }
             if (attExists) {
                 {
                     QSqlQuery uq;
                     if (typeRaw == "clock_in") {
                         uq.prepare("UPDATE attendances SET clock_in=? WHERE att_id=?");
-                        uq.addBindValue(time); uq.addBindValue(attId);
+                        uq.addBindValue(time);
+                        uq.addBindValue(attId);
                         uq.exec();
+                        uq.finish();
                     } else {
                         uq.prepare("UPDATE attendances SET clock_out=? WHERE att_id=?");
-                        uq.addBindValue(time); uq.addBindValue(attId);
+                        uq.addBindValue(time);
+                        uq.addBindValue(attId);
                         uq.exec();
+                        uq.finish();
                     }
                 }
                 
@@ -433,12 +389,13 @@ void AttendApprovalWidget::openMakeupApproval()
                 QString end = "18:00:00";
                 bool shiftFound = false;
                 {
-                    QSqlQuery sq("SELECT start_time, end_time FROM shifts WHERE shift_id=1");
-                    if (sq.exec() && sq.next()) {
+                    QSqlQuery sq;
+                    if (sq.exec("SELECT start_time, end_time FROM shifts WHERE shift_id=1") && sq.next()) {
                         start = sq.value(0).toString();
                         end = sq.value(1).toString();
                         shiftFound = true;
                     }
+                    sq.finish();
                 }
                 if (shiftFound) {
                     QString ci, co;
@@ -452,6 +409,7 @@ void AttendApprovalWidget::openMakeupApproval()
                             co = rq.value(1).toString();
                             attFound = true;
                         }
+                        rq.finish();
                     }
                     if (attFound) {
                         QString status = "正常";
@@ -461,8 +419,10 @@ void AttendApprovalWidget::openMakeupApproval()
                         {
                             QSqlQuery fq;
                             fq.prepare("UPDATE attendances SET status=? WHERE att_id=?");
-                            fq.addBindValue(status); fq.addBindValue(attId);
+                            fq.addBindValue(status);
+                            fq.addBindValue(attId);
                             fq.exec();
+                            fq.finish();
                         }
                     }
                 }
@@ -471,12 +431,15 @@ void AttendApprovalWidget::openMakeupApproval()
                 {
                     QSqlQuery iq;
                     if (typeRaw == "clock_in") {
-                        iq.prepare("INSERT INTO attendances(emp_id, att_date, clock_in, status, comment) VALUES(?,?,?,'正常','补卡录入')");
+                        iq.prepare("INSERT INTO attendances(emp_id, att_date, clock_in, status, remark) VALUES(?,?,?,'正常','补卡录入')");
                     } else {
-                        iq.prepare("INSERT INTO attendances(emp_id, att_date, clock_out, status, comment) VALUES(?,?,?,'正常','补卡录入')");
+                        iq.prepare("INSERT INTO attendances(emp_id, att_date, clock_out, status, remark) VALUES(?,?,?,'正常','补卡录入')");
                     }
-                    iq.addBindValue(eid); iq.addBindValue(date); iq.addBindValue(time);
+                    iq.addBindValue(eid);
+                    iq.addBindValue(date);
+                    iq.addBindValue(time);
                     iq.exec();
+                    iq.finish();
                 }
             }
 
@@ -486,9 +449,10 @@ void AttendApprovalWidget::openMakeupApproval()
         bool ok = false;
         {
             QSqlQuery q;
-            q.prepare("UPDATE makeup_requests SET status='已拒绝' WHERE request_id=?");
+            q.prepare("UPDATE makeup_requests SET status='已拒绝' WHERE makeup_id=?");
             q.addBindValue(mid);
             ok = q.exec();
+            q.finish();
         }
         if (ok) {
             emit logRequested("拒绝补卡", "单号: " + QString::number(mid));

@@ -1,6 +1,8 @@
 #include "AppCenterWidget.h"
 #include "../../widgets/CommonDelegates.h"
 #include "../../utils/Toast.h"
+#include "../../utils/DbUtils.h"
+#include "../../utils/UiStyles.h"
 #include "../../core/Constants.h"
 #include "../../core/GlobalEvents.h"
 #include "../../core/SessionManager.h"
@@ -28,12 +30,15 @@ AppCenterWidget::AppCenterWidget(int empId, const QString &role, QWidget *parent
     mainLayout->setContentsMargins(0, 0, 0, 0);
 
     QTabWidget *tabs = new QTabWidget(this);
-    tabs->setStyleSheet(
-        "QTabWidget::panel { border: none; background-color: #ffffff; }"
-        "QTabBar::tab { font-size: 13px; padding: 6px 14px; }"
-    );
+    tabs->setStyleSheet(UiStyles::tabWidget());
 
-    // Page 1: Leave App
+    tabs->addTab(createLeavePage(tabs), "💬 请假申请");
+    tabs->addTab(createMakeupPage(tabs), "✉ 补卡申请");
+    mainLayout->addWidget(tabs);
+}
+
+QWidget *AppCenterWidget::createLeavePage(QTabWidget *tabs)
+{
     QWidget *leavePage = new QWidget(tabs);
     auto *leaveLayout = new QHBoxLayout(leavePage);
     leaveLayout->setContentsMargins(10, 10, 10, 10);
@@ -41,14 +46,14 @@ AppCenterWidget::AppCenterWidget(int empId, const QString &role, QWidget *parent
 
     QFrame *leaveLeft = new QFrame(leavePage);
     leaveLeft->setObjectName("leaveLeft");
-    leaveLeft->setStyleSheet("QFrame#leaveLeft { background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; }");
+    leaveLeft->setStyleSheet(UiStyles::panelFrame("leaveLeft"));
     leaveLeft->setFixedWidth(320);
     auto *ll = new QVBoxLayout(leaveLeft);
     ll->setContentsMargins(15, 15, 15, 15);
     ll->setSpacing(12);
 
     QLabel *lblLeaveTitle = new QLabel("新建请假申请", leaveLeft);
-    lblLeaveTitle->setStyleSheet("font-size: 15px; font-weight: bold; color: #1d4ed8; border: none; background: transparent;");
+    lblLeaveTitle->setStyleSheet(UiStyles::sectionTitle(true));
     ll->addWidget(lblLeaveTitle);
 
     ll->addWidget(new QLabel("开始日期:", leaveLeft));
@@ -64,31 +69,13 @@ AppCenterWidget::AppCenterWidget(int empId, const QString &role, QWidget *parent
     ll->addWidget(new QLabel("请假理由:", leaveLeft));
     m_leaveReason = new QTextEdit(leaveLeft);
     m_leaveReason->setPlaceholderText("请输入请假原因 (必填，最少输入5个字)");
-    m_leaveReason->setStyleSheet(
-        "QTextEdit {"
-        "  border: 1px solid #cbd5e1;"
-        "  border-radius: 6px;"
-        "  padding: 8px;"
-        "  font-size: 13px;"
-        "}"
-        "QTextEdit:focus { border: 1px solid #3b82f6; }"
-    );
+    m_leaveReason->setStyleSheet(UiStyles::textEdit());
     ll->addWidget(m_leaveReason, 1);
 
     auto *btnLeaveRow = new QHBoxLayout;
     btnLeaveRow->addStretch();
     QPushButton *btnSubmitLeave = new QPushButton("提交申请", leaveLeft);
-    btnSubmitLeave->setStyleSheet(
-        "QPushButton {"
-        "  background-color: #2563eb;"
-        "  color: white;"
-        "  border: none;"
-        "  border-radius: 6px;"
-        "  padding: 8px 20px;"
-        "  font-weight: bold;"
-        "}"
-        "QPushButton:hover { background-color: #1d4ed8; }"
-    );
+    btnSubmitLeave->setStyleSheet(UiStyles::primaryButton());
     btnLeaveRow->addWidget(btnSubmitLeave);
     ll->addLayout(btnLeaveRow);
     connect(btnSubmitLeave, &QPushButton::clicked, this, &AppCenterWidget::submitLeave);
@@ -97,16 +84,16 @@ AppCenterWidget::AppCenterWidget(int empId, const QString &role, QWidget *parent
 
     QFrame *leaveRight = new QFrame(leavePage);
     leaveRight->setObjectName("leaveRight");
-    leaveRight->setStyleSheet("QFrame#leaveRight { background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; }");
+    leaveRight->setStyleSheet(UiStyles::panelFrame("leaveRight"));
     auto *lr = new QVBoxLayout(leaveRight);
     lr->setContentsMargins(15, 15, 15, 15);
     lr->setSpacing(10);
 
     QLabel *lblLeaveHistTitle = new QLabel("我的请假历史", leaveRight);
-    lblLeaveHistTitle->setStyleSheet("font-size: 15px; font-weight: bold; color: #1e293b; border: none; background: transparent;");
+    lblLeaveHistTitle->setStyleSheet(UiStyles::sectionTitle());
     lr->addWidget(lblLeaveHistTitle);
 
-    m_leaveModel = new QSqlRelationalTableModel(this);
+    m_leaveModel = new QSqlRelationalTableModel(this, createClonedDatabaseConnection("leave_request_model"));
     m_leaveModel->setTable("leave_requests");
     m_leaveModel->setHeaderData(2, Qt::Horizontal, "开始日期");
     m_leaveModel->setHeaderData(3, Qt::Horizontal, "结束日期");
@@ -121,37 +108,22 @@ AppCenterWidget::AppCenterWidget(int empId, const QString &role, QWidget *parent
     m_leaveTable->setShowGrid(false);
     m_leaveTable->verticalHeader()->setVisible(false);
     m_leaveTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    m_leaveTable->horizontalHeader()->setStyleSheet(
-        "QHeaderView::section {"
-        "  background-color: #f1f5f9;"
-        "  color: #475569;"
-        "  padding: 8px;"
-        "  border: none;"
-        "  font-weight: bold;"
-        "  border-bottom: 2px solid #e2e8f0;"
-        "}"
-    );
-    m_leaveTable->setStyleSheet(
-        "QTableView {"
-        "  border: none;"
-        "  background-color: #ffffff;"
-        "  gridline-color: #f1f5f9;"
-        "  selection-background-color: #f1f5f9;"
-        "  selection-color: #0f172a;"
-        "}"
-        "QTableView::item {"
-        "  padding: 8px;"
-        "  border-bottom: 1px solid #f1f5f9;"
-        "}"
-    );
+    m_leaveTable->horizontalHeader()->setStyleSheet(UiStyles::tableHeader());
+    m_leaveTable->setStyleSheet(UiStyles::tableView());
     m_leaveTable->setItemDelegateForColumn(5, new RequestStatusDelegate(m_leaveTable));
     lr->addWidget(m_leaveTable, 1);
 
     leaveLayout->addWidget(leaveRight, 1);
 
-    tabs->addTab(leavePage, "💬 请假申请");
+    if (!SessionManager::instance()->hasPermission("apply_leave_makeup")) {
+        leaveLeft->setVisible(false);
+    }
 
-    // Page 2: Makeup App
+    return leavePage;
+}
+
+QWidget *AppCenterWidget::createMakeupPage(QTabWidget *tabs)
+{
     QWidget *makeupPage = new QWidget(tabs);
     auto *makeupLayout = new QHBoxLayout(makeupPage);
     makeupLayout->setContentsMargins(10, 10, 10, 10);
@@ -159,14 +131,14 @@ AppCenterWidget::AppCenterWidget(int empId, const QString &role, QWidget *parent
 
     QFrame *makeupLeft = new QFrame(makeupPage);
     makeupLeft->setObjectName("makeupLeft");
-    makeupLeft->setStyleSheet("QFrame#makeupLeft { background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; }");
+    makeupLeft->setStyleSheet(UiStyles::panelFrame("makeupLeft"));
     makeupLeft->setFixedWidth(320);
     auto *ml = new QVBoxLayout(makeupLeft);
     ml->setContentsMargins(15, 15, 15, 15);
     ml->setSpacing(12);
 
     QLabel *lblMakeupTitle = new QLabel("新建补卡申请", makeupLeft);
-    lblMakeupTitle->setStyleSheet("font-size: 15px; font-weight: bold; color: #1d4ed8; border: none; background: transparent;");
+    lblMakeupTitle->setStyleSheet(UiStyles::sectionTitle(true));
     ml->addWidget(lblMakeupTitle);
 
     ml->addWidget(new QLabel("补卡日期:", makeupLeft));
@@ -178,15 +150,7 @@ AppCenterWidget::AppCenterWidget(int empId, const QString &role, QWidget *parent
     m_makeupType = new QComboBox(makeupLeft);
     m_makeupType->addItem("上班签到", "clock_in");
     m_makeupType->addItem("下班签退", "clock_out");
-    m_makeupType->setStyleSheet(
-        "QComboBox {"
-        "  border: 1px solid #cbd5e1;"
-        "  border-radius: 6px;"
-        "  padding: 6px 10px;"
-        "  font-size: 13px;"
-        "  background: #ffffff;"
-        "}"
-    );
+    m_makeupType->setStyleSheet(UiStyles::comboBox());
     ml->addWidget(m_makeupType);
 
     ml->addWidget(new QLabel("补卡时间:", makeupLeft));
@@ -196,31 +160,13 @@ AppCenterWidget::AppCenterWidget(int empId, const QString &role, QWidget *parent
     ml->addWidget(new QLabel("补卡理由:", makeupLeft));
     m_makeupReason = new QTextEdit(makeupLeft);
     m_makeupReason->setPlaceholderText("请输入补卡事由 (必填，最少输入5个字)");
-    m_makeupReason->setStyleSheet(
-        "QTextEdit {"
-        "  border: 1px solid #cbd5e1;"
-        "  border-radius: 6px;"
-        "  padding: 8px;"
-        "  font-size: 13px;"
-        "}"
-        "QTextEdit:focus { border: 1px solid #3b82f6; }"
-    );
+    m_makeupReason->setStyleSheet(UiStyles::textEdit());
     ml->addWidget(m_makeupReason, 1);
 
     auto *btnMakeupRow = new QHBoxLayout;
     btnMakeupRow->addStretch();
     QPushButton *btnSubmitMakeup = new QPushButton("提交申请", makeupLeft);
-    btnSubmitMakeup->setStyleSheet(
-        "QPushButton {"
-        "  background-color: #2563eb;"
-        "  color: white;"
-        "  border: none;"
-        "  border-radius: 6px;"
-        "  padding: 8px 20px;"
-        "  font-weight: bold;"
-        "}"
-        "QPushButton:hover { background-color: #1d4ed8; }"
-    );
+    btnSubmitMakeup->setStyleSheet(UiStyles::primaryButton());
     btnMakeupRow->addWidget(btnSubmitMakeup);
     ml->addLayout(btnMakeupRow);
     connect(btnSubmitMakeup, &QPushButton::clicked, this, &AppCenterWidget::submitMakeup);
@@ -229,16 +175,16 @@ AppCenterWidget::AppCenterWidget(int empId, const QString &role, QWidget *parent
 
     QFrame *makeupRight = new QFrame(makeupPage);
     makeupRight->setObjectName("makeupRight");
-    makeupRight->setStyleSheet("QFrame#makeupRight { background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; }");
+    makeupRight->setStyleSheet(UiStyles::panelFrame("makeupRight"));
     auto *mr = new QVBoxLayout(makeupRight);
     mr->setContentsMargins(15, 15, 15, 15);
     mr->setSpacing(10);
 
     QLabel *lblMakeupHistTitle = new QLabel("我的补卡历史", makeupRight);
-    lblMakeupHistTitle->setStyleSheet("font-size: 15px; font-weight: bold; color: #1e293b; border: none; background: transparent;");
+    lblMakeupHistTitle->setStyleSheet(UiStyles::sectionTitle());
     mr->addWidget(lblMakeupHistTitle);
 
-    m_makeupModel = new QSqlRelationalTableModel(this);
+    m_makeupModel = new QSqlRelationalTableModel(this, createClonedDatabaseConnection("makeup_request_model"));
     m_makeupModel->setTable("makeup_requests");
     m_makeupModel->setHeaderData(2, Qt::Horizontal, "日期");
     m_makeupModel->setHeaderData(3, Qt::Horizontal, "类型");
@@ -254,45 +200,19 @@ AppCenterWidget::AppCenterWidget(int empId, const QString &role, QWidget *parent
     m_makeupTable->setShowGrid(false);
     m_makeupTable->verticalHeader()->setVisible(false);
     m_makeupTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    m_makeupTable->horizontalHeader()->setStyleSheet(
-        "QHeaderView::section {"
-        "  background-color: #f1f5f9;"
-        "  color: #475569;"
-        "  padding: 8px;"
-        "  border: none;"
-        "  font-weight: bold;"
-        "  border-bottom: 2px solid #e2e8f0;"
-        "}"
-    );
-    m_makeupTable->setStyleSheet(
-        "QTableView {"
-        "  border: none;"
-        "  background-color: #ffffff;"
-        "  gridline-color: #f1f5f9;"
-        "  selection-background-color: #f1f5f9;"
-        "  selection-color: #0f172a;"
-        "}"
-        "QTableView::item {"
-        "  padding: 8px;"
-        "  border-bottom: 1px solid #f1f5f9;"
-        "}"
-    );
+    m_makeupTable->horizontalHeader()->setStyleSheet(UiStyles::tableHeader());
+    m_makeupTable->setStyleSheet(UiStyles::tableView());
     m_makeupTable->setItemDelegateForColumn(3, new MakeupTypeDelegate(m_makeupTable));
     m_makeupTable->setItemDelegateForColumn(6, new RequestStatusDelegate(m_makeupTable));
     mr->addWidget(m_makeupTable, 1);
 
     makeupLayout->addWidget(makeupRight, 1);
 
-    tabs->addTab(makeupPage, "✉ 补卡申请");
-
-    mainLayout->addWidget(tabs);
-
-    // Apply UI dynamic hiding based on permission
-    bool hasApplyPerm = SessionManager::instance()->hasPermission("apply_leave_makeup");
-    if (!hasApplyPerm) {
-        leaveLeft->setVisible(false);
+    if (!SessionManager::instance()->hasPermission("apply_leave_makeup")) {
         makeupLeft->setVisible(false);
     }
+
+    return makeupPage;
 }
 
 void AppCenterWidget::refresh()
@@ -327,6 +247,7 @@ void AppCenterWidget::submitLeave()
         if (check.exec() && check.next() && check.value(0).toInt() > 0) {
             overlap = true;
         }
+        check.finish();
     }
     if (overlap) {
         Toast::show(this, "在该日期段内已有尚未拒绝的请假申请", Toast::Warning);
@@ -344,6 +265,7 @@ void AppCenterWidget::submitLeave()
         q.addBindValue(r);
         ok = q.exec();
         if (!ok) err = q.lastError().text();
+        q.finish();
     }
     if (ok) {
         Toast::show(this, "请假申请已提交，等待审批", Toast::Success);
@@ -374,9 +296,14 @@ void AppCenterWidget::submitMakeup()
     {
         QSqlQuery q;
         q.prepare("INSERT INTO makeup_requests(emp_id,att_date,request_type,request_time,reason,status) VALUES(?,?,?,?,?,'待审批')");
-        q.addBindValue(m_empId); q.addBindValue(date); q.addBindValue(type); q.addBindValue(time); q.addBindValue(reason);
+        q.addBindValue(m_empId);
+        q.addBindValue(date);
+        q.addBindValue(type);
+        q.addBindValue(time);
+        q.addBindValue(reason);
         ok = q.exec();
         if (!ok) err = q.lastError().text();
+        q.finish();
     }
     if (ok) {
         Toast::show(this, "补卡申请已提交", Toast::Success);

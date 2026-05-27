@@ -1,5 +1,6 @@
 #include "OrgTab.h"
 #include "../utils/Toast.h"
+#include "../utils/DbUtils.h"
 #include "../widgets/OrgChartView.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -17,7 +18,7 @@ OrgTab::OrgTab(std::function<void(const QString&, const QString&)> logFn,
     : QWidget(parent), m_log(logFn)
 {
     // 右侧员工列表
-    m_empModel = new QSqlTableModel(this);
+    m_empModel = new QSqlTableModel(this, createClonedDatabaseConnection("org_employee_model"));
     m_empModel->setTable("employees");
 
     // 解析动态列索引
@@ -126,22 +127,27 @@ void OrgTab::refresh()
     m_managerCombo->clear(); m_managerCombo->addItem("(无)", QVariant());
 
     {
-        QSqlQuery eq("SELECT emp_id, name FROM employees WHERE status='在职'");
+        QSqlQuery eq;
+        eq.exec("SELECT emp_id, name FROM employees WHERE status='在职'");
         while (eq.next()) m_managerCombo->addItem(eq.value(1).toString(), eq.value(0).toInt());
+        eq.finish();
     }
 
     // 一次查询获取所有部门的员工计数
     QMap<QString, int> empCountMap;
     {
-        QSqlQuery eqc("SELECT department, COUNT(*) FROM employees WHERE department IS NOT NULL AND department!='' AND status='在职' GROUP BY department");
+        QSqlQuery eqc;
+        eqc.exec("SELECT department, COUNT(*) FROM employees WHERE department IS NOT NULL AND department!='' AND status='在职' GROUP BY department");
         while (eqc.next())
             empCountMap[eqc.value(0).toString()] = eqc.value(1).toInt();
+        eqc.finish();
     }
 
     QMap<int, QStandardItem *> items;
     QMap<int, int> parentMap;
     {
-        QSqlQuery dq("SELECT dept_id, dept_name, parent_id FROM departments ORDER BY dept_id");
+        QSqlQuery dq;
+        dq.exec("SELECT dept_id, dept_name, parent_id FROM departments ORDER BY dept_id");
         while (dq.next()) {
             int id = dq.value(0).toInt();
             QString name = dq.value(1).toString();
@@ -153,6 +159,7 @@ void OrgTab::refresh()
             items[id] = item;
             m_parentCombo->addItem(name, id);
         }
+        dq.finish();
     }
 
     for (auto it = items.begin(); it != items.end(); ++it) {
@@ -199,6 +206,7 @@ void OrgTab::onTreeSelectionChanged()
             managerId = q.value(2).isNull() ? 0 : q.value(2).toInt();
             found = true;
         }
+        q.finish();
     }
     if (found) {
         m_nameEdit->setText(name);
@@ -230,6 +238,7 @@ void OrgTab::saveDepartment()
             q.addBindValue(m_selectedDeptId);
             ok = q.exec();
             if (!ok) errText = q.lastError().text();
+            q.finish();
         } else {
             q.prepare("INSERT IGNORE INTO departments(dept_name,parent_id,manager_id) VALUES(?,?,?)");
             q.addBindValue(name);
@@ -237,6 +246,7 @@ void OrgTab::saveDepartment()
             mid.isNull() ? q.addBindValue(QVariant(QMetaType(QMetaType::Int))) : q.addBindValue(mid.toInt());
             ok = q.exec();
             if (!ok) errText = q.lastError().text();
+            q.finish();
         }
     }
     if (!ok) {
@@ -259,8 +269,15 @@ void OrgTab::removeDepartment()
                                QMessageBox::Yes|QMessageBox::No) != QMessageBox::Yes) return;
     {
         QSqlQuery q;
-        q.prepare("UPDATE departments SET parent_id=NULL WHERE parent_id=?"); q.addBindValue(m_selectedDeptId); q.exec();
-        q.prepare("DELETE FROM departments WHERE dept_id=?"); q.addBindValue(m_selectedDeptId); q.exec();
+        q.prepare("UPDATE departments SET parent_id=NULL WHERE parent_id=?");
+        q.addBindValue(m_selectedDeptId);
+        q.exec();
+        q.finish();
+
+        q.prepare("DELETE FROM departments WHERE dept_id=?");
+        q.addBindValue(m_selectedDeptId);
+        q.exec();
+        q.finish();
     }
     m_log("删除部门", m_nameEdit->text());
     Toast::show(this, "部门已成功删除", Toast::Success);

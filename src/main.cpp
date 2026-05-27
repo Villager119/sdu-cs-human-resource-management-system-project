@@ -49,10 +49,7 @@ int main(int argc, char *argv[]) {
     int port = settings.value("Database/Port", 3306).toInt();
     QString database = settings.value("Database/Database", "hrms_db").toString();
     QString uid = settings.value("Database/UID", "root").toString();
-    // Base64 解码密码（兼容明文：解码失败则使用原值）
-    QString pwdEnc = settings.value("Database/PWD", "").toString();
-    QByteArray pwdDec = QByteArray::fromBase64(pwdEnc.toUtf8(), QByteArray::AbortOnBase64DecodingErrors);
-    QString pwd = pwdDec.isEmpty() ? pwdEnc : QString::fromUtf8(pwdDec);
+    QString pwd = decodeConfigPassword(settings.value("Database/PWD", "").toString());
 
     QSqlDatabase db = QSqlDatabase::addDatabase("QODBC");
     db.setDatabaseName(buildDsn(driver, server, port, database, uid, pwd));

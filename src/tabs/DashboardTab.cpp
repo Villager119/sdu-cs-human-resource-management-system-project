@@ -223,6 +223,7 @@ void DashboardTab::refresh()
         m_infoHireDate->setText(hireDate.isValid() ? hireDate.toString("yyyy-MM-dd") : "未知");
         m_infoEdu->setText(edu.isEmpty() ? "未知" : edu);
     }
+    q.finish();
 
     bool isAdmin = SessionManager::instance()->hasPermission("manage_employees") || SessionManager::instance()->hasPermission("calculate_payroll");
 
@@ -238,26 +239,38 @@ void DashboardTab::refresh()
 
         q.exec("SELECT COUNT(*) FROM employees");
         int total = q.next() ? q.value(0).toInt() : 0;
+        q.finish();
         q.exec("SELECT COUNT(*) FROM employees WHERE status='在职'");
         int active = q.next() ? q.value(0).toInt() : 0;
-        q.exec("SELECT COUNT(*) FROM employees WHERE status='离职'");
+        q.finish();
+        q.exec("SELECT COUNT(*) FROM employees WHERE status!='在职'");
         int inactive = q.next() ? q.value(0).toInt() : 0;
+        q.finish();
         QString month = QDate::currentDate().toString("yyyy-MM");
-        q.prepare("SELECT COUNT(*) FROM leave_requests WHERE start_date LIKE ?");
-        q.addBindValue(month + "%");
+        QDate monthStart = QDate::fromString(month + "-01", "yyyy-MM-dd");
+        QString monthStartStr = monthStart.toString("yyyy-MM-dd");
+        QString monthEndStr = monthStart.addMonths(1).addDays(-1).toString("yyyy-MM-dd");
+        q.prepare("SELECT COUNT(*) FROM leave_requests WHERE start_date <= ? AND end_date >= ?");
+        q.addBindValue(monthEndStr);
+        q.addBindValue(monthStartStr);
         q.exec();
         int leaves = q.next() ? q.value(0).toInt() : 0;
+        q.finish();
         int pending = 0;
         q.exec("SELECT COUNT(*) FROM leave_requests WHERE status='待审批'");
         if (q.next()) pending += q.value(0).toInt();
+        q.finish();
         q.exec("SELECT COUNT(*) FROM makeup_requests WHERE status='待审批'");
         if (q.next()) pending += q.value(0).toInt();
+        q.finish();
         q.exec("SELECT COUNT(*) FROM profile_change_requests WHERE status='待审批'");
         if (q.next()) pending += q.value(0).toInt();
+        q.finish();
         q.prepare("SELECT SUM(net_salary) FROM payroll WHERE month=?");
         q.addBindValue(month);
         q.exec();
         double salary = q.next() ? q.value(0).toDouble() : 0;
+        q.finish();
 
         m_labels[0]->setText(QString::number(total));
         m_labels[1]->setText(QString::number(active));
@@ -275,6 +288,7 @@ void DashboardTab::refresh()
         } else {
             m_alertLabel->setVisible(false);
         }
+        q.finish();
     } else {
         // --- Mode B: Normal User (Personal Dashboard) ---
         QString titles[] = {"今日打卡状态", "本月请假次数", "我的待办事项", "最新实发薪资", "最新绩效评分", "劳动合同期限"};
@@ -300,6 +314,7 @@ void DashboardTab::refresh()
                 attStatus = "打卡异常";
             }
         }
+        q.finish();
         m_labels[0]->setText(attStatus);
         m_labels[0]->setStyleSheet(attStatus.length() > 6 ? 
             "font-size: 20px; font-weight: 700; color: #2563eb; border: none; background: transparent;" :
@@ -307,11 +322,16 @@ void DashboardTab::refresh()
 
         // 2. 本月请假次数
         QString month = QDate::currentDate().toString("yyyy-MM");
-        q.prepare("SELECT COUNT(*) FROM leave_requests WHERE emp_id = ? AND status = '已同意' AND start_date LIKE ?");
+        QDate monthStart = QDate::fromString(month + "-01", "yyyy-MM-dd");
+        QString monthStartStr = monthStart.toString("yyyy-MM-dd");
+        QString monthEndStr = monthStart.addMonths(1).addDays(-1).toString("yyyy-MM-dd");
+        q.prepare("SELECT COUNT(*) FROM leave_requests WHERE emp_id = ? AND status = '已同意' AND start_date <= ? AND end_date >= ?");
         q.addBindValue(empId);
-        q.addBindValue(month + "%");
+        q.addBindValue(monthEndStr);
+        q.addBindValue(monthStartStr);
         q.exec();
         int leavesCount = q.next() ? q.value(0).toInt() : 0;
+        q.finish();
         m_labels[1]->setText(QString("%1 次").arg(leavesCount));
         m_labels[1]->setStyleSheet("font-size: 30px; font-weight: 700; color: #2563eb; border: none; background: transparent;");
 
@@ -320,10 +340,12 @@ void DashboardTab::refresh()
         q.addBindValue(empId);
         q.exec();
         int pLeaves = q.next() ? q.value(0).toInt() : 0;
+        q.finish();
         q.prepare("SELECT COUNT(*) FROM makeup_requests WHERE emp_id = ? AND status = '待审批'");
         q.addBindValue(empId);
         q.exec();
         int pMakeups = q.next() ? q.value(0).toInt() : 0;
+        q.finish();
         int totalPending = pLeaves + pMakeups;
         m_labels[2]->setText(QString("%1 个").arg(totalPending));
         m_labels[2]->setStyleSheet("font-size: 30px; font-weight: 700; color: #2563eb; border: none; background: transparent;");
@@ -335,6 +357,7 @@ void DashboardTab::refresh()
         if (q.exec() && q.next()) {
             salaryStr = QString("%1 元").arg(QString::number(q.value(1).toDouble(), 'f', 2));
         }
+        q.finish();
         m_labels[3]->setText(salaryStr);
         m_labels[3]->setStyleSheet(salaryStr.length() > 8 ? 
             "font-size: 20px; font-weight: 700; color: #2563eb; border: none; background: transparent;" :
@@ -347,6 +370,7 @@ void DashboardTab::refresh()
         if (q.exec() && q.next()) {
             perfStr = QString("%1 分").arg(QString::number(q.value(0).toDouble(), 'f', 1));
         }
+        q.finish();
         m_labels[4]->setText(perfStr);
         m_labels[4]->setStyleSheet("font-size: 30px; font-weight: 700; color: #2563eb; border: none; background: transparent;");
 
@@ -363,6 +387,7 @@ void DashboardTab::refresh()
                 contractStr = QString("%1 天").arg(days);
             }
         }
+        q.finish();
         m_labels[5]->setText(contractStr);
         m_labels[5]->setStyleSheet("font-size: 30px; font-weight: 700; color: #2563eb; border: none; background: transparent;");
 
@@ -376,6 +401,7 @@ void DashboardTab::refresh()
         } else {
             m_alertLabel->setVisible(false);
         }
+        q.finish();
     }
     }
 
@@ -443,6 +469,7 @@ void DashboardTab::refreshChart()
                 else if (status == "早退") earlyCount += count;
             }
         }
+        aq.finish();
 
         if (normalCount > 0) series->append("正常出勤", normalCount);
         if (lateCount > 0) series->append("迟到", lateCount);
@@ -451,8 +478,6 @@ void DashboardTab::refreshChart()
         if (series->isEmpty()) {
             series->append("无打卡记录", 1);
         }
-        aq.finish();
-
         series->setLabelsVisible(true);
         series->setLabelsPosition(QPieSlice::LabelOutside);
         for (auto *slice : series->slices()) {
@@ -489,6 +514,7 @@ void DashboardTab::refreshChart()
                 if (d.isEmpty()) d = "未分配";
                 s->append(d, q.value(1).toInt());
             }
+            q.finish();
             s->setLabelsVisible(true);
             s->setLabelsPosition(QPieSlice::LabelOutside);
             for (auto *slice : s->slices()) {
@@ -510,6 +536,7 @@ void DashboardTab::refreshChart()
             q.exec("SELECT status, COUNT(*) FROM employees GROUP BY status");
             auto *s = new QPieSeries;
             while (q.next()) s->append(q.value(0).toString(), q.value(1).toInt());
+            q.finish();
             s->setLabelsVisible(true);
             s->setLabelsPosition(QPieSlice::LabelOutside);
             for (auto *slice : s->slices()) {
@@ -535,6 +562,7 @@ void DashboardTab::refreshChart()
                 if (label.isEmpty()) label = "未填写";
                 s->append(label, q.value(1).toInt());
             }
+            q.finish();
             s->setLabelsVisible(true);
             s->setLabelsPosition(QPieSlice::LabelOutside);
             for (auto *slice : s->slices()) {
@@ -560,6 +588,7 @@ void DashboardTab::refreshChart()
                 if (label.isEmpty()) label = "未填写";
                 s->append(label, q.value(1).toInt());
             }
+            q.finish();
             s->setLabelsVisible(true);
             s->setLabelsPosition(QPieSlice::LabelOutside);
             for (auto *slice : s->slices()) {
@@ -585,6 +614,7 @@ void DashboardTab::refreshChart()
                 if (label.isEmpty()) label = "未指定";
                 s->append(label, q.value(1).toInt());
             }
+            q.finish();
             s->setLabelsVisible(true);
             s->setLabelsPosition(QPieSlice::LabelOutside);
             for (auto *slice : s->slices()) {
@@ -610,6 +640,7 @@ void DashboardTab::refreshChart()
                 cats << q.value(0).toString() + "年";
                 *set << q.value(1).toInt();
             }
+            q.finish();
             auto *s = new QBarSeries; s->append(set);
             chart->addSeries(s);
             auto *ax = new QBarCategoryAxis; ax->append(cats);
@@ -637,6 +668,7 @@ void DashboardTab::refreshChart()
             } else {
                 *set << 0 << 0 << 0 << 0;
             }
+            q.finish();
             auto *s = new QBarSeries; s->append(set);
             chart->addSeries(s);
             auto *ax = new QBarCategoryAxis; ax->append(cats);
@@ -652,6 +684,7 @@ void DashboardTab::refreshChart()
             auto *set = new QBarSet("平均薪资");
             QStringList cats;
             while (q.next()) { cats << q.value(0).toString(); *set << q.value(1).toDouble(); }
+            q.finish();
             auto *s = new QBarSeries; s->append(set);
             chart->addSeries(s);
             auto *ax = new QBarCategoryAxis; ax->append(cats);
@@ -667,6 +700,7 @@ void DashboardTab::refreshChart()
             auto *set = new QBarSet("请假人次");
             QStringList cats;
             while (q.next()) { cats << q.value(0).toString(); *set << q.value(1).toInt(); }
+            q.finish();
             auto *s = new QBarSeries; s->append(set);
             chart->addSeries(s);
             auto *ax = new QBarCategoryAxis; ax->append(cats);
@@ -683,6 +717,7 @@ void DashboardTab::refreshChart()
             s->setName("薪资总额");
             QStringList cats;
             while (q.next()) { cats << q.value(0).toString(); s->append(cats.size()-1, q.value(1).toDouble()); }
+            q.finish();
             chart->addSeries(s);
             auto *ax = new QBarCategoryAxis; ax->append(cats);
             chart->addAxis(ax, Qt::AlignBottom); s->attachAxis(ax);

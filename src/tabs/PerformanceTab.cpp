@@ -1,6 +1,7 @@
 #include "PerformanceTab.h"
 #include "performance/PerformanceDrawer.h"
 #include "../widgets/CommonDelegates.h"
+#include "../utils/DbUtils.h"
 #include "../core/SessionManager.h"
 #include "../core/GlobalEvents.h"
 #include <QVBoxLayout>
@@ -51,10 +52,12 @@ PerformanceTab::PerformanceTab(int empId, const QString &role,
     m_deptFilter = new QComboBox(leftContainer);
     m_deptFilter->addItem("全部部门");
     {
-        QSqlQuery dq("SELECT DISTINCT department FROM employees WHERE department IS NOT NULL AND department != '' AND status='在职'");
+        QSqlQuery dq;
+        dq.exec("SELECT DISTINCT department FROM employees WHERE department IS NOT NULL AND department != '' AND status='在职'");
         while (dq.next()) {
             m_deptFilter->addItem(dq.value(0).toString());
         }
+        dq.finish();
     }
     m_deptFilter->setFixedWidth(110);
     m_deptFilter->setStyleSheet("QComboBox { border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 8px; background: white; }");
@@ -82,7 +85,7 @@ PerformanceTab::PerformanceTab(int empId, const QString &role,
     leftLayout->addLayout(filterLayout);
 
     // Relational Table Model Setup
-    m_model = new QSqlRelationalTableModel(this);
+    m_model = new QSqlRelationalTableModel(this, createClonedDatabaseConnection("performance_model"));
     m_model->setTable("performance_scores");
     m_model->setRelation(1, QSqlRelation("employees", "emp_id", "name"));
     m_model->setHeaderData(0, Qt::Horizontal, "编号");
@@ -236,6 +239,7 @@ void PerformanceTab::onTableDoubleClicked(const QModelIndex &index)
             m_drawer->setupEditMode(empId, month, a1, a2, a3, a4, comment);
             m_drawer->setVisible(true);
         }
+        q.finish();
     }
 }
 

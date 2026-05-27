@@ -93,13 +93,14 @@ void ShiftSettingsWidget::refresh()
 {
     // Load shift times for the shift configuration tab
     {
-        QSqlQuery sq("SELECT start_time, end_time FROM shifts WHERE shift_id = 1");
-        if (sq.exec() && sq.next()) {
+        QSqlQuery sq;
+        if (sq.exec("SELECT start_time, end_time FROM shifts WHERE shift_id = 1") && sq.next()) {
             QTime start = QTime::fromString(sq.value(0).toString(), "HH:mm:ss");
             QTime end = QTime::fromString(sq.value(1).toString(), "HH:mm:ss");
             if (m_shiftStartEdit) m_shiftStartEdit->setTime(start);
             if (m_shiftEndEdit) m_shiftEndEdit->setTime(end);
         }
+        sq.finish();
     }
 }
 
@@ -122,6 +123,7 @@ void ShiftSettingsWidget::saveShiftSettings()
         q.addBindValue(end.toString("HH:mm:ss"));
         ok = q.exec();
         if (!ok) err = q.lastError().text();
+        q.finish();
     }
 
     if (ok) {

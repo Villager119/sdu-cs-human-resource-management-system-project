@@ -205,10 +205,12 @@ void PerformanceDrawer::loadEmployees()
 {
     m_empCombo->clear();
     {
-        QSqlQuery eq("SELECT emp_id, name FROM employees WHERE status='在职'");
+        QSqlQuery eq;
+        eq.exec("SELECT emp_id, name FROM employees WHERE status='在职'");
         while (eq.next()) {
             m_empCombo->addItem(createAvatarIcon(eq.value(1).toString()), eq.value(1).toString(), eq.value(0).toInt());
         }
+        eq.finish();
     }
 }
 
@@ -288,6 +290,7 @@ void PerformanceDrawer::submitScore()
         if (ck.exec() && ck.next() && ck.value(0).toInt() > 0) {
             exists = true;
         }
+        ck.finish();
     }
     
     bool queryOk = false;
@@ -296,13 +299,25 @@ void PerformanceDrawer::submitScore()
         QSqlQuery q;
         if (exists) {
             q.prepare("UPDATE performance_scores SET attitude=?, capability=?, teamwork=?, innovation=?, score=?, comment=?, status='已发布', evaluator=?, created_at=NOW() WHERE emp_id=? AND eval_month=?");
-            q.addBindValue(a1); q.addBindValue(a2); q.addBindValue(a3); q.addBindValue(a4);
-            q.addBindValue(total); q.addBindValue(comment); q.addBindValue(evaluator);
-            q.addBindValue(eid); q.addBindValue(month);
+            q.addBindValue(a1);
+            q.addBindValue(a2);
+            q.addBindValue(a3);
+            q.addBindValue(a4);
+            q.addBindValue(total);
+            q.addBindValue(comment);
+            q.addBindValue(evaluator);
+            q.addBindValue(eid);
+            q.addBindValue(month);
         } else {
             q.prepare("INSERT INTO performance_scores(emp_id, eval_month, attitude, capability, teamwork, innovation, score, comment, status, evaluator) VALUES(?,?,?,?,?,?,?,?,'已发布',?)");
-            q.addBindValue(eid); q.addBindValue(month); q.addBindValue(a1); q.addBindValue(a2);
-            q.addBindValue(a3); q.addBindValue(a4); q.addBindValue(total); q.addBindValue(comment);
+            q.addBindValue(eid);
+            q.addBindValue(month);
+            q.addBindValue(a1);
+            q.addBindValue(a2);
+            q.addBindValue(a3);
+            q.addBindValue(a4);
+            q.addBindValue(total);
+            q.addBindValue(comment);
             q.addBindValue(evaluator);
         }
 
@@ -311,6 +326,7 @@ void PerformanceDrawer::submitScore()
         } else {
             errText = q.lastError().text();
         }
+        q.finish();
     }
 
     if (!queryOk) {

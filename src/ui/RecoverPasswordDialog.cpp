@@ -218,6 +218,7 @@ void RecoverPasswordDialog::onNextStep()
             verifiedEmpName = query.value("name").toString();
             matched = true;
         }
+        query.finish();
     }
 
     if (dbErr) {
@@ -272,6 +273,7 @@ void RecoverPasswordDialog::onResetPassword()
         query.bindValue(":emp_id", m_verifiedEmpId);
         updateOk = query.exec();
         if (!updateOk) err = query.lastError().text();
+        query.finish();
     }
 
     if (!updateOk) {
@@ -291,6 +293,7 @@ void RecoverPasswordDialog::onResetPassword()
             // Just log the error, don't block the password reset success
             qWarning() << "Failed to write audit log for password recovery:" << logQuery.lastError().text();
         }
+        logQuery.finish();
     }
 
     QMessageBox::information(this, "成功", "密码重置成功，请使用新密码登录！");

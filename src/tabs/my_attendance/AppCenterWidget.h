@@ -25,6 +25,9 @@ private slots:
     void submitMakeup();
 
 private:
+    QWidget *createLeavePage(QTabWidget *tabs);
+    QWidget *createMakeupPage(QTabWidget *tabs);
+
     int m_empId;
     QString m_role;
 

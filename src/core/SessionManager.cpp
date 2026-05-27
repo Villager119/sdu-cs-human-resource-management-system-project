@@ -41,6 +41,7 @@ void SessionManager::reloadPermissions()
         if (q.exec() && q.next()) {
             role = q.value(0).toString();
         }
+        q.finish();
     }
 
     {
@@ -55,6 +56,6 @@ void SessionManager::reloadPermissions()
                 permissionsSet.insert(q.value(0).toString());
             }
         }
+        q.finish();
     }
 }
-

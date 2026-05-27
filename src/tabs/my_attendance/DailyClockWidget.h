@@ -25,6 +25,11 @@ private slots:
     void clockOut();
 
 private:
+    QWidget *createClockCard();
+    QWidget *createAttendanceTable();
+    void setupTimerAndConnections();
+    void applyPermissionVisibility();
+
     int m_empId;
     QString m_role;
 

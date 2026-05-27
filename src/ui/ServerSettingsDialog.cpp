@@ -74,7 +74,7 @@ ServerSettingsDialog::ServerSettingsDialog(const QString &configPath, QWidget *p
     m_portSpin->setValue(settings.value("Database/Port", 3306).toInt());
     m_dbEdit->setText(settings.value("Database/Database", "hrms_db").toString());
     m_uidEdit->setText(settings.value("Database/UID", "root").toString());
-    m_pwdEdit->setText(settings.value("Database/PWD", "").toString());
+    m_pwdEdit->setText(decodeConfigPassword(settings.value("Database/PWD", "").toString()));
 
     // 连接信号
     connect(m_scanBtn, &QPushButton::clicked, this, &ServerSettingsDialog::onScan);

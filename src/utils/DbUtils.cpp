@@ -5,6 +5,7 @@
 #include <QDebug>
 #include <QList>
 #include <QDate>
+#include <QByteArray>
 
 QString buildDsn(const QString &driver, const QString &server, int port,
                  const QString &database, const QString &uid, const QString &pwd)
@@ -13,6 +14,38 @@ QString buildDsn(const QString &driver, const QString &server, int port,
         .arg(driver, server)
         .arg(port)
         .arg(database, uid, pwd);
+}
+
+QString decodeConfigPassword(const QString &storedPassword)
+{
+    if (storedPassword.isEmpty()) {
+        return {};
+    }
+
+    QByteArray decoded = QByteArray::fromBase64(storedPassword.toUtf8(), QByteArray::AbortOnBase64DecodingErrors);
+    return decoded.isEmpty() ? storedPassword : QString::fromUtf8(decoded);
+}
+
+QSqlDatabase createClonedDatabaseConnection(const QString &prefix)
+{
+    static int sequence = 0;
+    const QString connectionName = QString("hrms_%1_%2").arg(prefix).arg(++sequence);
+    QSqlDatabase db = QSqlDatabase::cloneDatabase(QSqlDatabase::database(), connectionName);
+    if (!db.open()) {
+        qWarning() << "Failed to open cloned DB connection" << connectionName << db.lastError().text();
+    }
+    return db;
+}
+
+bool logSqlError(const QSqlQuery &query, const QString &context)
+{
+    const QSqlError error = query.lastError();
+    if (!error.isValid()) {
+        return false;
+    }
+
+    qWarning() << context << "failed:" << error.text();
+    return true;
 }
 
 bool initDatabaseSchema()
@@ -268,6 +301,7 @@ bool initDatabaseSchema()
 
     // Seed default roles
     q.exec("INSERT IGNORE INTO roles (role_name) VALUES ('admin'), ('user')");
+    q.finish();
 
     // Seed default permissions
     q.exec("INSERT IGNORE INTO permissions (permission_key, permission_name) VALUES "
@@ -288,6 +322,7 @@ bool initDatabaseSchema()
            "('manage_rbac', '管理角色权限'),"
            "('manage_tax_config', '社保比例配置'),"
            "('view_reports', '查看统计报表')");
+    q.finish();
 
     // Seed default role-permission mappings for 'user' role
     q.exec("INSERT IGNORE INTO role_permissions (role_id, permission_id) "
@@ -295,26 +330,36 @@ bool initDatabaseSchema()
            "FROM permissions WHERE permission_key IN "
            "('view_dashboard', 'request_profile_change', 'apply_leave_makeup', "
            "'apply_leave', 'view_personal_payroll', 'view_personal_performance')");
+    q.finish();
 
     // Seed default role-permission mappings for 'admin' role
     q.exec("INSERT IGNORE INTO role_permissions (role_id, permission_id) "
            "SELECT (SELECT role_id FROM roles WHERE role_name='admin'), permission_id "
            "FROM permissions");
+    q.finish();
 
     // Seed default shifts
     q.exec("INSERT IGNORE INTO shifts (shift_name, start_time, end_time) VALUES ('标准班', '09:00:00', '18:00:00')");
+    q.finish();
 
     // Seed default salary configs
     q.exec("INSERT IGNORE INTO salary_config (item_name, rate_personal) VALUES "
            "('养老保险', 0.0800), ('医疗保险', 0.0200), ('失业保险', 0.0050),"
            "('工伤保险', 0.0000), ('生育保险', 0.0000), ('住房公积金', 0.1200)");
+    q.finish();
 
     // Seed default system settings
     q.exec("INSERT IGNORE INTO system_settings (key_name, value) VALUES ('work_days_per_month', '21.75'), ('tax_threshold', '5000')");
+    q.finish();
 
     // Check if employees is empty. If so, seed initial admin user (admin / admin1)
     q.exec("SELECT COUNT(*) FROM employees");
+    bool employeesEmpty = false;
     if (q.next() && q.value(0).toInt() == 0) {
+        employeesEmpty = true;
+    }
+    q.finish();
+    if (employeesEmpty) {
         q.prepare("INSERT INTO employees (name, phone, role, password_hash, hire_date, base_salary, status) "
                   "VALUES ('admin', '13800000000', 'admin', '25f43b1486ad95a1398e3eeb3d83bc4010015fcc9bedb35b432e00298d5021f7', ?, 8000.00, '在职')");
         q.addBindValue(QDate::currentDate().toString("yyyy-MM-dd"));
@@ -323,6 +368,7 @@ bool initDatabaseSchema()
             db.rollback();
             return false;
         }
+        q.finish();
     }
 
     // 17. Migration: check if status and evaluator columns exist in performance_scores
@@ -333,6 +379,7 @@ bool initDatabaseSchema()
             if (ck.exec("SHOW COLUMNS FROM performance_scores LIKE 'status'") && ck.next()) {
                 statusExists = true;
             }
+            ck.finish();
         }
 
         if (!statusExists) {
@@ -340,6 +387,7 @@ bool initDatabaseSchema()
             if (!q.exec("ALTER TABLE performance_scores ADD COLUMN status VARCHAR(20) DEFAULT '已发布'")) {
                 qDebug() << "Failed to add status column to performance_scores:" << q.lastError().text();
             }
+            q.finish();
         }
 
         bool evaluatorExists = false;
@@ -348,6 +396,7 @@ bool initDatabaseSchema()
             if (ck.exec("SHOW COLUMNS FROM performance_scores LIKE 'evaluator'") && ck.next()) {
                 evaluatorExists = true;
             }
+            ck.finish();
         }
 
         if (!evaluatorExists) {
@@ -355,6 +404,7 @@ bool initDatabaseSchema()
             if (!q.exec("ALTER TABLE performance_scores ADD COLUMN evaluator VARCHAR(50) DEFAULT '系统管理员'")) {
                 qDebug() << "Failed to add evaluator column to performance_scores:" << q.lastError().text();
             }
+            q.finish();
         }
     }
 
@@ -366,6 +416,7 @@ bool initDatabaseSchema()
             if (ck.exec("SHOW COLUMNS FROM employees LIKE 'version'") && ck.next()) {
                 versionExists = true;
             }
+            ck.finish();
         }
 
         if (!versionExists) {
@@ -373,6 +424,7 @@ bool initDatabaseSchema()
             if (!q.exec("ALTER TABLE employees ADD COLUMN version INT DEFAULT 1")) {
                 qDebug() << "Failed to add version column to employees:" << q.lastError().text();
             }
+            q.finish();
         }
     }
 
@@ -380,4 +432,3 @@ bool initDatabaseSchema()
     qDebug() << "Database schema initialized successfully.";
     return true;
 }
-

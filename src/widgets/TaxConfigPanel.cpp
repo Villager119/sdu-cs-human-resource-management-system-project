@@ -1,4 +1,5 @@
 #include "TaxConfigPanel.h"
+#include "../utils/DbUtils.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFormLayout>
@@ -34,6 +35,7 @@ TaxConfigPanel::TaxConfigPanel(std::function<void(const QString&, const QString&
         } else {
             m_workDaysEdit->setText("21.75");
         }
+        q.finish();
 
         q.exec("SELECT value FROM system_settings WHERE key_name='tax_threshold'");
         if (q.next()) {
@@ -41,10 +43,11 @@ TaxConfigPanel::TaxConfigPanel(std::function<void(const QString&, const QString&
         } else {
             m_taxThresholdEdit->setText("5000");
         }
+        q.finish();
     }
 
     // 社保公积金比例模型
-    m_model = new QSqlTableModel(this);
+    m_model = new QSqlTableModel(this, createClonedDatabaseConnection("tax_config_model"));
     m_model->setTable("salary_config");
     m_model->setHeaderData(1, Qt::Horizontal, "保险项目");
     m_model->setHeaderData(2, Qt::Horizontal, "个人比例");
@@ -98,6 +101,7 @@ void TaxConfigPanel::save()
         q.prepare("UPDATE system_settings SET value=? WHERE key_name='work_days_per_month'");
         q.addBindValue(m_workDaysEdit->text().trimmed());
         if (q.exec()) {
+            q.finish();
             q.prepare("UPDATE system_settings SET value=? WHERE key_name='tax_threshold'");
             q.addBindValue(m_taxThresholdEdit->text().trimmed());
             if (q.exec()) {
@@ -108,6 +112,7 @@ void TaxConfigPanel::save()
         } else {
             err = "保存月工作天数失败: " + q.lastError().text();
         }
+        q.finish();
     }
     if (!ok) {
         QMessageBox::critical(this, "失败", err);

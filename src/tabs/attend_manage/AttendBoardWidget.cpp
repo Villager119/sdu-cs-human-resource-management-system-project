@@ -1,6 +1,7 @@
 #include "AttendBoardWidget.h"
 #include "../../widgets/CommonDelegates.h"
 #include "../../utils/Toast.h"
+#include "../../utils/DbUtils.h"
 #include "../../utils/CsvExport.h"
 #include "../../core/Constants.h"
 #include "../../core/GlobalEvents.h"
@@ -66,7 +67,7 @@ AttendBoardWidget::AttendBoardWidget(int empId, const QString &role, QWidget *pa
     l->addLayout(filterLayout);
 
     // Records Table
-    m_attModel = new QSqlRelationalTableModel(this);
+    m_attModel = new QSqlRelationalTableModel(this, createClonedDatabaseConnection("attendance_board_model"));
     m_attModel->setTable("attendances");
     m_attModel->setRelation(1, QSqlRelation("employees", "emp_id", "name"));
     m_attModel->setHeaderData(0, Qt::Horizontal, "编号");

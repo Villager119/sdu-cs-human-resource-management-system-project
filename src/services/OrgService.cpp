@@ -2,6 +2,7 @@
 
 #include <QSqlError>
 #include <QSqlQuery>
+#include <QSet>
 
 OrgService::OrgService(const QSqlDatabase &db)
     : m_db(db)
@@ -69,6 +70,12 @@ OrgService::DepartmentDetail OrgService::departmentDetail(int departmentId) cons
 OrgService::Result OrgService::saveDepartment(int departmentId, const QString &name,
                                               const QVariant &parentId, const QVariant &managerId)
 {
+    const int newParentId = parentId.isValid() && !parentId.isNull() ? parentId.toInt() : 0;
+    QString hierarchyError;
+    if (wouldCreateParentCycle(departmentId, newParentId, &hierarchyError)) {
+        return fail(hierarchyError);
+    }
+
     QSqlQuery query(m_db);
     if (departmentId > 0) {
         query.prepare("UPDATE departments SET dept_name=?,parent_id=?,manager_id=? WHERE dept_id=?");
@@ -124,7 +131,9 @@ OrgService::Result OrgService::removeDepartment(int departmentId)
     deleteDepartment.finish();
 
     if (!m_db.commit()) {
-        return fail("提交部门删除事务失败: " + m_db.lastError().text());
+        const QString commitErr = m_db.lastError().text();
+        m_db.rollback();
+        return fail("提交部门删除事务失败: " + commitErr);
     }
 
     Result result;
@@ -146,4 +155,73 @@ void OrgService::bindNullableInt(QSqlQuery &query, const QVariant &value) const
     } else {
         query.addBindValue(value.toInt());
     }
+}
+
+bool OrgService::wouldCreateParentCycle(int departmentId, int parentId, QString *errorText) const
+{
+    if (departmentId <= 0) {
+        return false;
+    }
+    if (parentId <= 0) {
+        return false;
+    }
+    if (departmentId == parentId) {
+        if (errorText) {
+            *errorText = "上级部门不能设置为自身";
+        }
+        return true;
+    }
+
+    QSet<int> visited;
+    visited.insert(departmentId);
+
+    int current = parentId;
+    while (current > 0) {
+        if (current == departmentId) {
+            if (errorText) {
+                *errorText = "上级部门不能设置为当前部门的下级部门";
+            }
+            return true;
+        }
+        if (visited.contains(current)) {
+            if (errorText) {
+                *errorText = "部门层级关系已存在循环，请先修复组织架构数据";
+            }
+            return true;
+        }
+        visited.insert(current);
+
+        bool ok = false;
+        int nextParent = parentIdForDepartment(current, &ok);
+        if (!ok) {
+            if (errorText) {
+                *errorText = "校验部门层级关系失败";
+            }
+            return true;
+        }
+        current = nextParent;
+    }
+
+    return false;
+}
+
+int OrgService::parentIdForDepartment(int departmentId, bool *ok) const
+{
+    if (ok) *ok = false;
+    QSqlQuery query(m_db);
+    query.prepare("SELECT parent_id FROM departments WHERE dept_id = ?");
+    query.addBindValue(departmentId);
+
+    int pid = 0;
+    if (query.exec()) {
+        if (query.next()) {
+            if (ok) *ok = true;
+            QVariant val = query.value(0);
+            if (!val.isNull()) {
+                pid = val.toInt();
+            }
+        }
+    }
+    query.finish();
+    return pid;
 }

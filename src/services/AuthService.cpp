@@ -67,7 +67,7 @@ AuthService::OperationResult AuthService::changePassword(int empId, const QStrin
     }
 
     QSqlQuery updateQuery(m_db);
-    updateQuery.prepare("UPDATE employees SET password_hash=? WHERE emp_id=?");
+    updateQuery.prepare("UPDATE employees SET password_hash=?, version = version + 1 WHERE emp_id=?");
     updateQuery.addBindValue(hashPassword(newPassword));
     updateQuery.addBindValue(empId);
     result.success = updateQuery.exec();
@@ -109,7 +109,7 @@ AuthService::OperationResult AuthService::resetRecoveredPassword(int empId, cons
     OperationResult result;
 
     QSqlQuery query(m_db);
-    query.prepare("UPDATE employees SET password_hash = :pwd WHERE emp_id = :emp_id");
+    query.prepare("UPDATE employees SET password_hash = :pwd, version = version + 1 WHERE emp_id = :emp_id");
     query.bindValue(":pwd", hashPassword(newPassword));
     query.bindValue(":emp_id", empId);
     result.success = query.exec();

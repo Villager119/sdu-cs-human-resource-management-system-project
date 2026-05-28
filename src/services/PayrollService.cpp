@@ -59,7 +59,9 @@ PayrollService::Result PayrollService::calculateMonth(const QString &month, bool
     }
 
     if (!m_db.commit()) {
-        return fail(month, "提交薪酬核算事务失败: " + m_db.lastError().text());
+        const QString commitErr = m_db.lastError().text();
+        m_db.rollback();
+        return fail(month, "提交薪酬核算事务失败: " + commitErr);
     }
 
     Result result;

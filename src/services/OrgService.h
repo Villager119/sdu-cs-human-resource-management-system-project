@@ -45,6 +45,8 @@ public:
 private:
     Result fail(const QString &message) const;
     void bindNullableInt(QSqlQuery &query, const QVariant &value) const;
+    bool wouldCreateParentCycle(int departmentId, int parentId, QString *errorText) const;
+    int parentIdForDepartment(int departmentId, bool *ok) const;
 
     QSqlDatabase m_db;
 };

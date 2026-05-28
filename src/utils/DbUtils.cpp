@@ -208,6 +208,7 @@ bool initDatabaseSchema()
                 "score DECIMAL(5,2) NOT NULL,"
                 "comment TEXT,"
                 "created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+                "UNIQUE KEY uk_emp_month (emp_id, eval_month),"
                 "FOREIGN KEY (emp_id) REFERENCES employees(emp_id) ON DELETE CASCADE"
                 ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4")) {
         qDebug() << "Failed to create performance_scores table:" << q.lastError().text();
@@ -292,6 +293,7 @@ bool initDatabaseSchema()
                 "income_tax DECIMAL(10,2) DEFAULT 0.00,"
                 "net_salary DECIMAL(10,2) NOT NULL,"
                 "issue_date DATE DEFAULT NULL,"
+                "UNIQUE KEY uk_payroll_emp_month (emp_id, month),"
                 "FOREIGN KEY (emp_id) REFERENCES employees(emp_id) ON DELETE CASCADE"
                 ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4")) {
         qDebug() << "Failed to create payroll table:" << q.lastError().text();
@@ -425,6 +427,76 @@ bool initDatabaseSchema()
                 qDebug() << "Failed to add version column to employees:" << q.lastError().text();
             }
             q.finish();
+        }
+    }
+
+    // 19. Migration: add unique score per employee per evaluation month
+    {
+        bool uniqueKeyExists = false;
+        {
+            QSqlQuery ck;
+            if (ck.exec("SHOW KEYS FROM performance_scores WHERE Key_name = 'uk_emp_month'") && ck.next()) {
+                uniqueKeyExists = true;
+            }
+            ck.finish();
+        }
+
+        if (!uniqueKeyExists) {
+            bool duplicateExists = false;
+            {
+                QSqlQuery ck;
+                if (ck.exec("SELECT emp_id, eval_month, COUNT(*) FROM performance_scores "
+                            "GROUP BY emp_id, eval_month HAVING COUNT(*) > 1 LIMIT 1") && ck.next()) {
+                    duplicateExists = true;
+                    qWarning() << "Skip adding uk_emp_month to performance_scores because duplicate rows exist for emp_id"
+                               << ck.value(0).toInt() << "month" << ck.value(1).toString()
+                               << "count" << ck.value(2).toInt();
+                }
+                ck.finish();
+            }
+
+            if (!duplicateExists) {
+                QSqlQuery q;
+                if (!q.exec("ALTER TABLE performance_scores ADD UNIQUE KEY uk_emp_month (emp_id, eval_month)")) {
+                    qDebug() << "Failed to add unique key uk_emp_month to performance_scores:" << q.lastError().text();
+                }
+                q.finish();
+            }
+        }
+    }
+
+    // 20. Migration: add unique payroll record per employee per month
+    {
+        bool uniqueKeyExists = false;
+        {
+            QSqlQuery ck;
+            if (ck.exec("SHOW KEYS FROM payroll WHERE Key_name = 'uk_payroll_emp_month'") && ck.next()) {
+                uniqueKeyExists = true;
+            }
+            ck.finish();
+        }
+
+        if (!uniqueKeyExists) {
+            bool duplicateExists = false;
+            {
+                QSqlQuery ck;
+                if (ck.exec("SELECT emp_id, month, COUNT(*) FROM payroll "
+                            "GROUP BY emp_id, month HAVING COUNT(*) > 1 LIMIT 1") && ck.next()) {
+                    duplicateExists = true;
+                    qWarning() << "Skip adding uk_payroll_emp_month to payroll because duplicate rows exist for emp_id"
+                               << ck.value(0).toInt() << "month" << ck.value(1).toString()
+                               << "count" << ck.value(2).toInt();
+                }
+                ck.finish();
+            }
+
+            if (!duplicateExists) {
+                QSqlQuery q;
+                if (!q.exec("ALTER TABLE payroll ADD UNIQUE KEY uk_payroll_emp_month (emp_id, month)")) {
+                    qDebug() << "Failed to add unique key uk_payroll_emp_month to payroll:" << q.lastError().text();
+                }
+                q.finish();
+            }
         }
     }
 

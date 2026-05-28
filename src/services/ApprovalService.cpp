@@ -17,9 +17,60 @@ ApprovalService::Result ApprovalService::reviewLeaveRequest(int requestId, bool 
         return fail("未找到请假申请对应的员工");
     }
 
+    if (!m_db.transaction()) {
+        return fail("启动请假审批事务失败: " + m_db.lastError().text());
+    }
+
+    // 锁定员工行以序列化同一员工的审批操作
+    QSqlQuery lockQuery(m_db);
+    lockQuery.prepare("SELECT emp_id FROM employees WHERE emp_id=? FOR UPDATE");
+    lockQuery.addBindValue(employeeId);
+    if (!lockQuery.exec() || !lockQuery.next()) {
+        const QString err = lockQuery.lastError().text();
+        lockQuery.finish();
+        m_db.rollback();
+        return fail("锁定员工记录失败: " + err);
+    }
+    lockQuery.finish();
+
+    if (approved) {
+        QSqlQuery dq(m_db);
+        dq.prepare("SELECT start_date, end_date FROM leave_requests WHERE request_id = ?");
+        dq.addBindValue(requestId);
+        if (!dq.exec() || !dq.next()) {
+            dq.finish();
+            m_db.rollback();
+            return fail("未找到请假申请的日期信息");
+        }
+        QDate startDate = dq.value(0).toDate();
+        QDate endDate = dq.value(1).toDate();
+        dq.finish();
+
+        if (!startDate.isValid() || !endDate.isValid() || startDate > endDate) {
+            m_db.rollback();
+            return fail("请假申请单的日期无效，无法同意此申请");
+        }
+
+        QString overlapErrorText;
+        if (hasApprovedLeaveOverlap(employeeId, startDate, endDate, requestId, &overlapErrorText)) {
+            m_db.rollback();
+            if (!overlapErrorText.isEmpty()) {
+                return fail("校验请假重叠失败: " + overlapErrorText);
+            }
+            return fail("该日期段内已有其他已同意的请假，无法同意此申请");
+        }
+    }
+
     QString errorText;
     if (!updateLeaveStatus(requestId, approved, &errorText)) {
+        m_db.rollback();
         return fail("更新请假申请状态失败: " + errorText);
+    }
+
+    if (!m_db.commit()) {
+        const QString commitErr = m_db.lastError().text();
+        m_db.rollback();
+        return fail("提交请假审批事务失败: " + commitErr);
     }
 
     Result result;
@@ -39,11 +90,63 @@ ApprovalService::Result ApprovalService::reviewMakeupRequest(int makeupId, bool 
         return fail("未找到补卡申请对应的员工");
     }
 
-    QString errorText;
     if (!m_db.transaction()) {
         return fail("启动补卡审批事务失败: " + m_db.lastError().text());
     }
 
+    // 锁定员工行以序列化同一员工的审批操作
+    QSqlQuery lockQuery(m_db);
+    lockQuery.prepare("SELECT emp_id FROM employees WHERE emp_id=? FOR UPDATE");
+    lockQuery.addBindValue(employeeId);
+    if (!lockQuery.exec() || !lockQuery.next()) {
+        const QString err = lockQuery.lastError().text();
+        lockQuery.finish();
+        m_db.rollback();
+        return fail("锁定员工记录失败: " + err);
+    }
+    lockQuery.finish();
+
+    if (approved) {
+        // 读取当前补卡的日期和类型
+        QSqlQuery rq(m_db);
+        rq.prepare("SELECT att_date, request_type FROM makeup_requests WHERE makeup_id=?");
+        rq.addBindValue(makeupId);
+        if (!rq.exec() || !rq.next()) {
+            rq.finish();
+            m_db.rollback();
+            return fail("未找到补卡申请的日期或类型信息");
+        }
+        QDate attDate = rq.value(0).toDate();
+        QString requestType = rq.value(1).toString();
+        rq.finish();
+
+        if (!attDate.isValid() || (requestType != "clock_in" && requestType != "clock_out")) {
+            m_db.rollback();
+            return fail("补卡申请的日期或类型无效，无法同意此申请");
+        }
+
+        // 检查是否已有相同日期和类型的已同意补卡记录
+        QSqlQuery cq(m_db);
+        cq.prepare("SELECT COUNT(*) FROM makeup_requests WHERE emp_id=? AND att_date=? AND request_type=? AND status=? AND makeup_id!=?");
+        cq.addBindValue(employeeId);
+        cq.addBindValue(attDate.toString("yyyy-MM-dd"));
+        cq.addBindValue(requestType);
+        cq.addBindValue(HR::LeaveStatus::APPROVED);
+        cq.addBindValue(makeupId);
+        if (!cq.exec()) {
+            cq.finish();
+            m_db.rollback();
+            return fail("校验重复补卡审批失败: " + cq.lastError().text());
+        }
+        if (cq.next() && cq.value(0).toInt() > 0) {
+            cq.finish();
+            m_db.rollback();
+            return fail("该员工当天已有同类型的补卡审批通过，无法重复同意");
+        }
+        cq.finish();
+    }
+
+    QString errorText;
     if (!updateMakeupStatus(makeupId, approved, &errorText)) {
         m_db.rollback();
         return fail("更新补卡申请状态失败: " + errorText);
@@ -55,7 +158,9 @@ ApprovalService::Result ApprovalService::reviewMakeupRequest(int makeupId, bool 
     }
 
     if (!m_db.commit()) {
-        return fail("提交补卡审批事务失败: " + m_db.lastError().text());
+        const QString commitErr = m_db.lastError().text();
+        m_db.rollback();
+        return fail("提交补卡审批事务失败: " + commitErr);
     }
 
     Result result;
@@ -122,7 +227,7 @@ bool ApprovalService::updateMakeupStatus(int makeupId, bool approved, QString *e
 {
     QSqlQuery query(m_db);
     query.prepare("UPDATE makeup_requests SET status=? WHERE makeup_id=?");
-    query.addBindValue(approved ? "已同意" : "已拒绝");
+    query.addBindValue(approved ? HR::LeaveStatus::APPROVED : HR::LeaveStatus::REJECTED);
     query.addBindValue(makeupId);
 
     const bool ok = query.exec();
@@ -263,4 +368,32 @@ bool ApprovalService::refreshAttendanceStatus(int attendanceId, QString *errorTe
     }
     updateQuery.finish();
     return ok;
+}
+
+bool ApprovalService::hasApprovedLeaveOverlap(int employeeId, const QDate &startDate, const QDate &endDate, int excludeRequestId, QString *errorText) const
+{
+    QSqlQuery query(m_db);
+    query.prepare("SELECT COUNT(*) FROM leave_requests "
+                  "WHERE emp_id = ? AND status = ? AND request_id != ? "
+                  "AND NOT (end_date < ? OR start_date > ?)");
+    query.addBindValue(employeeId);
+    query.addBindValue(HR::LeaveStatus::APPROVED);
+    query.addBindValue(excludeRequestId);
+    query.addBindValue(startDate.toString("yyyy-MM-dd"));
+    query.addBindValue(endDate.toString("yyyy-MM-dd"));
+
+    if (!query.exec()) {
+        if (errorText) {
+            *errorText = query.lastError().text();
+        }
+        query.finish();
+        return true; // fail closed
+    }
+
+    bool overlap = false;
+    if (query.next()) {
+        overlap = query.value(0).toInt() > 0;
+    }
+    query.finish();
+    return overlap;
 }

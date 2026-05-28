@@ -105,7 +105,7 @@ RbacService::Result RbacService::deleteRole(const QString &roleName)
     }
 
     QSqlQuery updateEmployees(m_db);
-    updateEmployees.prepare("UPDATE employees SET role = 'user' WHERE role = ?");
+    updateEmployees.prepare("UPDATE employees SET role = 'user', version = version + 1 WHERE role = ?");
     updateEmployees.addBindValue(roleName);
     if (!updateEmployees.exec()) {
         const QString errorText = updateEmployees.lastError().text();
@@ -127,7 +127,9 @@ RbacService::Result RbacService::deleteRole(const QString &roleName)
     deleteRoleQuery.finish();
 
     if (!m_db.commit()) {
-        return fail("提交角色删除事务失败: " + m_db.lastError().text());
+        const QString commitErr = m_db.lastError().text();
+        m_db.rollback();
+        return fail("提交角色删除事务失败: " + commitErr);
     }
 
     Result result;
@@ -172,7 +174,9 @@ RbacService::Result RbacService::saveRolePermissions(int roleId, const QSet<QStr
     }
 
     if (!m_db.commit()) {
-        return fail("提交权限保存事务失败: " + m_db.lastError().text());
+        const QString commitErr = m_db.lastError().text();
+        m_db.rollback();
+        return fail("提交权限保存事务失败: " + commitErr);
     }
 
     Result result;

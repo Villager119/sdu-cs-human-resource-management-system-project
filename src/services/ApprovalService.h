@@ -1,6 +1,7 @@
 #ifndef APPROVALSERVICE_H
 #define APPROVALSERVICE_H
 
+#include <QDate>
 #include <QSqlDatabase>
 #include <QString>
 
@@ -28,6 +29,7 @@ private:
     int employeeIdForMakeupRequest(int makeupId) const;
     bool updateLeaveStatus(int requestId, bool approved, QString *errorText);
     bool updateMakeupStatus(int makeupId, bool approved, QString *errorText);
+    bool hasApprovedLeaveOverlap(int employeeId, const QDate &startDate, const QDate &endDate, int excludeRequestId, QString *errorText) const;
     bool applyMakeupToAttendance(int makeupId, int employeeId, QString *errorText);
     bool attendanceRecordFor(int employeeId, const QString &date, int *attendanceId) const;
     bool updateAttendanceTime(int attendanceId, const QString &typeRaw, const QString &time, QString *errorText);

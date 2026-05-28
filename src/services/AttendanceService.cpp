@@ -120,9 +120,30 @@ AttendanceService::Result AttendanceService::clockOut(int employeeId, const QDat
 AttendanceService::Result AttendanceService::submitLeaveRequest(int employeeId, const QDate &startDate,
                                                                 const QDate &endDate, const QString &reason)
 {
+    if (!startDate.isValid() || !endDate.isValid()) return fail("请假日期无效");
     if (startDate > endDate) return fail("结束日期不能早于开始日期");
     if (reason.isEmpty()) return fail("请假事由不能为空");
     if (reason.length() < 5) return fail("请假事由字数不能少于5个字");
+
+    QSqlQuery eq(m_db);
+    eq.prepare("SELECT hire_date, status FROM employees WHERE emp_id=?");
+    eq.addBindValue(employeeId);
+    if (!eq.exec() || !eq.next()) {
+        eq.finish();
+        return fail("未找到申请人信息");
+    }
+    const QString empStatus = eq.value(1).toString();
+    if (empStatus != "在职") {
+        eq.finish();
+        return fail("非在职员工无法申请请假");
+    }
+    const QDate hireDate = eq.value(0).toDate();
+    if (hireDate.isValid() && startDate < hireDate) {
+        eq.finish();
+        return fail("请假开始日期不能早于入职日期");
+    }
+    eq.finish();
+
     if (hasLeaveOverlap(employeeId, startDate, endDate)) {
         return fail("在该日期段内已有尚未拒绝的请假申请");
     }
@@ -155,22 +176,82 @@ AttendanceService::Result AttendanceService::submitMakeupRequest(int employeeId,
                                                                  const QString &type, const QTime &time,
                                                                  const QString &reason)
 {
+    if (!date.isValid()) return fail("补卡日期无效");
+    if (date > QDate::currentDate()) return fail("不能申请未来的补卡");
+    if (type != "clock_in" && type != "clock_out") return fail("补卡类型无效");
     if (reason.isEmpty()) return fail("补卡事由不能为空");
     if (reason.length() < 5) return fail("补卡事由字数不能少于5个字");
 
+    if (!m_db.transaction()) {
+        return fail("启动补卡提交事务失败: " + m_db.lastError().text());
+    }
+
+    QSqlQuery eq(m_db);
+    eq.prepare("SELECT hire_date, status FROM employees WHERE emp_id=? FOR UPDATE");
+    eq.addBindValue(employeeId);
+    if (!eq.exec() || !eq.next()) {
+        const QString err = eq.lastError().text();
+        eq.finish();
+        m_db.rollback();
+        return fail(err.isEmpty() ? "未找到申请人信息" : "锁定员工记录失败: " + err);
+    }
+    const QString empStatus = eq.value(1).toString();
+    if (empStatus != "在职") {
+        eq.finish();
+        m_db.rollback();
+        return fail("非在职员工无法申请补卡");
+    }
+    const QDate hireDate = eq.value(0).toDate();
+    if (hireDate.isValid() && date < hireDate) {
+        eq.finish();
+        m_db.rollback();
+        return fail("补卡日期不能早于入职日期");
+    }
+    eq.finish();
+
+    QSqlQuery cq(m_db);
+    cq.prepare("SELECT COUNT(*) FROM makeup_requests WHERE emp_id=? AND att_date=? AND request_type=? AND status IN (?, ?)");
+    cq.addBindValue(employeeId);
+    cq.addBindValue(date.toString("yyyy-MM-dd"));
+    cq.addBindValue(type);
+    cq.addBindValue(HR::LeaveStatus::PENDING);
+    cq.addBindValue(HR::LeaveStatus::APPROVED);
+    if (!cq.exec()) {
+        const QString err = cq.lastError().text();
+        cq.finish();
+        m_db.rollback();
+        return fail("校验重复补卡申请失败: " + err);
+    }
+    if (cq.next() && cq.value(0).toInt() > 0) {
+        cq.finish();
+        m_db.rollback();
+        return fail("该日期已有同类型补卡申请，请勿重复提交");
+    }
+    cq.finish();
+
     QSqlQuery query(m_db);
     query.prepare("INSERT INTO makeup_requests(emp_id,att_date,request_type,request_time,reason,status) "
-                  "VALUES(?,?,?,?,?,'待审批')");
+                  "VALUES(?,?,?,?,?,?)");
     query.addBindValue(employeeId);
     query.addBindValue(date.toString("yyyy-MM-dd"));
     query.addBindValue(type);
     query.addBindValue(time.toString("HH:mm:ss"));
     query.addBindValue(reason);
+    query.addBindValue(HR::LeaveStatus::PENDING);
 
-    const bool ok = query.exec();
-    const QString errorText = query.lastError().text();
+    if (!query.exec()) {
+        const QString err = query.lastError().text();
+        query.finish();
+        m_db.rollback();
+        return fail("提交补卡申请失败: " + err);
+    }
     query.finish();
-    if (!ok) return fail(errorText);
+
+    if (!m_db.commit()) {
+        const QString commitErr = m_db.lastError().text();
+        m_db.rollback();
+        return fail("提交补卡申请事务失败: " + commitErr);
+    }
 
     Result result;
     result.success = true;

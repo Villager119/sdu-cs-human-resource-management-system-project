@@ -85,7 +85,7 @@ ProfileChangeService::Result ProfileChangeService::approveRequest(int requestId)
     }
 
     QSqlQuery updateEmployee(m_db);
-    updateEmployee.prepare(QString("UPDATE employees SET %1=? WHERE emp_id=?").arg(record.field));
+    updateEmployee.prepare(QString("UPDATE employees SET %1=?, version = version + 1 WHERE emp_id=?").arg(record.field));
     updateEmployee.addBindValue(record.newValue);
     updateEmployee.addBindValue(record.employeeId);
     if (!updateEmployee.exec()) {
@@ -103,7 +103,9 @@ ProfileChangeService::Result ProfileChangeService::approveRequest(int requestId)
     }
 
     if (!m_db.commit()) {
-        return fail("提交信息修改事务失败: " + m_db.lastError().text());
+        const QString commitErr = m_db.lastError().text();
+        m_db.rollback();
+        return fail("提交信息修改事务失败: " + commitErr);
     }
 
     const QString displayName = fieldDisplayName(record.field);

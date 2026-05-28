@@ -74,10 +74,11 @@ QList<NotificationService::Notification> NotificationService::recentNotification
 {
     QList<Notification> notifications;
     QSqlQuery query(m_db);
-    query.prepare("SELECT notif_id, title, content, created_at, is_read "
-                  "FROM notifications WHERE emp_id=? ORDER BY created_at DESC LIMIT ?");
+    const int safeLimit = qMax(1, limit);
+    query.prepare(QString("SELECT notif_id, title, content, created_at, is_read "
+                          "FROM notifications WHERE emp_id=? ORDER BY created_at DESC LIMIT %1")
+                      .arg(safeLimit));
     query.addBindValue(employeeId);
-    query.addBindValue(limit);
 
     if (query.exec()) {
         while (query.next()) {

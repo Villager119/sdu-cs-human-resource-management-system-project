@@ -388,6 +388,8 @@ bool initDatabaseSchema()
             QSqlQuery q;
             if (!q.exec("ALTER TABLE performance_scores ADD COLUMN status VARCHAR(20) DEFAULT '已发布'")) {
                 qDebug() << "Failed to add status column to performance_scores:" << q.lastError().text();
+                db.rollback();
+                return false;
             }
             q.finish();
         }
@@ -405,6 +407,8 @@ bool initDatabaseSchema()
             QSqlQuery q;
             if (!q.exec("ALTER TABLE performance_scores ADD COLUMN evaluator VARCHAR(50) DEFAULT '系统管理员'")) {
                 qDebug() << "Failed to add evaluator column to performance_scores:" << q.lastError().text();
+                db.rollback();
+                return false;
             }
             q.finish();
         }
@@ -425,6 +429,8 @@ bool initDatabaseSchema()
             QSqlQuery q;
             if (!q.exec("ALTER TABLE employees ADD COLUMN version INT DEFAULT 1")) {
                 qDebug() << "Failed to add version column to employees:" << q.lastError().text();
+                db.rollback();
+                return false;
             }
             q.finish();
         }
@@ -459,6 +465,8 @@ bool initDatabaseSchema()
                 QSqlQuery q;
                 if (!q.exec("ALTER TABLE performance_scores ADD UNIQUE KEY uk_emp_month (emp_id, eval_month)")) {
                     qDebug() << "Failed to add unique key uk_emp_month to performance_scores:" << q.lastError().text();
+                    db.rollback();
+                    return false;
                 }
                 q.finish();
             }
@@ -494,6 +502,8 @@ bool initDatabaseSchema()
                 QSqlQuery q;
                 if (!q.exec("ALTER TABLE payroll ADD UNIQUE KEY uk_payroll_emp_month (emp_id, month)")) {
                     qDebug() << "Failed to add unique key uk_payroll_emp_month to payroll:" << q.lastError().text();
+                    db.rollback();
+                    return false;
                 }
                 q.finish();
             }

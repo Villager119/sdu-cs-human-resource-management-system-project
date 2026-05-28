@@ -85,30 +85,40 @@ PayrollTab::PayrollTab(int empId, const QString &role,
 
 void PayrollTab::calculate()
 {
+    m_btnCalc->setEnabled(false);
+    auto restoreCalcButton = [this]() {
+        m_btnCalc->setEnabled(true);
+    };
+
     const QString month = QDate::currentDate().toString("yyyy-MM");
     PayrollService service;
 
     const bool exists = service.payrollExists(month);
     if (exists) {
-        const int r = QMessageBox::question(this, "重新核算警告",
-            month + " 月份的工资已经核算过了！\n再次核算将覆盖原有数据，确定要继续吗？",
+        const int r = QMessageBox::question(this, "重新核算确认",
+            month + " 月份的工资已存在核算记录。\n重新核算将覆盖原有数据，是否确定继续？",
             QMessageBox::Yes | QMessageBox::No);
-        if (r == QMessageBox::No) return;
+        if (r == QMessageBox::No) {
+            restoreCalcButton();
+            return;
+        }
     }
 
     const PayrollService::Result result = service.calculateMonth(month, exists);
     if (!result.success) {
         QMessageBox::critical(this, "核算失败", result.errorMessage);
+        restoreCalcButton();
         return;
     }
 
-    QMessageBox::information(this, "核算完成",
-        QString("一键核算完毕！\n成功生成了 %1 名员工的 %2 月份工资单。")
+    QMessageBox::information(this, "核算成功",
+        QString("一键核算完毕。\n已成功生成了 %1 名员工的 %2 月份工资单。")
             .arg(result.generatedCount)
             .arg(result.month));
     m_log("核算工资", result.month + " (" + QString::number(result.generatedCount) + "人)");
-    m_model->select();
+    refresh();
     GlobalEvents::instance()->dataChanged();
+    restoreCalcButton();
 }
 
 void PayrollTab::exportCSV()

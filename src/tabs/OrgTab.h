@@ -34,6 +34,7 @@ private:
     QTreeView *m_tree;
     QStandardItemModel *m_treeModel;
     QPushButton *m_btnDel;
+    QPushButton *m_btnSave;
     QLineEdit *m_nameEdit;
     QComboBox *m_parentCombo, *m_managerCombo;
     int m_selectedDeptId = -1;

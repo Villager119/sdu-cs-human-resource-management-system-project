@@ -84,17 +84,17 @@ OrgTab::OrgTab(std::function<void(const QString&, const QString&)> logFn,
     m_managerCombo = new QComboBox; m_managerCombo->addItem("(无)", QVariant());
     form->addRow("负责人:", m_managerCombo);
     auto *btnRow = new QHBoxLayout;
-    auto *btnSave = new QPushButton("保存部门");
-    btnSave->setProperty("theme", "dark");
+    m_btnSave = new QPushButton("保存部门");
+    m_btnSave->setProperty("theme", "dark");
     m_btnDel = new QPushButton("删除");
     m_btnDel->setProperty("theme", "danger");
     m_btnDel->setEnabled(false);
-    btnRow->addWidget(btnSave); btnRow->addWidget(m_btnDel);
+    btnRow->addWidget(m_btnSave); btnRow->addWidget(m_btnDel);
     form->addRow(btnRow);
     layout->addWidget(panel);
 
     connect(m_tree->selectionModel(), &QItemSelectionModel::currentChanged, this, &OrgTab::onTreeSelectionChanged);
-    connect(btnSave, &QPushButton::clicked, this, &OrgTab::saveDepartment);
+    connect(m_btnSave, &QPushButton::clicked, this, &OrgTab::saveDepartment);
     connect(m_btnDel, &QPushButton::clicked, this, &OrgTab::removeDepartment);
 
     connect(m_chartView, &OrgChartView::departmentSelected, this, [this](int deptId) {
@@ -193,12 +193,24 @@ void OrgTab::onTreeSelectionChanged()
 
 void OrgTab::saveDepartment()
 {
+    m_btnSave->setEnabled(false);
+    m_btnDel->setEnabled(false);
+    auto restoreButtons = [this]() {
+        m_btnSave->setEnabled(true);
+        m_btnDel->setEnabled(m_selectedDeptId > 0);
+    };
+
     QString name = m_nameEdit->text().trimmed();
-    if (name.isEmpty()) { Toast::show(this, "请输入部门名称", Toast::Warning); return; }
+    if (name.isEmpty()) {
+        Toast::show(this, "请输入部门名称", Toast::Warning);
+        restoreButtons();
+        return;
+    }
     QVariant pid = m_parentCombo->currentData(), mid = m_managerCombo->currentData();
     const OrgService::Result result = OrgService().saveDepartment(m_selectedDeptId, name, pid, mid);
     if (!result.success) {
-        QMessageBox::critical(this, "错误", result.errorMessage);
+        QMessageBox::critical(this, "保存失败", result.errorMessage);
+        restoreButtons();
         return;
     }
     if (m_selectedDeptId > 0) {
@@ -207,20 +219,47 @@ void OrgTab::saveDepartment()
         m_log("新增部门", name);
     }
     Toast::show(this, "部门信息已保存", Toast::Success);
-    m_selectedDeptId = -1; m_nameEdit->clear(); m_btnDel->setEnabled(false); refresh();
+    m_selectedDeptId = -1;
+    m_nameEdit->clear();
+    refresh();
+    if (m_tree->selectionModel()) {
+        m_tree->selectionModel()->clearSelection();
+    }
+    restoreButtons();
 }
 
 void OrgTab::removeDepartment()
 {
-    if (m_selectedDeptId <= 0) { Toast::show(this, "请先选中要删除的部门", Toast::Warning); return; }
-    if (QMessageBox::question(this,"确认",QString("确定删除\"%1\"吗？子部门将移为顶级。").arg(m_nameEdit->text()),
-                               QMessageBox::Yes|QMessageBox::No) != QMessageBox::Yes) return;
+    m_btnSave->setEnabled(false);
+    m_btnDel->setEnabled(false);
+    auto restoreButtons = [this]() {
+        m_btnSave->setEnabled(true);
+        m_btnDel->setEnabled(m_selectedDeptId > 0);
+    };
+
+    if (m_selectedDeptId <= 0) {
+        Toast::show(this, "请先选中要删除的部门", Toast::Warning);
+        restoreButtons();
+        return;
+    }
+    if (QMessageBox::question(this, "删除确认", QString("确定删除\"%1\"吗？子部门将移为顶级。").arg(m_nameEdit->text()),
+                               QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes) {
+        restoreButtons();
+        return;
+    }
     const OrgService::Result result = OrgService().removeDepartment(m_selectedDeptId);
     if (!result.success) {
-        QMessageBox::critical(this, "错误", result.errorMessage);
+        QMessageBox::critical(this, "删除失败", result.errorMessage);
+        restoreButtons();
         return;
     }
     m_log("删除部门", m_nameEdit->text());
     Toast::show(this, "部门已成功删除", Toast::Success);
-    m_selectedDeptId = -1; m_nameEdit->clear(); m_btnDel->setEnabled(false); refresh();
+    m_selectedDeptId = -1;
+    m_nameEdit->clear();
+    refresh();
+    if (m_tree->selectionModel()) {
+        m_tree->selectionModel()->clearSelection();
+    }
+    restoreButtons();
 }

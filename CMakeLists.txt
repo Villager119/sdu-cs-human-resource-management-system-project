@@ -33,6 +33,17 @@ set(PROJECT_SOURCES
     src/tabs/attend_manage/ShiftSettingsWidget.cpp src/tabs/attend_manage/ShiftSettingsWidget.h
     src/tabs/OrgTab.cpp src/tabs/OrgTab.h
     src/tabs/RbacTab.cpp src/tabs/RbacTab.h
+    src/services/PayrollService.cpp src/services/PayrollService.h
+    src/services/EmployeeService.cpp src/services/EmployeeService.h
+    src/services/ApprovalService.cpp src/services/ApprovalService.h
+    src/services/NotificationService.cpp src/services/NotificationService.h
+    src/services/ProfileChangeService.cpp src/services/ProfileChangeService.h
+    src/services/AuditService.cpp src/services/AuditService.h
+    src/services/AttendanceService.cpp src/services/AttendanceService.h
+    src/services/PerformanceService.cpp src/services/PerformanceService.h
+    src/services/OrgService.cpp src/services/OrgService.h
+    src/services/RbacService.cpp src/services/RbacService.h
+    src/services/AuthService.cpp src/services/AuthService.h
     src/widgets/PaginationBar.cpp src/widgets/PaginationBar.h
     src/widgets/ComboDelegate.cpp src/widgets/ComboDelegate.h
     src/widgets/CommonDelegates.cpp src/widgets/CommonDelegates.h

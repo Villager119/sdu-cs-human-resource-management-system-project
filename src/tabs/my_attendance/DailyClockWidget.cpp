@@ -1,5 +1,6 @@
 #include "DailyClockWidget.h"
 #include "../../widgets/CommonDelegates.h"
+#include "../../services/AttendanceService.h"
 #include "../../utils/Toast.h"
 #include "../../utils/DbUtils.h"
 #include "../../core/Constants.h"
@@ -10,8 +11,6 @@
 #include <QFrame>
 #include <QGroupBox>
 #include <QHeaderView>
-#include <QSqlQuery>
-#include <QSqlError>
 #include <QDate>
 #include <QTime>
 #include <QMessageBox>
@@ -184,64 +183,37 @@ void DailyClockWidget::updateClock()
 
 void DailyClockWidget::refresh()
 {
-    // Fetch standard shift start and end times dynamically
-    QString shiftStart = "09:00";
-    QString shiftEnd = "18:00";
-    {
-        QSqlQuery sq;
-        if (sq.exec("SELECT start_time, end_time FROM shifts WHERE shift_id = 1") && sq.next()) {
-            shiftStart = sq.value(0).toString().left(5);
-            shiftEnd = sq.value(1).toString().left(5);
-        }
-        sq.finish();
-    }
-
-    // Today's Clock Status
-    bool hasTodayAtt = false;
-    QString clockInTime, clockOutTime, status;
-    {
-        QSqlQuery q;
-        q.prepare("SELECT clock_in, clock_out, status FROM attendances WHERE emp_id = ? AND att_date = ?");
-        q.addBindValue(m_empId);
-        q.addBindValue(QDate::currentDate().toString("yyyy-MM-dd"));
-        if (q.exec() && q.next()) {
-            clockInTime = q.value(0).toString();
-            clockOutTime = q.value(1).toString();
-            status = q.value(2).toString();
-            hasTodayAtt = true;
-        }
-        q.finish();
-    }
-    
+    const AttendanceService::TodayStatus today = AttendanceService().todayStatus(m_empId);
     bool hasClockInPerm = SessionManager::instance()->hasPermission("apply_leave_makeup");
 
-    if (hasTodayAtt) {
-        if (!clockInTime.isEmpty()) {
+    if (today.hasRecord) {
+        if (!today.clockIn.isEmpty()) {
             m_btnClockIn->setEnabled(false);
-            m_btnClockIn->setText("已打上班卡\n" + clockInTime.left(5));
+            m_btnClockIn->setText("已打上班卡\n" + today.clockIn.left(5));
         } else {
             m_btnClockIn->setEnabled(hasClockInPerm);
             m_btnClockIn->setText("上班打卡");
         }
 
-        if (!clockOutTime.isEmpty()) {
+        if (!today.clockOut.isEmpty()) {
             m_btnClockOut->setEnabled(false);
-            m_btnClockOut->setText("已打下班卡\n" + clockOutTime.left(5));
+            m_btnClockOut->setText("已打下班卡\n" + today.clockOut.left(5));
         } else {
             m_btnClockOut->setEnabled(hasClockInPerm);
             m_btnClockOut->setText("下班打卡");
         }
         
         m_lblStatus->setText(QString("今日排班: 标准班 (%1 - %2) | 考勤状态: %3 (上班: %4 | 下班: %5)")
-            .arg(shiftStart, shiftEnd, status, 
-                 clockInTime.isEmpty() ? "未打卡" : clockInTime.left(5),
-                 clockOutTime.isEmpty() ? "未打卡" : clockOutTime.left(5)));
+            .arg(today.shiftStart, today.shiftEnd, today.status,
+                 today.clockIn.isEmpty() ? "未打卡" : today.clockIn.left(5),
+                 today.clockOut.isEmpty() ? "未打卡" : today.clockOut.left(5)));
     } else {
         m_btnClockIn->setEnabled(hasClockInPerm);
         m_btnClockIn->setText("上班打卡");
         m_btnClockOut->setEnabled(hasClockInPerm);
         m_btnClockOut->setText("下班打卡");
-        m_lblStatus->setText(QString("今日排班: 标准班 (%1 - %2) | 考勤状态: 未打卡").arg(shiftStart, shiftEnd));
+        m_lblStatus->setText(QString("今日排班: 标准班 (%1 - %2) | 考勤状态: 未打卡")
+            .arg(today.shiftStart, today.shiftEnd));
     }
 
     // Tables selection
@@ -253,111 +225,30 @@ void DailyClockWidget::refresh()
 
 void DailyClockWidget::clockIn()
 {
-    QString today = QDate::currentDate().toString("yyyy-MM-dd");
-    QString now = QTime::currentTime().toString("HH:mm:ss");
-
-    bool alreadyClocked = false;
-    {
-        QSqlQuery q;
-        q.prepare("SELECT att_id FROM attendances WHERE emp_id=? AND att_date=?");
-        q.addBindValue(m_empId);
-        q.addBindValue(today);
-        if (q.exec() && q.next()) {
-            alreadyClocked = true;
-        }
-        q.finish();
-    }
-    if (alreadyClocked) {
-        Toast::show(this, "今天已打卡，请勿重复", Toast::Warning);
+    const AttendanceService::Result result =
+        AttendanceService().clockIn(m_empId, QDate::currentDate(), QTime::currentTime());
+    if (!result.success) {
+        Toast::show(this, result.errorMessage, Toast::Warning);
         return;
     }
 
-    QString start = "09:00:00";
-    {
-        QSqlQuery sq;
-        if (sq.exec("SELECT start_time FROM shifts WHERE shift_id=1") && sq.next()) {
-            start = sq.value(0).toString();
-        }
-        sq.finish();
-    }
-    QString status = (now > start) ? "迟到" : "正常";
-
-    bool insertOk = false;
-    QString err;
-    {
-        QSqlQuery q;
-        q.prepare("INSERT INTO attendances(emp_id,att_date,clock_in,status) VALUES(?,?,?,?)");
-        q.addBindValue(m_empId);
-        q.addBindValue(today);
-        q.addBindValue(now);
-        q.addBindValue(status);
-        insertOk = q.exec();
-        if (!insertOk) err = q.lastError().text();
-        q.finish();
-    }
-
-    if (insertOk) {
-        Toast::show(this, QString("上班打卡成功 (%1)").arg(now), Toast::Success);
-        emit logRequested("上班打卡", today);
-        refresh();
-        GlobalEvents::instance()->dataChanged();
-    } else {
-        QMessageBox::critical(this, "失败", err);
-    }
+    Toast::show(this, result.message, Toast::Success);
+    emit logRequested(result.logAction, result.logDetails);
+    refresh();
+    GlobalEvents::instance()->dataChanged();
 }
 
 void DailyClockWidget::clockOut()
 {
-    QString today = QDate::currentDate().toString("yyyy-MM-dd");
-    QString now = QTime::currentTime().toString("HH:mm:ss");
-
-    bool hasInRecord = false;
-    QString currentStatus;
-    {
-        QSqlQuery q;
-        q.prepare("SELECT att_id, status FROM attendances WHERE emp_id=? AND att_date=?");
-        q.addBindValue(m_empId);
-        q.addBindValue(today);
-        if (q.exec() && q.next()) {
-            currentStatus = q.value(1).toString();
-            hasInRecord = true;
-        }
-        q.finish();
-    }
-    if (!hasInRecord) { Toast::show(this, "请先打上班卡", Toast::Warning); return; }
-
-    QString end = "18:00:00";
-    {
-        QSqlQuery sq;
-        if (sq.exec("SELECT end_time FROM shifts WHERE shift_id=1") && sq.next()) {
-            end = sq.value(0).toString();
-        }
-        sq.finish();
-    }
-    QString status = (now < end) ? "早退" : "正常";
-    if (currentStatus == "迟到") status = "迟到";
-    if (status == "正常" && currentStatus == "正常") status = "正常";
-
-    bool updateOk = false;
-    QString err;
-    {
-        QSqlQuery q;
-        q.prepare("UPDATE attendances SET clock_out=?, status=? WHERE emp_id=? AND att_date=?");
-        q.addBindValue(now);
-        q.addBindValue(status);
-        q.addBindValue(m_empId);
-        q.addBindValue(today);
-        updateOk = q.exec();
-        if (!updateOk) err = q.lastError().text();
-        q.finish();
+    const AttendanceService::Result result =
+        AttendanceService().clockOut(m_empId, QDate::currentDate(), QTime::currentTime());
+    if (!result.success) {
+        Toast::show(this, result.errorMessage, Toast::Warning);
+        return;
     }
 
-    if (updateOk) {
-        Toast::show(this, QString("下班打卡成功 (%1) [%2]").arg(now, status), Toast::Success);
-        emit logRequested("下班打卡", today);
-        refresh();
-        GlobalEvents::instance()->dataChanged();
-    } else {
-        QMessageBox::critical(this, "失败", err);
-    }
+    Toast::show(this, result.message, Toast::Success);
+    emit logRequested(result.logAction, result.logDetails);
+    refresh();
+    GlobalEvents::instance()->dataChanged();
 }

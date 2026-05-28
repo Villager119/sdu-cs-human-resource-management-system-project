@@ -3,14 +3,13 @@
 #include "MainWindow.h"
 #include "ServerSettingsDialog.h"
 #include "RecoverPasswordDialog.h"
+#include "../services/AuthService.h"
 #include "../utils/DbUtils.h"
 #include "../core/SessionManager.h"
-#include <QCryptographicHash>
 #include <QDebug>
 #include <QMessageBox>
 #include <QSqlDatabase>
 #include <QSqlError>
-#include <QSqlQuery>
 #include <QSettings>
 #include <QFileInfo>
 #include <QTimer>
@@ -150,36 +149,13 @@ void LoginWindow::on_btnLogin_clicked()
         QMessageBox::warning(this,"提示","账号或密码不能为空！");
         return;
     }
-    // SHA-256 哈希密码
-    QString passwordHash = QString(QCryptographicHash::hash(password.toUtf8(), QCryptographicHash::Sha256).toHex());
-    int empId = 0;
-    QString empName;
-    QString role;
-    bool loginSuccess = false;
-    bool dbError = false;
-    QString dbErrText;
-    {
-        QSqlQuery query;
-        query.prepare("SELECT emp_id,name,role FROM employees WHERE (name=:account OR phone=:account) AND password_hash=:password");
-        query.bindValue(":account",account);
-        query.bindValue(":password",passwordHash);
-        if(!query.exec()){
-            dbError = true;
-            dbErrText = query.lastError().text();
-        } else if(query.next()){
-            empId = query.value("emp_id").toInt();
-            empName = query.value("name").toString();
-            role = query.value("role").toString();
-            loginSuccess = true;
-        }
-        query.finish();
-    }
+    const AuthService::LoginResult result = AuthService().authenticate(account, password);
 
-    if (dbError) {
-        QMessageBox::critical(this,"数据库错误",dbErrText);
+    if (result.dbError) {
+        QMessageBox::critical(this,"数据库错误",result.errorMessage);
         return;
     }
-    if (!loginSuccess) {
+    if (!result.success) {
         QMessageBox::critical(this,"登录失败","账号或密码错误，请重试！");
         return;
     }
@@ -196,10 +172,10 @@ void LoginWindow::on_btnLogin_clicked()
     }
 
     if (!QCoreApplication::arguments().contains("--test")) {
-        QMessageBox::information(this,"登录成功","欢迎回来"+empName+"!\n您的权限级别是:"+role);
+        QMessageBox::information(this,"登录成功","欢迎回来"+result.empName+"!\n您的权限级别是:"+result.role);
     }
-    SessionManager::init(empId, role, empName);
-    MainWindow *mainWin=new MainWindow(empId,role);
+    SessionManager::init(result.empId, result.role, result.empName);
+    MainWindow *mainWin=new MainWindow(result.empId,result.role);
     mainWin->setAttribute(Qt::WA_DeleteOnClose);
     mainWin->show();
     this->close();

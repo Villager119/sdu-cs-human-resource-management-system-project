@@ -107,14 +107,15 @@ graph TD
 
 逻辑视角描述了系统内部软件的分层与静态组织结构，是面向开发人员的最核心视图。
 
-#### 3.1.1 逻辑架构设计原则 (Model-View-Delegate + EventBus)
+#### 3.1.1 逻辑架构设计原则 (Model-View-Service-Delegate + EventBus)
 
 系统在核心架构上严格遵循 **模型-视图 (Model-View)** 模式。通过继承 Qt 内置的模型类，与 QTableView 等视图控件进行绑定。
 
 1. **View 层 (视图)**：由各 `ui/` 和 `tabs/` 类实现，负责控件渲染与用户交互。
-2. **Model 层 (模型)**：使用 `QSqlTableModel` 和 `QSqlRelationalTableModel` 承载，处理内存中与 MySQL 表对应的数据缓冲及事务修改。
-3. **Delegate 层 (委托)**：使用自定义的 `ComboDelegate` 在表格单元格中嵌入下拉框控件，规范输入。
-4. **全局事件总线 (EventBus)**：`GlobalEvents` 实现了**观察者模式**。它作为解耦器，任何 Tab 完成提交修改（如审批请假、修改员工信息等）后发射 `dataChanged` 或 `auditRefresh` 信号，其他独立 Tab 监听此信号自动拉取最新数据，避免了 Tab 组件间的强指针依赖。
+2. **Service 层 (业务服务)**：由 `src/services/` 中的 `AuthService`、`AttendanceService`、`ApprovalService`、`PayrollService`、`RbacService` 等类承载，封装认证、审批、薪酬核算、组织管理、通知与审计等数据库业务逻辑，降低 UI 类职责。
+3. **Model 层 (模型)**：使用 `QSqlTableModel` 和 `QSqlRelationalTableModel` 承载，处理内存中与 MySQL 表对应的数据缓冲及事务修改。
+4. **Delegate 层 (委托)**：使用自定义的 `ComboDelegate` 在表格单元格中嵌入下拉框控件，规范输入。
+5. **全局事件总线 (EventBus)**：`GlobalEvents` 实现了**观察者模式**。它作为解耦器，任何 Tab 完成提交修改（如审批请假、修改员工信息等）后发射 `dataChanged` 或 `auditRefresh` 信号，其他独立 Tab 监听此信号自动拉取最新数据，避免了 Tab 组件间的强指针依赖。
 
 #### 3.1.2 模块及类静态关系模型
 
@@ -138,6 +139,19 @@ classDiagram
         +DbUtils
         +CsvExport
         +UiStyles
+    }
+
+    class Services {
+        +AuthService
+        +EmployeeService
+        +AttendanceService
+        +ApprovalService
+        +PayrollService
+        +PerformanceService
+        +OrgService
+        +RbacService
+        +NotificationService
+        +AuditService
     }
 
     class UI_Main {
@@ -177,6 +191,9 @@ classDiagram
     MainEntrance --> UI_Main : "1. 引导启动登录"
     UI_Main --> Tabs_Business : "2. 加载侧边栏 Tab 模块"
     UI_Main --> Tabs_Finance : "2. 加载侧边栏 Tab 模块"
+    UI_Main --> Services : "认证/通知/审计服务"
+    Tabs_Business --> Services : "业务规则与数据库写入"
+    Tabs_Finance --> Services : "薪酬/绩效计算"
     Tabs_Business --> Core : "事件总线/会话/日志"
     Tabs_Finance --> Core : "事件总线/会话/日志"
     Tabs_Business --> Utils : "使用工具库"
@@ -185,6 +202,7 @@ classDiagram
     Tabs_Finance --> Widgets_Custom : "绑定组件与表格委托"
     
     style Core fill:#ff9999,stroke:#333,stroke-width:2px
+    style Services fill:#ffe599,stroke:#333,stroke-width:2px
     style Utils fill:#99ff99,stroke:#333,stroke-width:1px
     style Widgets_Custom fill:#99ccff,stroke:#333,stroke-width:1px
 ```
@@ -570,6 +588,7 @@ graph TD
 - **审计日志表 (`audit_logs`) 的反规范化设计**：为了保证操作追溯的真实性与查询效率，`audit_logs` 表除了存储操作人编号 `emp_id`，还以 `emp_name` 字段直接冗余了操作发生时该员工的姓名。
 - **一致性冲突**：这违背了关系型数据库第三范式 (3NF) 的设计要求（因为 `emp_name` 传递依赖于 `emp_id`）。
 - **折中理由**：如果不冗余姓名，在员工姓名修改后，历史日志关联查询出的姓名会被错误地更新为新值（导致历史追溯失真）；且审计日志页面需要高频读取并以极快速度进行数据绑定。使用多表外键联查 (Join) 在日志数量极大时会导致查询响应时间变慢。因此，反规范化设计能有效折中解决**可审计性 (Auditability)** 与 **性能 [P-1]** 的诉求。
+- **二层架构下的服务层边界**：系统没有引入独立后端服务，`src/services/` 仍运行在 Qt 客户端进程内。该服务层并不改变 C/S 部署形态，而是用于集中业务规则、事务和临时 SQL 查询，使 UI 类保持交互职责，降低后续维护成本。
 
 ---
 

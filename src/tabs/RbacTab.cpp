@@ -1,16 +1,13 @@
 #include "RbacTab.h"
 #include "../core/SessionManager.h"
 #include "../core/GlobalEvents.h"
+#include "../services/AuditService.h"
+#include "../services/RbacService.h"
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QGroupBox>
 #include <QScrollArea>
 #include <QMessageBox>
-#include <QSqlQuery>
-#include <QSqlError>
-#include <QSqlDatabase>
-#include <QRegularExpression>
-#include <QDebug>
 
 RbacTab::RbacTab(std::function<void(const QString&, const QString&)> logFn, QWidget *parent)
     : QWidget(parent), m_log(logFn)
@@ -93,16 +90,9 @@ RbacTab::RbacTab(std::function<void(const QString&, const QString&)> logFn, QWid
 void RbacTab::loadRoles()
 {
     m_roleList->clear();
-    {
-        QSqlQuery q;
-        if (q.exec("SELECT role_name FROM roles ORDER BY role_id")) {
-            while (q.next()) {
-                m_roleList->addItem(q.value(0).toString());
-            }
-        } else {
-            qDebug() << "Failed to load roles:" << q.lastError().text();
-        }
-        q.finish();
+    const QVector<QString> roles = RbacService().roles();
+    for (const QString &roleName : roles) {
+        m_roleList->addItem(roleName);
     }
 
     if (m_roleList->count() > 0) {
@@ -122,30 +112,20 @@ void RbacTab::loadPermissions()
     }
     m_permCheckBoxes.clear();
 
-    {
-        QSqlQuery q;
-        if (q.exec("SELECT permission_key, permission_name FROM permissions ORDER BY permission_id")) {
-            QVBoxLayout *layout = qobject_cast<QVBoxLayout*>(m_permsContainer->layout());
-            while (q.next()) {
-                QString key = q.value(0).toString();
-                QString name = q.value(1).toString();
-
-                QCheckBox *cb = new QCheckBox(QString("%1 (%2)").arg(name, key));
-                cb->setStyleSheet(
-                    "QCheckBox { font-size: 13px; color: #334155; spacing: 8px; }"
-                    "QCheckBox::indicator { width: 18px; height: 18px; border-radius: 4px; border: 1px solid #cbd5e1; }"
-                    "QCheckBox::indicator:unchecked:hover { border-color: #3b82f6; background-color: #f8fafc; }"
-                    "QCheckBox::indicator:checked { border-color: #2563eb; background-color: #2563eb; image: url(check.png); /* Fallback to standard check drawing if no image */ }"
-                );
-                layout->addWidget(cb);
-                m_permCheckBoxes.insert(key, cb);
-            }
-            layout->addStretch(1);
-        } else {
-            qDebug() << "Failed to load permissions:" << q.lastError().text();
-        }
-        q.finish();
+    QVBoxLayout *layout = qobject_cast<QVBoxLayout*>(m_permsContainer->layout());
+    const QVector<RbacService::Permission> permissions = RbacService().permissions();
+    for (const auto &permission : permissions) {
+        QCheckBox *cb = new QCheckBox(QString("%1 (%2)").arg(permission.name, permission.key));
+        cb->setStyleSheet(
+            "QCheckBox { font-size: 13px; color: #334155; spacing: 8px; }"
+            "QCheckBox::indicator { width: 18px; height: 18px; border-radius: 4px; border: 1px solid #cbd5e1; }"
+            "QCheckBox::indicator:unchecked:hover { border-color: #3b82f6; background-color: #f8fafc; }"
+            "QCheckBox::indicator:checked { border-color: #2563eb; background-color: #2563eb; image: url(check.png); /* Fallback to standard check drawing if no image */ }"
+        );
+        layout->addWidget(cb);
+        m_permCheckBoxes.insert(permission.key, cb);
     }
+    layout->addStretch(1);
 }
 
 void RbacTab::onRoleSelected(QListWidgetItem *current, QListWidgetItem *previous)
@@ -170,55 +150,19 @@ void RbacTab::onRoleSelected(QListWidgetItem *current, QListWidgetItem *previous
     bool isSystemRole = (roleName == "admin" || roleName == "user");
     m_btnDelRole->setEnabled(!isSystemRole);
 
-    // Load active permissions for this role
-    {
-        QSqlQuery q;
-        q.prepare("SELECT p.permission_key FROM permissions p "
-                  "JOIN role_permissions rp ON p.permission_id = rp.permission_id "
-                  "JOIN roles r ON rp.role_id = r.role_id "
-                  "WHERE r.role_name = ?");
-        q.addBindValue(roleName);
-        if (q.exec()) {
-            while (q.next()) {
-                QString key = q.value(0).toString();
-                if (m_permCheckBoxes.contains(key)) {
-                    m_permCheckBoxes.value(key)->setChecked(true);
-                }
-            }
-        } else {
-            qDebug() << "Failed to load permissions for role:" << roleName << q.lastError().text();
+    const QSet<QString> keys = RbacService().permissionKeysForRole(roleName);
+    for (const QString &key : keys) {
+        if (m_permCheckBoxes.contains(key)) {
+            m_permCheckBoxes.value(key)->setChecked(true);
         }
-        q.finish();
     }
 }
 
 void RbacTab::addRole()
 {
     QString roleName = m_newRoleEdit->text().trimmed();
-    if (roleName.isEmpty()) {
-        QMessageBox::warning(this, "提示", "角色名称不能为空！");
-        return;
-    }
-
-    // Alphanumeric check
-    QRegularExpression re("^[a-zA-Z0-9_]+$");
-    if (!re.match(roleName).hasMatch()) {
-        QMessageBox::warning(this, "提示", "角色名称只能包含字母、数字和下划线！");
-        return;
-    }
-
-    bool success = false;
-    QString errMsg;
-    {
-        QSqlQuery q;
-        q.prepare("INSERT INTO roles (role_name) VALUES (?)");
-        q.addBindValue(roleName);
-        success = q.exec();
-        if (!success) errMsg = q.lastError().text();
-        q.finish();
-    }
-
-    if (success) {
+    const RbacService::Result result = RbacService().addRole(roleName);
+    if (result.success) {
         logAction("添加角色", roleName);
         m_newRoleEdit->clear();
         loadRoles();
@@ -234,7 +178,7 @@ void RbacTab::addRole()
         emit GlobalEvents::instance()->dataChanged();
         QMessageBox::information(this, "成功", QString("已成功添加角色 '%1'！").arg(roleName));
     } else {
-        QMessageBox::critical(this, "错误", "无法添加角色，可能已存在同名角色！\n" + errMsg);
+        QMessageBox::critical(this, "错误", result.errorMessage);
     }
 }
 
@@ -244,48 +188,16 @@ void RbacTab::deleteRole()
     if (!current) return;
 
     QString roleName = current->text();
-    if (roleName == "admin" || roleName == "user") {
-        QMessageBox::warning(this, "提示", "系统默认角色无法删除！");
-        return;
-    }
-
     auto reply = QMessageBox::question(this, "确认删除",
                                       QString("确定要删除角色 '%1' 吗？\n该角色下的所有员工将被自动降级为 'user' 角色。").arg(roleName),
                                       QMessageBox::Yes | QMessageBox::No);
     if (reply != QMessageBox::Yes) return;
 
-    QSqlDatabase db = QSqlDatabase::database();
-    db.transaction();
-
-    bool success = true;
-    QString errMsg;
-    {
-        QSqlQuery q1;
-        q1.prepare("UPDATE employees SET role = 'user' WHERE role = ?");
-        q1.addBindValue(roleName);
-        if (!q1.exec()) {
-            success = false;
-            errMsg = q1.lastError().text();
-        } else {
-            q1.finish();
-            QSqlQuery q2;
-            q2.prepare("DELETE FROM roles WHERE role_name = ?");
-            q2.addBindValue(roleName);
-            if (!q2.exec()) {
-                success = false;
-                errMsg = q2.lastError().text();
-            }
-            q2.finish();
-        }
-    }
-
-    if (!success) {
-        db.rollback();
-        QMessageBox::critical(this, "错误", "删除角色失败！\n" + errMsg);
+    const RbacService::Result result = RbacService().deleteRole(roleName);
+    if (!result.success) {
+        QMessageBox::critical(this, "错误", "删除角色失败！\n" + result.errorMessage);
         return;
     }
-
-    db.commit();
 
     logAction("删除角色", roleName);
     loadRoles();
@@ -300,53 +212,19 @@ void RbacTab::savePermissions()
     if (!current) return;
 
     QString roleName = current->text();
-    int roleId = getRoleId(roleName);
-    if (roleId == -1) {
-        QMessageBox::critical(this, "错误", "未找到对应的角色ID！");
-        return;
-    }
-
-    QSqlDatabase db = QSqlDatabase::database();
-    db.transaction();
-
-    bool success = true;
-    QString errMsg;
-    {
-        QSqlQuery q1;
-        q1.prepare("DELETE FROM role_permissions WHERE role_id = ?");
-        q1.addBindValue(roleId);
-        if (!q1.exec()) {
-            success = false;
-            errMsg = q1.lastError().text();
-        } else {
-            q1.finish();
-            // 2. Insert new checked mappings
-            for (auto it = m_permCheckBoxes.begin(); it != m_permCheckBoxes.end(); ++it) {
-                if (it.value()->isChecked()) {
-                    QSqlQuery q2;
-                    q2.prepare("INSERT INTO role_permissions (role_id, permission_id) "
-                               "SELECT ?, permission_id FROM permissions WHERE permission_key = ?");
-                    q2.addBindValue(roleId);
-                    q2.addBindValue(it.key());
-                    if (!q2.exec()) {
-                        success = false;
-                        errMsg = q2.lastError().text();
-                        q2.finish();
-                        break;
-                    }
-                    q2.finish();
-                }
-            }
+    const int roleId = RbacService().roleId(roleName);
+    QSet<QString> checkedKeys;
+    for (auto it = m_permCheckBoxes.begin(); it != m_permCheckBoxes.end(); ++it) {
+        if (it.value()->isChecked()) {
+            checkedKeys.insert(it.key());
         }
     }
 
-    if (!success) {
-        db.rollback();
-        QMessageBox::critical(this, "错误", "清除旧权限映射失败！\n" + errMsg);
+    const RbacService::Result result = RbacService().saveRolePermissions(roleId, checkedKeys);
+    if (!result.success) {
+        QMessageBox::critical(this, "错误", result.errorMessage);
         return;
     }
-
-    db.commit();
 
     // 3. If currently logged-in user shares this role, refresh session cached permissions immediately!
     if (SessionManager::instance()->role == roleName) {
@@ -357,37 +235,15 @@ void RbacTab::savePermissions()
     QMessageBox::information(this, "成功", QString("角色 '%1' 的权限配置已成功保存！").arg(roleName));
 }
 
-int RbacTab::getRoleId(const QString &roleName)
-{
-    {
-        QSqlQuery q;
-        q.prepare("SELECT role_id FROM roles WHERE role_name = ?");
-        q.addBindValue(roleName);
-        if (q.exec() && q.next()) {
-            int roleId = q.value(0).toInt();
-            q.finish();
-            return roleId;
-        }
-        q.finish();
-    }
-    return -1;
-}
-
 void RbacTab::logAction(const QString &action, const QString &target)
 {
     if (m_log) {
         m_log(action, target);
     } else {
-        {
-            QSqlQuery q;
-            q.prepare("INSERT INTO audit_logs(emp_id,emp_name,action,target,log_time) VALUES(?,?,?,?,NOW())");
-            q.addBindValue(SessionManager::instance()->empId);
-            q.addBindValue(SessionManager::instance()->empName);
-            q.addBindValue(action);
-            q.addBindValue(target);
-            q.exec();
-            q.finish();
-        }
+        AuditService().writeLog(SessionManager::instance()->empId,
+                                SessionManager::instance()->empName,
+                                action,
+                                target);
         emit GlobalEvents::instance()->auditRefresh();
     }
 }

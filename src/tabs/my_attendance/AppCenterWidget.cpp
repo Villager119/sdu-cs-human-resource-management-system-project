@@ -1,5 +1,6 @@
 #include "AppCenterWidget.h"
 #include "../../widgets/CommonDelegates.h"
+#include "../../services/AttendanceService.h"
 #include "../../utils/Toast.h"
 #include "../../utils/DbUtils.h"
 #include "../../utils/UiStyles.h"
@@ -11,8 +12,6 @@
 #include <QFrame>
 #include <QHeaderView>
 #include <QTabWidget>
-#include <QSqlQuery>
-#include <QSqlError>
 #include <QDate>
 #include <QTime>
 #include <QMessageBox>
@@ -232,90 +231,45 @@ void AppCenterWidget::submitLeave()
 {
     QDate s = m_leaveStart->date(), e = m_leaveEnd->date();
     QString r = m_leaveReason->toPlainText().trimmed();
-    if (s > e) { Toast::show(this, "结束日期不能早于开始日期", Toast::Warning); return; }
-    if (r.isEmpty()) { Toast::show(this, "请假事由不能为空", Toast::Warning); return; }
-    if (r.length() < 5) { Toast::show(this, "请假事由字数不能少于5个字", Toast::Warning); return; }
 
-    bool overlap = false;
-    {
-        QSqlQuery check;
-        check.prepare("SELECT COUNT(*) FROM leave_requests WHERE emp_id = ? AND status != ? AND NOT (end_date < ? OR start_date > ?)");
-        check.addBindValue(m_empId);
-        check.addBindValue(HR::LeaveStatus::REJECTED);
-        check.addBindValue(s.toString("yyyy-MM-dd"));
-        check.addBindValue(e.toString("yyyy-MM-dd"));
-        if (check.exec() && check.next() && check.value(0).toInt() > 0) {
-            overlap = true;
-        }
-        check.finish();
-    }
-    if (overlap) {
-        Toast::show(this, "在该日期段内已有尚未拒绝的请假申请", Toast::Warning);
+    const AttendanceService::Result result = AttendanceService().submitLeaveRequest(m_empId, s, e, r);
+    if (!result.success) {
+        Toast::show(this, result.errorMessage, Toast::Warning);
         return;
     }
 
-    bool ok = false;
-    QString err;
-    {
-        QSqlQuery q;
-        q.prepare(QString("INSERT INTO leave_requests(emp_id,start_date,end_date,reason,status) VALUES(?,?,?,?,'%1')").arg(HR::LeaveStatus::PENDING));
-        q.addBindValue(m_empId);
-        q.addBindValue(s.toString("yyyy-MM-dd"));
-        q.addBindValue(e.toString("yyyy-MM-dd"));
-        q.addBindValue(r);
-        ok = q.exec();
-        if (!ok) err = q.lastError().text();
-        q.finish();
-    }
-    if (ok) {
-        Toast::show(this, "请假申请已提交，等待审批", Toast::Success);
-        emit logRequested("提交请假申请", s.toString("MM-dd") + " ~ " + e.toString("MM-dd"));
-        emit notificationRequested(0, "请假申请", QString("员工提交了请假申请 %1~%2").arg(s.toString("MM-dd"), e.toString("MM-dd")));
-        
-        m_leaveModel->select();
-        m_leaveReason->clear();
-        m_leaveStart->setDate(QDate::currentDate());
-        m_leaveEnd->setDate(QDate::currentDate());
-        GlobalEvents::instance()->dataChanged();
-    } else {
-        QMessageBox::critical(this, "错误", err);
-    }
+    Toast::show(this, result.message, Toast::Success);
+    emit logRequested(result.logAction, result.logDetails);
+    emit notificationRequested(0, result.notificationTitle, result.notificationContent);
+    
+    m_leaveModel->select();
+    m_leaveReason->clear();
+    m_leaveStart->setDate(QDate::currentDate());
+    m_leaveEnd->setDate(QDate::currentDate());
+    GlobalEvents::instance()->dataChanged();
 }
 
 void AppCenterWidget::submitMakeup()
 {
-    QString date = m_makeupDate->date().toString("yyyy-MM-dd");
+    QDate date = m_makeupDate->date();
     QString type = m_makeupType->currentData().toString();
-    QString time = m_makeupTime->time().toString("HH:mm:ss");
+    QTime time = m_makeupTime->time();
     QString reason = m_makeupReason->toPlainText().trimmed();
-    if (reason.isEmpty()) { Toast::show(this, "补卡事由不能为空", Toast::Warning); return; }
-    if (reason.length() < 5) { Toast::show(this, "补卡事由字数不能少于5个字", Toast::Warning); return; }
 
-    bool ok = false;
-    QString err;
-    {
-        QSqlQuery q;
-        q.prepare("INSERT INTO makeup_requests(emp_id,att_date,request_type,request_time,reason,status) VALUES(?,?,?,?,?,'待审批')");
-        q.addBindValue(m_empId);
-        q.addBindValue(date);
-        q.addBindValue(type);
-        q.addBindValue(time);
-        q.addBindValue(reason);
-        ok = q.exec();
-        if (!ok) err = q.lastError().text();
-        q.finish();
+    const AttendanceService::Result result =
+        AttendanceService().submitMakeupRequest(m_empId, date, type, time, reason);
+    if (!result.success) {
+        Toast::show(this, result.errorMessage, Toast::Warning);
+        return;
     }
-    if (ok) {
-        Toast::show(this, "补卡申请已提交", Toast::Success);
-        emit logRequested("补卡申请", date);
-        emit notificationRequested(0, "补卡申请", QString("员工提交了补卡申请 日期：%1").arg(date));
-        
-        m_makeupModel->select();
-        m_makeupReason->clear();
-        m_makeupDate->setDate(QDate::currentDate());
-        m_makeupTime->setTime(QTime::currentTime());
-        GlobalEvents::instance()->dataChanged();
-    } else {
-        QMessageBox::critical(this, "错误", err);
-    }
+
+    Toast::show(this, result.message, Toast::Success);
+    emit logRequested(result.logAction, result.logDetails);
+    emit notificationRequested(0, result.notificationTitle, result.notificationContent);
+    
+    m_makeupModel->select();
+    m_makeupReason->clear();
+    m_makeupDate->setDate(QDate::currentDate());
+    m_makeupTime->setTime(QTime::currentTime());
+    GlobalEvents::instance()->dataChanged();
 }

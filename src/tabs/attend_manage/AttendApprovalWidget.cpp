@@ -1,5 +1,6 @@
 #include "AttendApprovalWidget.h"
 #include "../../widgets/CommonDelegates.h"
+#include "../../services/ApprovalService.h"
 #include "../../utils/Toast.h"
 #include "../../utils/DbUtils.h"
 #include "../../utils/UiStyles.h"
@@ -12,11 +13,12 @@
 #include <QLabel>
 #include <QDialog>
 #include <QHeaderView>
-#include <QSqlQuery>
-#include <QSqlError>
-#include <QDate>
-#include <QTime>
 #include <QMessageBox>
+
+namespace ApprovalDialogCode {
+constexpr int Approved = QDialog::Accepted;
+constexpr int Rejected = 2;
+}
 
 // Modal for Leave Approval
 class LeaveApprovalDialog : public QDialog
@@ -66,8 +68,8 @@ public:
         btnRow->addWidget(btnCancel);
         l->addLayout(btnRow);
 
-        connect(btnApprove, &QPushButton::clicked, this, [this]() { done(QDialog::Accepted); });
-        connect(btnReject, &QPushButton::clicked, this, [this]() { done(QDialog::Rejected); });
+        connect(btnApprove, &QPushButton::clicked, this, [this]() { done(ApprovalDialogCode::Approved); });
+        connect(btnReject, &QPushButton::clicked, this, [this]() { done(ApprovalDialogCode::Rejected); });
         connect(btnCancel, &QPushButton::clicked, this, [this]() { reject(); });
     }
 };
@@ -128,8 +130,8 @@ public:
         btnRow->addWidget(btnCancel);
         l->addLayout(btnRow);
 
-        connect(btnApprove, &QPushButton::clicked, this, [this]() { done(QDialog::Accepted); });
-        connect(btnReject, &QPushButton::clicked, this, [this]() { done(QDialog::Rejected); });
+        connect(btnApprove, &QPushButton::clicked, this, [this]() { done(ApprovalDialogCode::Approved); });
+        connect(btnReject, &QPushButton::clicked, this, [this]() { done(ApprovalDialogCode::Rejected); });
         connect(btnCancel, &QPushButton::clicked, this, [this]() { reject(); });
     }
 };
@@ -269,45 +271,20 @@ void AttendApprovalWidget::openLeaveApproval()
     LeaveApprovalDialog dlg(applicant, startDate, endDate, reason, this);
     int res = dlg.exec();
 
-    int eid = 0;
-    {
-        QSqlQuery eq;
-        eq.prepare("SELECT emp_id FROM leave_requests WHERE request_id=?");
-        eq.addBindValue(id);
-        eq.exec();
-        if (eq.next()) eid = eq.value(0).toInt();
-        eq.finish();
+    if (res != ApprovalDialogCode::Approved && res != ApprovalDialogCode::Rejected) {
+        return;
     }
 
-    if (res == QDialog::Accepted) {
-        bool ok = false;
-        {
-            QSqlQuery q;
-            q.prepare(QString("UPDATE leave_requests SET status='%1' WHERE request_id=?").arg(HR::LeaveStatus::APPROVED));
-            q.addBindValue(id);
-            ok = q.exec();
-            q.finish();
-        }
-        if (ok) {
-            emit logRequested("同意请假", "单号: " + QString::number(id));
-            emit notificationRequested(eid, "请假已批准", "你的请假申请已通过审批");
-            Toast::show(this, "审批通过", Toast::Success);
-        }
-    } else if (res == QDialog::Rejected) {
-        bool ok = false;
-        {
-            QSqlQuery q;
-            q.prepare(QString("UPDATE leave_requests SET status='%1' WHERE request_id=?").arg(HR::LeaveStatus::REJECTED));
-            q.addBindValue(id);
-            ok = q.exec();
-            q.finish();
-        }
-        if (ok) {
-            emit logRequested("拒绝请假", "单号: " + QString::number(id));
-            emit notificationRequested(eid, "请假已拒绝", "你的请假申请被拒绝");
-            Toast::show(this, "已拒绝该申请", Toast::Info);
-        }
+    const bool approved = (res == ApprovalDialogCode::Approved);
+    const ApprovalService::Result result = ApprovalService().reviewLeaveRequest(id, approved);
+    if (!result.success) {
+        QMessageBox::critical(this, "审批失败", result.errorMessage);
+        return;
     }
+
+    emit logRequested(result.logAction, result.logDetails);
+    emit notificationRequested(result.employeeId, result.notificationTitle, result.notificationContent);
+    Toast::show(this, approved ? "审批通过" : "已拒绝该申请", approved ? Toast::Success : Toast::Info);
 
     refresh();
     GlobalEvents::instance()->dataChanged();
@@ -329,137 +306,21 @@ void AttendApprovalWidget::openMakeupApproval()
     MakeupApprovalDialog dlg(applicant, date, type, time, reason, this);
     int res = dlg.exec();
 
-    int eid = 0;
-    {
-        QSqlQuery eq;
-        eq.prepare("SELECT emp_id FROM makeup_requests WHERE makeup_id=?");
-        eq.addBindValue(mid);
-        eq.exec();
-        if (eq.next()) eid = eq.value(0).toInt();
-        eq.finish();
+    if (res != ApprovalDialogCode::Approved && res != ApprovalDialogCode::Rejected) {
+        return;
     }
 
-    if (res == QDialog::Accepted) {
-        bool ok = false;
-        {
-            QSqlQuery q;
-            q.prepare("UPDATE makeup_requests SET status='已同意' WHERE makeup_id=?");
-            q.addBindValue(mid);
-            ok = q.exec();
-            q.finish();
-        }
-        if (ok) {
-            emit logRequested("同意补卡", "单号: " + QString::number(mid));
-            emit notificationRequested(eid, "补卡申请已批准", "你的补卡申请已通过审批");
-
-            // Apply modifications to the real attendance record
-            int attId = -1;
-            bool attExists = false;
-            {
-                QSqlQuery aq;
-                aq.prepare("SELECT att_id FROM attendances WHERE emp_id=? AND att_date=?");
-                aq.addBindValue(eid);
-                aq.addBindValue(date);
-                if (aq.exec() && aq.next()) {
-                    attId = aq.value(0).toInt();
-                    attExists = true;
-                }
-                aq.finish();
-            }
-            if (attExists) {
-                {
-                    QSqlQuery uq;
-                    if (typeRaw == "clock_in") {
-                        uq.prepare("UPDATE attendances SET clock_in=? WHERE att_id=?");
-                        uq.addBindValue(time);
-                        uq.addBindValue(attId);
-                        uq.exec();
-                        uq.finish();
-                    } else {
-                        uq.prepare("UPDATE attendances SET clock_out=? WHERE att_id=?");
-                        uq.addBindValue(time);
-                        uq.addBindValue(attId);
-                        uq.exec();
-                        uq.finish();
-                    }
-                }
-                
-                // Re-evaluate attendance status based on standard shift times
-                QString start = "09:00:00";
-                QString end = "18:00:00";
-                bool shiftFound = false;
-                {
-                    QSqlQuery sq;
-                    if (sq.exec("SELECT start_time, end_time FROM shifts WHERE shift_id=1") && sq.next()) {
-                        start = sq.value(0).toString();
-                        end = sq.value(1).toString();
-                        shiftFound = true;
-                    }
-                    sq.finish();
-                }
-                if (shiftFound) {
-                    QString ci, co;
-                    bool attFound = false;
-                    {
-                        QSqlQuery rq;
-                        rq.prepare("SELECT clock_in, clock_out FROM attendances WHERE att_id=?");
-                        rq.addBindValue(attId);
-                        if (rq.exec() && rq.next()) {
-                            ci = rq.value(0).toString();
-                            co = rq.value(1).toString();
-                            attFound = true;
-                        }
-                        rq.finish();
-                    }
-                    if (attFound) {
-                        QString status = "正常";
-                        if (!ci.isEmpty() && ci > start) status = "迟到";
-                        else if (!co.isEmpty() && co < end) status = "早退";
-                        
-                        {
-                            QSqlQuery fq;
-                            fq.prepare("UPDATE attendances SET status=? WHERE att_id=?");
-                            fq.addBindValue(status);
-                            fq.addBindValue(attId);
-                            fq.exec();
-                            fq.finish();
-                        }
-                    }
-                }
-            } else {
-                // Create a new attendance record
-                {
-                    QSqlQuery iq;
-                    if (typeRaw == "clock_in") {
-                        iq.prepare("INSERT INTO attendances(emp_id, att_date, clock_in, status, remark) VALUES(?,?,?,'正常','补卡录入')");
-                    } else {
-                        iq.prepare("INSERT INTO attendances(emp_id, att_date, clock_out, status, remark) VALUES(?,?,?,'正常','补卡录入')");
-                    }
-                    iq.addBindValue(eid);
-                    iq.addBindValue(date);
-                    iq.addBindValue(time);
-                    iq.exec();
-                    iq.finish();
-                }
-            }
-
-            Toast::show(this, "审批通过，考勤数据已更新", Toast::Success);
-        }
-    } else if (res == QDialog::Rejected) {
-        bool ok = false;
-        {
-            QSqlQuery q;
-            q.prepare("UPDATE makeup_requests SET status='已拒绝' WHERE makeup_id=?");
-            q.addBindValue(mid);
-            ok = q.exec();
-            q.finish();
-        }
-        if (ok) {
-            emit logRequested("拒绝补卡", "单号: " + QString::number(mid));
-            emit notificationRequested(eid, "补卡申请已拒绝", "你的补卡申请被拒绝");
-            Toast::show(this, "已拒绝该申请", Toast::Info);
-        }
+    const bool approved = (res == ApprovalDialogCode::Approved);
+    const ApprovalService::Result result = ApprovalService().reviewMakeupRequest(mid, approved);
+    if (!result.success) {
+        QMessageBox::critical(this, "审批失败", result.errorMessage);
+        return;
     }
+
+    emit logRequested(result.logAction, result.logDetails);
+    emit notificationRequested(result.employeeId, result.notificationTitle, result.notificationContent);
+    Toast::show(this, approved ? "审批通过，考勤数据已更新" : "已拒绝该申请",
+                approved ? Toast::Success : Toast::Info);
 
     refresh();
     GlobalEvents::instance()->dataChanged();

@@ -26,7 +26,8 @@
 8. **QODBC 稳定性处理**：
    - 临时查询使用后显式释放语句结果，长生命周期 SQL Model 与后台轮询使用独立克隆连接，降低 QODBC 函数序列错误风险。
 9. **代码可维护性整理**：
-   - 主窗口、员工管理、考勤申请、审批中心和薪酬计算按职责拆分辅助函数，并抽取 `UiStyles` 复用公共界面样式。
+   - 认证、员工、考勤、审批、薪酬、绩效、组织、权限、通知和审计等业务逻辑抽取到 `src/services/`，UI 类主要负责交互与展示。
+   - 抽取 `UiStyles` 复用公共界面样式，减少重复 QSS 字符串。
 
 ---
 
@@ -95,6 +96,13 @@ HRMS/
     │   ├── AuditTab.h/cpp            # 审计日志查看
     │   ├── ProfileChangeTab.h/cpp    # 信息变更申请与审批
     │   └── RbacTab.h/cpp             # 角色权限管理
+    ├── services/            # 业务服务层：封装认证、考勤、审批、薪酬、组织、权限等数据库业务逻辑
+    │   ├── AuthService.h/cpp         # 登录、修改密码、自主找回密码
+    │   ├── AttendanceService.h/cpp   # 打卡、请假申请、补卡申请
+    │   ├── ApprovalService.h/cpp     # 请假/补卡审批
+    │   ├── PayrollService.h/cpp      # 月度薪酬核算
+    │   ├── RbacService.h/cpp         # 角色与权限维护
+    │   └── ...                       # 员工、绩效、组织、通知、审计、信息变更服务
     ├── widgets/             # 自定义通用 UI 控件
     │   ├── PaginationBar.h/cpp       # 表格分页栏组件
     │   ├── ComboDelegate.h/cpp       # 表格下拉框委托

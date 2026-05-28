@@ -33,7 +33,6 @@ private:
     QWidget *m_permsContainer;
     QMap<QString, QCheckBox*> m_permCheckBoxes;
 
-    int getRoleId(const QString &roleName);
     void logAction(const QString &action, const QString &target = QString());
 };
 

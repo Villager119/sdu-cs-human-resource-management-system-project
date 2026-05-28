@@ -15,6 +15,9 @@
 #include "../widgets/TaxConfigPanel.h"
 #include "../core/GlobalEvents.h"
 #include "../core/SessionManager.h"
+#include "../services/AuditService.h"
+#include "../services/AuthService.h"
+#include "../services/NotificationService.h"
 #include "../utils/DbUtils.h"
 #include <QMenu>
 #include <QTabWidget>
@@ -22,7 +25,6 @@
 #include <QMessageBox>
 #include <QSqlDatabase>
 #include <QSqlQuery>
-#include <QCryptographicHash>
 #include <QSqlError>
 #include <QDateTime>
 #include <QSettings>
@@ -281,12 +283,7 @@ void MainWindow::setupNotifications()
 
 void MainWindow::initializeAuditCursor()
 {
-    QSqlQuery q(backgroundDatabase());
-    q.exec("SELECT MAX(log_id) FROM audit_logs");
-    if (q.next()) {
-        m_lastMaxLogId = q.value(0).toInt();
-    }
-    q.finish();
+    m_lastMaxLogId = AuditService(backgroundDatabase()).maxLogId();
 }
 
 void MainWindow::setupSystemMenu()
@@ -423,21 +420,10 @@ void MainWindow::refreshActiveTab()
 
 void MainWindow::logAction(const QString &action, const QString &target)
 {
-    QSqlQuery q(backgroundDatabase());
-    q.prepare("INSERT INTO audit_logs(emp_id,emp_name,action,target,log_time) VALUES(?,?,?,?,NOW())");
-    q.addBindValue(m_empId);
-    q.addBindValue(m_empName);
-    q.addBindValue(action);
-    q.addBindValue(target);
-    if (q.exec()) {
-        qlonglong lastId = q.lastInsertId().toLongLong();
-        if (lastId > m_lastMaxLogId) {
-            m_lastMaxLogId = lastId;
-        }
-    } else {
-        logSqlError(q, "Insert audit log");
+    const qlonglong lastId = AuditService(backgroundDatabase()).writeLog(m_empId, m_empName, action, target);
+    if (lastId > m_lastMaxLogId) {
+        m_lastMaxLogId = lastId;
     }
-    q.finish();
     emit GlobalEvents::instance()->auditRefresh();
 }
 
@@ -456,30 +442,15 @@ void MainWindow::notifyUser(int empId, const QString &title, const QString &cont
         }
         return;
     }
-    {
-        QSqlQuery q(backgroundDatabase());
-        q.prepare("INSERT INTO notifications(emp_id,title,content) VALUES(?,?,?)");
-        q.addBindValue(empId);
-        q.addBindValue(title);
-        q.addBindValue(content);
-        if (!q.exec()) {
-            logSqlError(q, "Insert notification");
-        }
-        q.finish();
+    if (!NotificationService(backgroundDatabase()).addNotification(empId, title, content)) {
+        qWarning() << "Insert notification failed";
     }
     if (empId == m_empId) refreshBell();
 }
 
 void MainWindow::notifyAdmins(const QString &title, const QString &content)
 {
-    QSqlQuery q(backgroundDatabase());
-    q.exec("SELECT emp_id FROM employees WHERE role='admin' AND status='在职'");
-    QList<int> empIds;
-    while (q.next()) {
-        empIds.append(q.value(0).toInt());
-    }
-    q.finish();
-
+    const QList<int> empIds = NotificationService(backgroundDatabase()).activeAdminIds();
     for (int eid : empIds) {
         notifyUser(eid, title, content);
     }
@@ -487,32 +458,7 @@ void MainWindow::notifyAdmins(const QString &title, const QString &content)
 
 void MainWindow::notifyPermittedUsers(const QString &permissionKey, const QString &title, const QString &content)
 {
-    QSqlQuery q(backgroundDatabase());
-    q.prepare("SELECT e.emp_id FROM employees e "
-              "INNER JOIN roles r ON e.role = r.role_name "
-              "INNER JOIN role_permissions rp ON r.role_id = rp.role_id "
-              "INNER JOIN permissions p ON rp.permission_id = p.permission_id "
-              "WHERE p.permission_key=? AND e.status='在职'");
-    q.addBindValue(permissionKey);
-    q.exec();
-
-    QList<int> empIds;
-    while (q.next()) {
-        empIds.append(q.value(0).toInt());
-    }
-    q.finish();
-
-    // Always include admin as backup
-    QSqlQuery qAdmin(backgroundDatabase());
-    qAdmin.exec("SELECT emp_id FROM employees WHERE role='admin' AND status='在职'");
-    while (qAdmin.next()) {
-        int adminId = qAdmin.value(0).toInt();
-        if (!empIds.contains(adminId)) {
-            empIds.append(adminId);
-        }
-    }
-    qAdmin.finish();
-
+    const QList<int> empIds = NotificationService(backgroundDatabase()).activeUserIdsWithPermission(permissionKey);
     for (int eid : empIds) {
         notifyUser(eid, title, content);
     }
@@ -520,14 +466,7 @@ void MainWindow::notifyPermittedUsers(const QString &permissionKey, const QStrin
 
 void MainWindow::refreshBell()
 {
-    QSqlQuery q(backgroundDatabase());
-    q.prepare("SELECT COUNT(*) FROM notifications WHERE emp_id=? AND is_read=0");
-    q.addBindValue(m_empId);
-    if (!q.exec()) {
-        logSqlError(q, "Count unread notifications");
-    }
-    int count = (q.next() ? q.value(0).toInt() : 0);
-    q.finish();
+    const int count = NotificationService(backgroundDatabase()).unreadCount(m_empId);
     if (count > 0) {
         m_bellBtn->setText(QString("🔔 %1").arg(count));
         if (!m_bellTimer->isActive()) {
@@ -548,31 +487,24 @@ void MainWindow::refreshBell()
 void MainWindow::showNotifications()
 {
     QMenu menu;
-    QSqlQuery q(backgroundDatabase());
-    q.prepare("SELECT notif_id, title, content, created_at, is_read FROM notifications WHERE emp_id=? ORDER BY created_at DESC LIMIT 10");
-    q.addBindValue(m_empId);
-    q.exec();
+    NotificationService service(backgroundDatabase());
     
     QList<QAction*> notifActions;
-    while (q.next()) {
-        int notifId = q.value(0).toInt();
-        QString title = q.value(1).toString();
-        QString content = q.value(2).toString();
-        QString timeStr = q.value(3).toDateTime().toString("MM-dd HH:mm");
-        int isRead = q.value(4).toInt();
+    const QList<NotificationService::Notification> notifications = service.recentNotifications(m_empId);
+    for (const auto &notification : notifications) {
+        QString timeStr = notification.createdAt.toString("MM-dd HH:mm");
         
-        QString text = QString("[%1] %2: %3").arg(timeStr, title, content);
-        if (isRead) {
+        QString text = QString("[%1] %2: %3").arg(timeStr, notification.title, notification.content);
+        if (notification.isRead) {
             text = "✓ " + text;
         } else {
             text = "✉ " + text;
         }
         
         QAction *act = menu.addAction(text);
-        act->setData(notifId);
+        act->setData(notification.id);
         notifActions.append(act);
     }
-    q.finish();
     
     if (notifActions.isEmpty()) {
         QAction *act = menu.addAction("暂无通知");
@@ -587,38 +519,14 @@ void MainWindow::showNotifications()
     if (!triggered) return;
     
     if (triggered == markAllRead) {
-        {
-            QSqlQuery u(backgroundDatabase());
-            u.prepare("UPDATE notifications SET is_read=1 WHERE emp_id=?");
-            u.addBindValue(m_empId);
-            if (!u.exec()) {
-                logSqlError(u, "Mark all notifications read");
-            }
-            u.finish();
-        }
+        service.markAllRead(m_empId);
         refreshBell();
     } else if (triggered == clearRead) {
-        {
-            QSqlQuery u(backgroundDatabase());
-            u.prepare("DELETE FROM notifications WHERE emp_id=? AND is_read=1");
-            u.addBindValue(m_empId);
-            if (!u.exec()) {
-                logSqlError(u, "Clear read notifications");
-            }
-            u.finish();
-        }
+        service.clearRead(m_empId);
         refreshBell();
     } else if (notifActions.contains(triggered)) {
         int notifId = triggered->data().toInt();
-        {
-            QSqlQuery u(backgroundDatabase());
-            u.prepare("UPDATE notifications SET is_read=1 WHERE notif_id=?");
-            u.addBindValue(notifId);
-            if (!u.exec()) {
-                logSqlError(u, "Mark notification read");
-            }
-            u.finish();
-        }
+        service.markRead(notifId);
         refreshBell();
         
         // Show details in QMessageBox
@@ -630,39 +538,17 @@ void MainWindow::actionChangePasswordTriggered()
 {
     ChangePasswordDialog dlg(this);
     if (dlg.exec() != QDialog::Accepted) return;
-    
-    bool oldPwdOk = false;
-    {
-        QSqlQuery q;
-        q.prepare("SELECT password_hash FROM employees WHERE emp_id=?");
-        q.addBindValue(m_empId);
-        q.exec();
-        if (q.next()) {
-            QString oh = QString(QCryptographicHash::hash(dlg.oldPassword().toUtf8(), QCryptographicHash::Sha256).toHex());
-            if (q.value("password_hash").toString() == oh) {
-                oldPwdOk = true;
-            }
-        }
-        q.finish();
+
+    const AuthService::OperationResult result =
+        AuthService().changePassword(m_empId, dlg.oldPassword(), dlg.newPassword());
+    if (result.success) {
+        QMessageBox::information(this,"成功","密码修改成功！");
+        logAction("修改密码");
+    } else if (result.errorCode == AuthService::OperationResult::ErrorCode::InvalidOldPassword) {
+        QMessageBox::warning(this,"失败",result.errorMessage);
+    } else {
+        QMessageBox::critical(this,"失败","密码更新失败: "+result.errorMessage);
     }
-    
-    if (!oldPwdOk) { QMessageBox::warning(this,"失败","旧密码错误！"); return; }
-    
-    QString nh = QString(QCryptographicHash::hash(dlg.newPassword().toUtf8(), QCryptographicHash::Sha256).toHex());
-    bool updateOk = false;
-    QString err;
-    {
-        QSqlQuery q;
-        q.prepare("UPDATE employees SET password_hash=? WHERE emp_id=?");
-        q.addBindValue(nh);
-        q.addBindValue(m_empId);
-        updateOk = q.exec();
-        if (!updateOk) err = q.lastError().text();
-        q.finish();
-    }
-    
-    if (updateOk) { QMessageBox::information(this,"成功","密码修改成功！"); logAction("修改密码"); }
-    else QMessageBox::critical(this,"失败","密码更新失败: "+err);
 }
 
 void MainWindow::actionLogoutTriggered()
@@ -695,17 +581,8 @@ void MainWindow::actionLogoutTriggered()
 
 void MainWindow::checkAuditLogs()
 {
-    int maxId = -1;
-    bool hasLog = false;
-    {
-        QSqlQuery q(backgroundDatabase());
-        if (q.exec("SELECT MAX(log_id) FROM audit_logs") && q.next()) {
-            maxId = q.value(0).toInt();
-            hasLog = true;
-        }
-        q.finish();
-    }
-    if (hasLog) {
+    const int maxId = AuditService(backgroundDatabase()).maxLogId();
+    if (maxId >= 0) {
         if (m_lastMaxLogId == -1) {
             m_lastMaxLogId = maxId;
         } else if (maxId > m_lastMaxLogId) {

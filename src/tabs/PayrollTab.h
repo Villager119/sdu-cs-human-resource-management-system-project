@@ -7,7 +7,6 @@
 #include <QPushButton>
 #include <QComboBox>
 #include <QLabel>
-#include <QList>
 #include <functional>
 
 class PayrollTab : public QWidget
@@ -27,28 +26,7 @@ private slots:
     void filterPayroll();
 
 private:
-    struct TaxItem {
-        QString name;
-        double rate = 0.0;
-    };
-
-    struct ActiveEmployee {
-        int empId = 0;
-        double baseSalary = 0.0;
-    };
-
     void refreshMonthCombo();
-    bool payrollExists(const QString &month);
-    double loadWorkDaysPerMonth();
-    QList<TaxItem> loadTaxItems();
-    double loadTaxThreshold();
-    QList<ActiveEmployee> loadActiveEmployees();
-    int leaveDaysForEmployee(int empId, const QString &month);
-    double performanceBonusForEmployee(int empId, const QString &month, double baseSalary);
-    bool insertPayrollRow(int empId, const QString &month, double baseSalary,
-                          double leaveDeduction, double performanceBonus,
-                          const QList<TaxItem> &taxItems, double taxThreshold,
-                          const QString &issueDate, QString *errorText);
 
     QSqlRelationalTableModel *m_model;
     QTableView *m_table;

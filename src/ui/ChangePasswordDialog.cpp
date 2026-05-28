@@ -58,6 +58,10 @@ ChangePasswordDialog::ChangePasswordDialog(QWidget *parent)
             QMessageBox::warning(this, "提示", "请输入新密码");
             return;
         }
+        if (m_newPasswordEdit->text().length() < 6) {
+            QMessageBox::warning(this, "提示", "新密码长度不能少于6位");
+            return;
+        }
         if (m_newPasswordEdit->text() != m_confirmPasswordEdit->text()) {
             QMessageBox::warning(this, "提示", "两次输入的新密码不一致");
             return;

@@ -1,6 +1,7 @@
 #include "PerformanceTab.h"
 #include "performance/PerformanceDrawer.h"
 #include "../widgets/CommonDelegates.h"
+#include "../services/PerformanceService.h"
 #include "../utils/DbUtils.h"
 #include "../core/SessionManager.h"
 #include "../core/GlobalEvents.h"
@@ -8,7 +9,6 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QSqlQuery>
-#include <QSqlError>
 #include <QDate>
 
 PerformanceTab::PerformanceTab(int empId, const QString &role,
@@ -222,24 +222,12 @@ void PerformanceTab::onTableDoubleClicked(const QModelIndex &index)
     int row = index.row();
     int scoreId = m_model->index(row, 0).data().toInt();
 
-    // Query details of scoreId from database to get precise integer values
-    {
-        QSqlQuery q;
-        q.prepare("SELECT emp_id, eval_month, attitude, capability, teamwork, innovation, comment FROM performance_scores WHERE score_id = ?");
-        q.addBindValue(scoreId);
-        if (q.exec() && q.next()) {
-            int empId = q.value(0).toInt();
-            QString month = q.value(1).toString();
-            int a1 = q.value(2).toInt();
-            int a2 = q.value(3).toInt();
-            int a3 = q.value(4).toInt();
-            int a4 = q.value(5).toInt();
-            QString comment = q.value(6).toString();
-
-            m_drawer->setupEditMode(empId, month, a1, a2, a3, a4, comment);
-            m_drawer->setVisible(true);
-        }
-        q.finish();
+    const PerformanceService::ScoreDetail detail = PerformanceService().scoreDetail(scoreId);
+    if (detail.found) {
+        m_drawer->setupEditMode(detail.employeeId, detail.month, detail.attitude,
+                                detail.capability, detail.teamwork, detail.innovation,
+                                detail.comment);
+        m_drawer->setVisible(true);
     }
 }
 

@@ -847,11 +847,11 @@ graph LR
 - config.ini 敏感信息 Base64 编码存储
 
 #### NFR-4：可维护性
-- 代码遵循 Model-View 分离：Model 层（QSqlTableModel/QSqlRelationalTableModel）、View 层（QTableView/QChartView/QTreeWidget）、Control 层（MainWindow 及各 Tab 槽函数）
+- 代码遵循 Model-View-Service 分离：Model 层（QSqlTableModel/QSqlRelationalTableModel）、View 层（QTableView/QChartView/QTreeWidget）、Service 层（认证、员工、考勤、审批、薪酬、绩效、组织、权限、通知、审计等业务服务）
 - 遵循 Qt 命名规范
 - 数据库迁移采用幂等设计（`CREATE TABLE IF NOT EXISTS`、`SHOW COLUMNS` 检查后 `ALTER TABLE ADD COLUMN`）
 - 全局事件总线解耦跨模块刷新逻辑
-- 主窗口、员工管理、考勤申请、审批中心和薪酬核算按职责拆分初始化、查询、校验和写入辅助函数，降低单函数复杂度
+- 主要业务规则从 UI 类抽取到 `src/services/`：`AuthService` 负责登录/改密/找回密码，`PayrollService` 负责薪酬事务核算，`AttendanceService` 与 `ApprovalService` 负责考勤申请和审批，`RbacService` 与 `OrgService` 负责权限和组织管理。
 - 公共界面样式抽取到 `UiStyles`，减少重复 QSS 字符串，统一审批/申请类页面视觉风格
 
 #### NFR-5：可靠性
@@ -1105,7 +1105,7 @@ graph TD
 | 文件 | 说明 |
 |------|------|
 | `main.cpp` | 入口：读取 config.ini、连接数据库、自动登录、启动 LoginWindow |
-| `src/ui/LoginWindow.h/cpp` | 登录窗口：账号密码验证（SHA-256）、记住密码、角色提取 |
+| `src/ui/LoginWindow.h/cpp` | 登录窗口：输入采集、记住密码、登录结果提示，认证逻辑委托给 AuthService |
 | `src/ui/MainWindow.h/cpp` | 主窗口：8 项可折叠侧边栏导航、通知铃铛闪烁、系统菜单、状态栏、全局事件连接 |
 | `src/ui/ServerSettingsDialog.h/cpp` | 服务器设置对话框：局域网扫描、连接测试、配置保存 |
 | `src/ui/ChangePasswordDialog.h/cpp` | 密码修改对话框 |
@@ -1120,6 +1120,17 @@ graph TD
 | `src/tabs/OrgTab.h/cpp` | 组织架构：部门树 + 员工列表 + 部门管理 + 可视化架构图 |
 | `src/tabs/AuditTab.h/cpp` | 审计日志：全操作记录查看 |
 | `src/tabs/RbacTab.h/cpp` | 权限管理：角色 CRUD + 17 项原子权限动态勾选分配 |
+| `src/services/AuthService.h/cpp` | 认证服务：登录、密码哈希、修改密码、自主找回密码 |
+| `src/services/EmployeeService.h/cpp` | 员工服务：员工行校验、默认密码、状态流转、部门/角色存在性校验 |
+| `src/services/AttendanceService.h/cpp` | 考勤服务：打卡、班次读取、请假申请、补卡申请 |
+| `src/services/ApprovalService.h/cpp` | 审批服务：请假审批、补卡审批及考勤记录回写 |
+| `src/services/PayrollService.h/cpp` | 薪酬服务：月度工资事务核算、五险一金、个税、绩效奖金 |
+| `src/services/PerformanceService.h/cpp` | 绩效服务：员工候选、评分保存、评分详情查询 |
+| `src/services/ProfileChangeService.h/cpp` | 信息变更服务：申请提交、字段白名单、审批更新 |
+| `src/services/OrgService.h/cpp` | 组织服务：部门详情、保存、删除、主管候选与员工数统计 |
+| `src/services/RbacService.h/cpp` | 权限服务：角色维护、权限加载、角色权限事务保存 |
+| `src/services/NotificationService.h/cpp` | 通知服务：通知写入、未读统计、标记已读、按权限查找接收人 |
+| `src/services/AuditService.h/cpp` | 审计服务：审计日志写入与最大日志编号轮询 |
 | `src/widgets/PaginationBar.h/cpp` | 分页控件 |
 | `src/widgets/ComboDelegate.h/cpp` | 表格列下拉委托 |
 | `src/widgets/SafeEditDelegate.h` | 表格编辑防主题色委托（纯头文件） |
@@ -1139,4 +1150,4 @@ graph TD
 
 ---
 
-*本文档基于对全部源码文件的审查编写。V3.2 更新于 2026-05-28，反映当前代码库完整功能状态（18 项功能、16 张数据表、10 种统计图表、8 项侧边栏导航、含可折叠侧边栏、可视化组织架构图、QODBC 连接隔离与公共 UI 样式工具）。*
+*本文档基于对全部源码文件的审查编写。V3.2 更新于 2026-05-28，反映当前代码库完整功能状态（18 项功能、16 张数据表、10 种统计图表、8 项侧边栏导航、含可折叠侧边栏、可视化组织架构图、QODBC 连接隔离、公共 UI 样式工具与客户端服务层重构）。*

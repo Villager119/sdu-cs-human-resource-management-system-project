@@ -1,4 +1,5 @@
 #include "ProfileChangeTab.h"
+#include "../services/ProfileChangeService.h"
 #include "../utils/Toast.h"
 #include "../utils/DbUtils.h"
 #include "../core/GlobalEvents.h"
@@ -11,23 +12,10 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QMessageBox>
-#include <QSqlQuery>
-#include <QSqlError>
-#include <QDate>
-#include <QMap>
 #include <QTextEdit>
 #include <QStyledItemDelegate>
 #include <QPainter>
 #include <QHeaderView>
-
-static QString fieldDisplayName(const QString &field)
-{
-    static QMap<QString, QString> map = {
-        {"phone", "联系电话"}, {"education", "学历"},
-        {"marital_status", "婚姻状况"}, {"position", "岗位"}, {"gender", "性别"}
-    };
-    return map.value(field, field);
-}
 
 ProfileChangeTab::ProfileChangeTab(int empId, const QString &role,
                                    std::function<void(const QString&, const QString&)> logFn,
@@ -350,42 +338,20 @@ ProfileChangeTab::ProfileChangeTab(int empId, const QString &role,
 void ProfileChangeTab::submitRequest()
 {
     QString field = m_fieldCombo->currentData().toString();
-    QString fieldName = m_fieldCombo->currentText();
-    if (fieldName.startsWith("📞 ") || fieldName.startsWith("🎓 ") || fieldName.startsWith("💍 ")) {
-        fieldName = fieldName.mid(2);
-    }
     QString nv = m_newValueEdit->text().trimmed();
     QString reason = m_reasonEdit->toPlainText().trimmed();
     if (nv.isEmpty() || reason.isEmpty()) { Toast::show(this, "新值和理由不能为空", Toast::Warning); return; }
 
-    bool ok = false;
-    QString err;
-    {
-        QSqlQuery q;
-        q.prepare("SELECT " + field + " FROM employees WHERE emp_id=?");
-        q.addBindValue(m_empId);
-        q.exec();
-        QString ov = q.next() ? q.value(0).toString() : "";
-        q.finish();
-
-        q.prepare("INSERT INTO profile_change_requests(emp_id,field_name,old_value,new_value,reason) VALUES(?,?,?,?,?)");
-        q.addBindValue(m_empId);
-        q.addBindValue(field);
-        q.addBindValue(ov);
-        q.addBindValue(nv);
-        q.addBindValue(reason);
-        ok = q.exec();
-        if (!ok) err = q.lastError().text();
-        q.finish();
-    }
-    if (ok) {
+    const ProfileChangeService::Result result =
+        ProfileChangeService().submitRequest(m_empId, field, nv, reason);
+    if (result.success) {
         Toast::show(this, "修改申请已提交，等待审批", Toast::Success);
-        m_log("提交信息修改申请", fieldName + " → " + nv);
-        m_notify(0, "信息修改申请", QString("员工申请修改%1为%2").arg(fieldName, nv));
+        m_log(result.logAction, result.logDetails);
+        m_notify(0, result.notificationTitle, result.notificationContent);
         m_model->select();
         m_newValueEdit->clear(); m_reasonEdit->clear();
     } else {
-        QMessageBox::critical(this, "错误", err);
+        QMessageBox::critical(this, "错误", result.errorMessage);
     }
 }
 
@@ -394,41 +360,12 @@ void ProfileChangeTab::approve()
     int row = m_table->currentIndex().row();
     if (row < 0) { Toast::show(this, "请选中一条申请", Toast::Warning); return; }
     int id = m_model->data(m_model->index(row, 0)).toInt();
-    QString field = m_model->data(m_model->index(row, 2)).toString();
-    QString nv = m_model->data(m_model->index(row, 4)).toString();
-    int eid = 0;
-    {
-        QSqlQuery eq;
-        eq.prepare("SELECT emp_id FROM profile_change_requests WHERE request_id=?");
-        eq.addBindValue(id);
-        eq.exec();
-        if (eq.next()) eid = eq.value(0).toInt();
-        eq.finish();
-    }
 
-    bool ok = false;
-    QString err;
-    {
-        QSqlQuery q;
-        q.prepare("UPDATE employees SET " + field + "=? WHERE emp_id=?");
-        q.addBindValue(nv);
-        q.addBindValue(eid);
-        if (q.exec()) {
-            q.finish();
-            q.prepare("UPDATE profile_change_requests SET status='已同意' WHERE request_id=?");
-            q.addBindValue(id);
-            ok = q.exec();
-            if (!ok) err = q.lastError().text();
-        } else {
-            err = q.lastError().text();
-        }
-        q.finish();
-    }
-    if (!ok) { QMessageBox::critical(this, "失败", err); return; }
+    const ProfileChangeService::Result result = ProfileChangeService().approveRequest(id);
+    if (!result.success) { QMessageBox::critical(this, "失败", result.errorMessage); return; }
 
-    QString fn = fieldDisplayName(field);
-    m_log("同意信息修改", QString("申请#%1 %2→%3").arg(id).arg(fn, nv));
-    m_notify(eid, "信息修改已批准", QString("你的%1修改申请已通过审批").arg(fn));
+    m_log(result.logAction, result.logDetails);
+    m_notify(result.employeeId, result.notificationTitle, result.notificationContent);
     Toast::show(this, "信息修改申请已批准，数据已更新", Toast::Success);
     m_model->select();
     GlobalEvents::instance()->dataChanged();
@@ -439,34 +376,16 @@ void ProfileChangeTab::reject()
     int row = m_table->currentIndex().row();
     if (row < 0) { Toast::show(this, "请选中一条申请", Toast::Warning); return; }
     int id = m_model->data(m_model->index(row, 0)).toInt();
-    int eid = 0;
-    {
-        QSqlQuery eq;
-        eq.prepare("SELECT emp_id FROM profile_change_requests WHERE request_id=?");
-        eq.addBindValue(id);
-        eq.exec();
-        if (eq.next()) eid = eq.value(0).toInt();
-        eq.finish();
-    }
-    QString field = m_model->data(m_model->index(row, 2)).toString();
-    bool ok = false;
-    QString err;
-    {
-        QSqlQuery q;
-        q.prepare("UPDATE profile_change_requests SET status='已拒绝' WHERE request_id=?");
-        q.addBindValue(id);
-        ok = q.exec();
-        if (!ok) err = q.lastError().text();
-        q.finish();
-    }
-    if (ok) {
-        m_log("拒绝信息修改", QString("申请#%1 %2").arg(id).arg(fieldDisplayName(field)));
-        m_notify(eid, "信息修改已拒绝", QString("你的%1修改申请未通过审批").arg(fieldDisplayName(field)));
+
+    const ProfileChangeService::Result result = ProfileChangeService().rejectRequest(id);
+    if (result.success) {
+        m_log(result.logAction, result.logDetails);
+        m_notify(result.employeeId, result.notificationTitle, result.notificationContent);
         Toast::show(this, "已拒绝该修改申请", Toast::Info);
         m_model->select();
         GlobalEvents::instance()->dataChanged();
     } else {
-        QMessageBox::critical(this, "失败", err);
+        QMessageBox::critical(this, "失败", result.errorMessage);
     }
 }
 

@@ -1,5 +1,6 @@
 #include "PerformanceDrawer.h"
 #include "../../widgets/CommonDelegates.h"
+#include "../../services/PerformanceService.h"
 #include "../../utils/Toast.h"
 #include "../../core/GlobalEvents.h"
 #include "../../core/SessionManager.h"
@@ -9,10 +10,7 @@
 #include <QFrame>
 #include <QGridLayout>
 #include <QMessageBox>
-#include <QSqlQuery>
-#include <QSqlError>
 #include <QDate>
-#include <QRegularExpression>
 
 PerformanceDrawer::PerformanceDrawer(QWidget *parent)
     : QWidget(parent), m_isEditMode(false)
@@ -204,13 +202,9 @@ PerformanceDrawer::PerformanceDrawer(QWidget *parent)
 void PerformanceDrawer::loadEmployees()
 {
     m_empCombo->clear();
-    {
-        QSqlQuery eq;
-        eq.exec("SELECT emp_id, name FROM employees WHERE status='在职'");
-        while (eq.next()) {
-            m_empCombo->addItem(createAvatarIcon(eq.value(1).toString()), eq.value(1).toString(), eq.value(0).toInt());
-        }
-        eq.finish();
+    const QList<PerformanceService::EmployeeOption> employees = PerformanceService().activeEmployees();
+    for (const auto &employee : employees) {
+        m_empCombo->addItem(createAvatarIcon(employee.name), employee.name, employee.employeeId);
     }
 }
 
@@ -261,82 +255,25 @@ void PerformanceDrawer::updateTotal()
 
 void PerformanceDrawer::submitScore()
 {
-    int eid = m_empCombo->currentData().toInt();
-    QString month = m_drawerMonthEdit->text().trimmed();
-    int a1 = m_s1->value(), a2 = m_s2->value(), a3 = m_s3->value(), a4 = m_s4->value();
-    int total = a1 + a2 + a3 + a4;
-    QString comment = m_commentEdit->toPlainText().trimmed();
-    
-    if (month.isEmpty()) { 
-        Toast::show(this, "请输入考核月份", Toast::Warning); 
+    PerformanceService::ScoreInput input;
+    input.employeeId = m_empCombo->currentData().toInt();
+    input.employeeName = m_empCombo->currentText();
+    input.month = m_drawerMonthEdit->text().trimmed();
+    input.attitude = m_s1->value();
+    input.capability = m_s2->value();
+    input.teamwork = m_s3->value();
+    input.innovation = m_s4->value();
+    input.comment = m_commentEdit->toPlainText().trimmed();
+    input.evaluator = SessionManager::instance()->empName;
+
+    const PerformanceService::Result result = PerformanceService().saveScore(input);
+    if (!result.success) {
+        QMessageBox::critical(this, "错误", result.errorMessage);
         return; 
     }
 
-    QRegularExpression re("^\\d{4}-(0[1-9]|1[0-2])$");
-    if (!re.match(month).hasMatch()) {
-        Toast::show(this, "考核月份格式不正确，请输入 YYYY-MM 格式", Toast::Warning);
-        return;
-    }
-
-    QString evaluator = SessionManager::instance()->empName;
-
-    bool exists = false;
-    {
-        // Check if score record already exists for this employee and month
-        QSqlQuery ck; 
-        ck.prepare("SELECT COUNT(*) FROM performance_scores WHERE emp_id=? AND eval_month=?");
-        ck.addBindValue(eid); 
-        ck.addBindValue(month); 
-        if (ck.exec() && ck.next() && ck.value(0).toInt() > 0) {
-            exists = true;
-        }
-        ck.finish();
-    }
-    
-    bool queryOk = false;
-    QString errText;
-    {
-        QSqlQuery q;
-        if (exists) {
-            q.prepare("UPDATE performance_scores SET attitude=?, capability=?, teamwork=?, innovation=?, score=?, comment=?, status='已发布', evaluator=?, created_at=NOW() WHERE emp_id=? AND eval_month=?");
-            q.addBindValue(a1);
-            q.addBindValue(a2);
-            q.addBindValue(a3);
-            q.addBindValue(a4);
-            q.addBindValue(total);
-            q.addBindValue(comment);
-            q.addBindValue(evaluator);
-            q.addBindValue(eid);
-            q.addBindValue(month);
-        } else {
-            q.prepare("INSERT INTO performance_scores(emp_id, eval_month, attitude, capability, teamwork, innovation, score, comment, status, evaluator) VALUES(?,?,?,?,?,?,?,?,'已发布',?)");
-            q.addBindValue(eid);
-            q.addBindValue(month);
-            q.addBindValue(a1);
-            q.addBindValue(a2);
-            q.addBindValue(a3);
-            q.addBindValue(a4);
-            q.addBindValue(total);
-            q.addBindValue(comment);
-            q.addBindValue(evaluator);
-        }
-
-        if (q.exec()) { 
-            queryOk = true;
-        } else {
-            errText = q.lastError().text();
-        }
-        q.finish();
-    }
-
-    if (!queryOk) {
-        QMessageBox::critical(this, "错误", errText); 
-        return; 
-    }
-
-    emit logRequested("绩效评分", QString("%1 %2月 态度%3 能力%4 协作%5 创新%6 → 总分%7")
-          .arg(m_empCombo->currentText(), month).arg(a1).arg(a2).arg(a3).arg(a4).arg(total));
-    Toast::show(this, QString("%1月份绩效已提交，总分: %2").arg(month).arg(total), Toast::Success);
+    emit logRequested(result.logAction, result.logDetails);
+    Toast::show(this, result.message, Toast::Success);
     
     emit scoreSubmitted();
     GlobalEvents::instance()->dataChanged();

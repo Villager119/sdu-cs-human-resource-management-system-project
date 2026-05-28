@@ -46,8 +46,6 @@ private:
     QStringList loadRoles() const;
     bool validateRows();
     bool validateEmployeeRow(int row);
-    bool departmentExists(const QString &department) const;
-    bool roleExists(const QString &role) const;
 
     OptimisticSqlTableModel *m_model;
     QTableView *m_table;

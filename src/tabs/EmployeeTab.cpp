@@ -2,6 +2,7 @@
 #include "../widgets/PaginationBar.h"
 #include "../widgets/ComboDelegate.h"
 #include "../widgets/SafeEditDelegate.h"
+#include "../services/EmployeeService.h"
 #include "../utils/CsvExport.h"
 #include "../utils/DbUtils.h"
 #include "../core/Constants.h"
@@ -16,11 +17,8 @@
 #include <QDate>
 #include <QItemSelectionModel>
 #include <QFileDialog>
-#include <QCryptographicHash>
-#include <QTextStream>
 #include <QShortcut>
 #include <QInputDialog>
-#include <QRegularExpression>
 
 EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> logFn,
                          QWidget *parent)
@@ -299,7 +297,7 @@ void EmployeeTab::remove()
 void EmployeeTab::save()
 {
     // 新员工无密码时自动注入默认密码 123456 的 SHA-256 哈希
-    static const QString defaultPwdHash = QString(QCryptographicHash::hash(HR::DEFAULT_PASSWORD.toUtf8(), QCryptographicHash::Sha256).toHex());
+    const QString defaultPwdHash = EmployeeService().defaultPasswordHash();
     for (int r = 0; r < m_model->rowCount(); r++) {
         if (m_idxPwd >= 0 && m_model->data(m_model->index(r, m_idxPwd)).toString().isEmpty())
             m_model->setData(m_model->index(r, m_idxPwd), defaultPwdHash);
@@ -339,151 +337,28 @@ bool EmployeeTab::validateRows()
 
 bool EmployeeTab::validateEmployeeRow(int row)
 {
-    const int displayRow = row + 1;
+    EmployeeService::EmployeeRecord record;
+    record.name = (m_idxName >= 0) ? m_model->data(m_model->index(row, m_idxName)).toString().trimmed() : "";
+    record.gender = (m_idxGender >= 0) ? m_model->data(m_model->index(row, m_idxGender)).toString().trimmed() : "";
+    record.phone = (m_idxPhone >= 0) ? m_model->data(m_model->index(row, m_idxPhone)).toString().trimmed() : "";
+    record.department = (m_idxDept >= 0) ? m_model->data(m_model->index(row, m_idxDept)).toString().trimmed() : "";
+    record.position = (m_idxPos >= 0) ? m_model->data(m_model->index(row, m_idxPos)).toString().trimmed() : "";
+    record.role = (m_idxRole >= 0) ? m_model->data(m_model->index(row, m_idxRole)).toString().trimmed() : "";
+    record.status = (m_idxStatus >= 0) ? m_model->data(m_model->index(row, m_idxStatus)).toString().trimmed() : "";
+    record.education = (m_idxEdu >= 0) ? m_model->data(m_model->index(row, m_idxEdu)).toString().trimmed() : "";
+    record.maritalStatus = (m_idxMarital >= 0) ? m_model->data(m_model->index(row, m_idxMarital)).toString().trimmed() : "";
+    record.baseSalary = (m_idxSalary >= 0) ? m_model->data(m_model->index(row, m_idxSalary)) : QVariant();
+    record.hireDate = (m_idxHire >= 0) ? m_model->data(m_model->index(row, m_idxHire)) : QVariant();
+    record.contractEndDate = (m_idxContract >= 0) ? m_model->data(m_model->index(row, m_idxContract)) : QVariant();
+    record.title = (m_idxTitle >= 0) ? m_model->data(m_model->index(row, m_idxTitle)).toString().trimmed() : "";
 
-    QString name = (m_idxName >= 0) ? m_model->data(m_model->index(row, m_idxName)).toString().trimmed() : "";
-    if (name.isEmpty()) {
-        QMessageBox::warning(this, "校验失败", QString("第 %1 行：姓名不能为空").arg(displayRow));
-        return false;
-    }
-
-    QString gender = (m_idxGender >= 0) ? m_model->data(m_model->index(row, m_idxGender)).toString().trimmed() : "";
-    if (gender != "男" && gender != "女") {
-        QMessageBox::warning(this, "校验失败", QString("第 %1 行：性别必须是 '男' 或 '女'").arg(displayRow));
-        return false;
-    }
-
-    QString phone = (m_idxPhone >= 0) ? m_model->data(m_model->index(row, m_idxPhone)).toString().trimmed() : "";
-    if (phone.isEmpty()) {
-        QMessageBox::warning(this, "校验失败", QString("第 %1 行：联系电话不能为空").arg(displayRow));
-        return false;
-    }
-    if (!QRegularExpression("^\\d{11}$").match(phone).hasMatch()) {
-        QMessageBox::warning(this, "校验失败", QString("第 %1 行：联系电话格式不正确（必须为 11 位数字）").arg(displayRow));
-        return false;
-    }
-
-    QString dept = (m_idxDept >= 0) ? m_model->data(m_model->index(row, m_idxDept)).toString().trimmed() : "";
-    if (dept.isEmpty()) {
-        QMessageBox::warning(this, "校验失败", QString("第 %1 行：所属部门不能为空").arg(displayRow));
-        return false;
-    }
-    if (!departmentExists(dept)) {
-        QMessageBox::warning(this, "校验失败", QString("第 %1 行：部门 '%2' 在系统中不存在，请先在部门管理中创建该部门，或选择已有部门").arg(displayRow).arg(dept));
-        return false;
-    }
-
-    QString pos = (m_idxPos >= 0) ? m_model->data(m_model->index(row, m_idxPos)).toString().trimmed() : "";
-    if (pos.isEmpty()) {
-        QMessageBox::warning(this, "校验失败", QString("第 %1 行：岗位不能为空").arg(displayRow));
-        return false;
-    }
-
-    QString role = (m_idxRole >= 0) ? m_model->data(m_model->index(row, m_idxRole)).toString().trimmed() : "";
-    if (!roleExists(role)) {
-        QMessageBox::warning(this, "校验失败", QString("第 %1 行：系统角色 '%2' 在系统中不存在").arg(displayRow).arg(role));
-        return false;
-    }
-
-    QString status = (m_idxStatus >= 0) ? m_model->data(m_model->index(row, m_idxStatus)).toString().trimmed() : "";
-    QStringList validStatus = {
-        HR::EmpStatus::ACTIVE,
-        HR::EmpStatus::INACTIVE,
-        HR::EmpStatus::TRANSFERRED_OUT,
-        HR::EmpStatus::RESIGNED,
-        HR::EmpStatus::DISMISSED,
-        HR::EmpStatus::RETIRED
-    };
-    if (!validStatus.contains(status)) {
-        QMessageBox::warning(this, "校验失败", QString("第 %1 行：在职状态无效").arg(displayRow));
-        return false;
-    }
-
-    QString edu = (m_idxEdu >= 0) ? m_model->data(m_model->index(row, m_idxEdu)).toString().trimmed() : "";
-    QStringList validEdu = {"大专", "本科", "硕士", "博士"};
-    if (!validEdu.contains(edu)) {
-        QMessageBox::warning(this, "校验失败", QString("第 %1 行：学历必须是 大专/本科/硕士/博士 之一").arg(displayRow));
-        return false;
-    }
-
-    QString marital = (m_idxMarital >= 0) ? m_model->data(m_model->index(row, m_idxMarital)).toString().trimmed() : "";
-    QStringList validMarital = {"未婚", "已婚", "离异"};
-    if (!validMarital.contains(marital)) {
-        QMessageBox::warning(this, "校验失败", QString("第 %1 行：婚姻状况必须是 未婚/已婚/离异 之一").arg(displayRow));
-        return false;
-    }
-
-    QVariant salVar = (m_idxSalary >= 0) ? m_model->data(m_model->index(row, m_idxSalary)) : QVariant();
-    if (salVar.toString().trimmed().isEmpty()) {
-        QMessageBox::warning(this, "校验失败", QString("第 %1 行：基础薪资不能为空").arg(displayRow));
-        return false;
-    }
-    bool salaryOk = false;
-    double salary = salVar.toDouble(&salaryOk);
-    if (!salaryOk || salary <= 0) {
-        QMessageBox::warning(this, "校验失败", QString("第 %1 行：基础薪资必须为大于 0 的数值").arg(displayRow));
-        return false;
-    }
-
-    QVariant hireVar = (m_idxHire >= 0) ? m_model->data(m_model->index(row, m_idxHire)) : QVariant();
-    QDate hireDate = hireVar.toDate();
-    if (!hireDate.isValid()) {
-        hireDate = QDate::fromString(hireVar.toString(), "yyyy-MM-dd");
-    }
-    if (!hireDate.isValid()) {
-        QMessageBox::warning(this, "校验失败", QString("第 %1 行：入职日期无效或格式不正确（需 yyyy-MM-dd）").arg(displayRow));
-        return false;
-    }
-
-    QVariant contractVar = (m_idxContract >= 0) ? m_model->data(m_model->index(row, m_idxContract)) : QVariant();
-    if (!contractVar.toString().trimmed().isEmpty() && !contractVar.isNull()) {
-        QDate contractDate = contractVar.toDate();
-        if (!contractDate.isValid()) {
-            contractDate = QDate::fromString(contractVar.toString(), "yyyy-MM-dd");
-        }
-        if (!contractDate.isValid()) {
-            QMessageBox::warning(this, "校验失败", QString("第 %1 行：合同到期日期格式不正确（需 yyyy-MM-dd）").arg(displayRow));
-            return false;
-        }
-        if (contractDate < hireDate) {
-            QMessageBox::warning(this, "校验失败", QString("第 %1 行：合同到期日期不能早于入职日期").arg(displayRow));
-            return false;
-        }
-    }
-
-    QString title = (m_idxTitle >= 0) ? m_model->data(m_model->index(row, m_idxTitle)).toString().trimmed() : "";
-    if (title.isEmpty()) {
-        QMessageBox::warning(this, "校验失败", QString("第 %1 行：职称不能为空（如果无职称，请填写'无'）").arg(displayRow));
+    QString errorMessage;
+    if (!EmployeeService().validateEmployeeRecord(record, row + 1, &errorMessage)) {
+        QMessageBox::warning(this, "校验失败", errorMessage);
         return false;
     }
 
     return true;
-}
-
-bool EmployeeTab::departmentExists(const QString &department) const
-{
-    QSqlQuery query;
-    query.prepare("SELECT COUNT(*) FROM departments WHERE dept_name=?");
-    query.addBindValue(department);
-    bool exists = false;
-    if (query.exec() && query.next() && query.value(0).toInt() > 0) {
-        exists = true;
-    }
-    query.finish();
-    return exists;
-}
-
-bool EmployeeTab::roleExists(const QString &role) const
-{
-    QSqlQuery query;
-    query.prepare("SELECT COUNT(*) FROM roles WHERE role_name=?");
-    query.addBindValue(role);
-    bool exists = false;
-    if (query.exec() && query.next() && query.value(0).toInt() > 0) {
-        exists = true;
-    }
-    query.finish();
-    return exists;
 }
 
 void EmployeeTab::batchChangeDept()
@@ -492,6 +367,10 @@ void EmployeeTab::batchChangeDept()
     if (sel.isEmpty()) { QMessageBox::warning(this, "提示", "请先选中要调整的员工(可Ctrl多选)"); return; }
     QString dept = QInputDialog::getText(this, "批量调部门", "请输入目标部门名称:");
     if (dept.isEmpty()) return;
+    if (!EmployeeService().departmentExists(dept)) {
+        QMessageBox::warning(this, "提示", QString("部门 '%1' 不存在，请先在组织管理中创建该部门").arg(dept));
+        return;
+    }
     for (auto &idx : sel) {
         if (m_idxDept >= 0)
             m_model->setData(m_model->index(idx.row(), m_idxDept), dept);
@@ -518,7 +397,7 @@ void EmployeeTab::toggleStatus()
     int row = m_table->currentIndex().row();
     if (row < 0) { QMessageBox::warning(this, "提示", "请先在表格中选中员工！"); return; }
     QString s = (m_idxStatus >= 0) ? m_model->data(m_model->index(row, m_idxStatus)).toString() : "";
-    QString ns = (s == HR::EmpStatus::ACTIVE) ? HR::EmpStatus::INACTIVE : HR::EmpStatus::ACTIVE;
+    QString ns = EmployeeService().toggledEmploymentStatus(s);
     if (m_idxStatus >= 0) m_model->setData(m_model->index(row, m_idxStatus), ns);
     QString name = (m_idxName >= 0) ? m_model->data(m_model->index(row, m_idxName)).toString() : "";
     m_log("变更员工状态", name + " → " + ns);

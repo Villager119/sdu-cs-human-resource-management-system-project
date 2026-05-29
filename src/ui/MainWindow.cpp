@@ -32,6 +32,7 @@
 #include <QCoreApplication>
 #include <QTimer>
 #include <QStyle>
+#include <QSignalBlocker>
 
 MainWindow::MainWindow(int empId, QString role, QWidget *parent)
     : QMainWindow(parent), ui(new Ui::MainWindow), m_empId(empId), m_role(role)
@@ -144,7 +145,22 @@ QWidget *MainWindow::makeDynamicWrapper(const QList<QPair<QWidget*, QString>> &t
         for (const auto &pair : activeTabs) {
             tabs->addTab(pair.first, pair.second);
         }
-        connect(tabs, &QTabWidget::currentChanged, this, &MainWindow::refreshActiveTab);
+        tabs->setProperty("lastAcceptedIndex", 0);
+        connect(tabs, &QTabWidget::currentChanged, this, [this, tabs](int index) {
+            if (m_suppressNavigationChange) {
+                return;
+            }
+
+            const int previousIndex = tabs->property("lastAcceptedIndex").toInt();
+            if (index != previousIndex && !confirmLeavePage(tabs->widget(previousIndex))) {
+                QSignalBlocker blocker(tabs);
+                tabs->setCurrentIndex(previousIndex);
+                return;
+            }
+
+            tabs->setProperty("lastAcceptedIndex", index);
+            refreshActiveTab();
+        });
         layout->addWidget(tabs);
     } else {
         layout->addWidget(activeTabs.first().first);
@@ -246,8 +262,20 @@ void MainWindow::setupNavigation()
     addNavItem("🔑", "权限", rbacPage, rbacPage != nullptr);
 
     connect(ui->sidebar, &QListWidget::currentRowChanged, this, [this](int row) {
+        if (m_suppressNavigationChange) {
+            return;
+        }
+
         if (row >= 0 && row < ui->stackedWidget->count()) {
+            const int previousRow = (m_lastSidebarRow >= 0) ? m_lastSidebarRow : ui->stackedWidget->currentIndex();
+            if (row != previousRow && !confirmLeavePage(ui->stackedWidget->widget(previousRow))) {
+                QSignalBlocker blocker(ui->sidebar);
+                ui->sidebar->setCurrentRow(previousRow);
+                return;
+            }
+
             ui->stackedWidget->setCurrentIndex(row);
+            m_lastSidebarRow = row;
             refreshActiveTab();
         }
         updateStatusBar();
@@ -296,6 +324,8 @@ void MainWindow::setupSystemMenu()
 
 void MainWindow::connectGlobalRefreshSignals()
 {
+    connect(m_dashboard, &DashboardTab::shortcutRequested,
+            this, &MainWindow::navigateFromShortcut);
     connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_dashboard, &DashboardTab::refresh);
     connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_empTab, &EmployeeTab::refresh);
     connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_orgTab, &OrgTab::refresh);
@@ -306,6 +336,50 @@ void MainWindow::connectGlobalRefreshSignals()
         SessionManager::instance()->reloadPermissions();
     });
     connect(GlobalEvents::instance(), &GlobalEvents::auditRefresh, m_auditTab, &AuditTab::refresh);
+}
+
+void MainWindow::navigateFromShortcut(const QString &target)
+{
+    if (target == "attendance") {
+        selectNavByLabel("我的考勤");
+        selectCurrentSubTab("每日打卡");
+    } else if (target == "application") {
+        selectNavByLabel("我的考勤");
+        selectCurrentSubTab("申请中心");
+    } else if (target == "payroll") {
+        selectNavByLabel("薪酬");
+        selectCurrentSubTab("工资条");
+    } else if (target == "profile") {
+        selectNavByLabel("员工");
+        selectCurrentSubTab("信息变更");
+    }
+    refreshActiveTab();
+}
+
+void MainWindow::selectNavByLabel(const QString &label)
+{
+    for (int i = 0; i < m_navItems.size(); ++i) {
+        if (m_navItems[i].label == label) {
+            ui->sidebar->setCurrentRow(i);
+            return;
+        }
+    }
+}
+
+void MainWindow::selectCurrentSubTab(const QString &tabText)
+{
+    QWidget *currentWidget = ui->stackedWidget->currentWidget();
+    if (!currentWidget) return;
+
+    const QList<QTabWidget*> tabs = currentWidget->findChildren<QTabWidget*>();
+    for (QTabWidget *tabWidget : tabs) {
+        for (int i = 0; i < tabWidget->count(); ++i) {
+            if (tabWidget->tabText(i).contains(tabText)) {
+                tabWidget->setCurrentIndex(i);
+                return;
+            }
+        }
+    }
 }
 
 MainWindow::~MainWindow()
@@ -416,6 +490,40 @@ void MainWindow::refreshActiveTab()
     else if (activePage == m_myAttendTab) m_myAttendTab->refresh();
     else if (activePage == m_attendManageTab) m_attendManageTab->refresh();
     else if (activePage == m_perfTab) m_perfTab->refresh();
+}
+
+bool MainWindow::confirmLeavePage(QWidget *page)
+{
+    if (!page || !m_empTab || !m_empTab->hasUnsavedChanges()) {
+        return true;
+    }
+
+    bool leavingEmployeeTab = (page == m_empTab);
+    if (!leavingEmployeeTab) {
+        leavingEmployeeTab = page->findChild<EmployeeTab*>() == m_empTab;
+    }
+    if (!leavingEmployeeTab) {
+        return true;
+    }
+
+    QMessageBox prompt(this);
+    prompt.setIcon(QMessageBox::Question);
+    prompt.setWindowTitle("保存修改");
+    prompt.setText("员工信息还有未保存的修改，是否先保存再离开？");
+    QPushButton *saveButton = prompt.addButton("保存", QMessageBox::AcceptRole);
+    QPushButton *discardButton = prompt.addButton("不保存", QMessageBox::DestructiveRole);
+    prompt.addButton("取消", QMessageBox::RejectRole);
+    prompt.setDefaultButton(saveButton);
+    prompt.exec();
+
+    if (prompt.clickedButton() == saveButton) {
+        return m_empTab->saveChanges();
+    }
+    if (prompt.clickedButton() == discardButton) {
+        m_empTab->revertChanges();
+        return true;
+    }
+    return false;
 }
 
 void MainWindow::logAction(const QString &action, const QString &target)

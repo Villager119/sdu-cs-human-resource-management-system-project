@@ -6,6 +6,7 @@
 #include <QList>
 #include <QDate>
 #include <QByteArray>
+#include <QStringList>
 
 QString buildDsn(const QString &driver, const QString &server, int port,
                  const QString &database, const QString &uid, const QString &pwd)
@@ -141,6 +142,24 @@ bool initDatabaseSchema()
         return false;
     }
 
+    // 6a. job_salary_standards
+    if (!q.exec("CREATE TABLE IF NOT EXISTS job_salary_standards ("
+                "standard_id INT AUTO_INCREMENT PRIMARY KEY,"
+                "dept_id INT NOT NULL,"
+                "position VARCHAR(50) NOT NULL,"
+                "title VARCHAR(50) NOT NULL,"
+                "min_salary DECIMAL(10,2) NOT NULL,"
+                "max_salary DECIMAL(10,2) NOT NULL,"
+                "default_salary DECIMAL(10,2) NOT NULL,"
+                "enabled TINYINT DEFAULT 1,"
+                "UNIQUE KEY uk_job_salary_standard (dept_id, position, title),"
+                "FOREIGN KEY (dept_id) REFERENCES departments(dept_id) ON DELETE CASCADE"
+                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4")) {
+        qDebug() << "Failed to create job_salary_standards table:" << q.lastError().text();
+        db.rollback();
+        return false;
+    }
+
     // 7. attendances
     if (!q.exec("CREATE TABLE IF NOT EXISTS attendances ("
                 "att_id INT AUTO_INCREMENT PRIMARY KEY,"
@@ -167,6 +186,9 @@ bool initDatabaseSchema()
                 "request_time TIME NOT NULL,"
                 "reason TEXT NOT NULL,"
                 "status VARCHAR(20) DEFAULT '待审批',"
+                "reviewer_id INT DEFAULT NULL,"
+                "reviewed_at DATETIME DEFAULT NULL,"
+                "review_comment VARCHAR(255) DEFAULT '',"
                 "FOREIGN KEY (emp_id) REFERENCES employees(emp_id) ON DELETE CASCADE"
                 ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4")) {
         qDebug() << "Failed to create makeup_requests table:" << q.lastError().text();
@@ -226,6 +248,9 @@ bool initDatabaseSchema()
                 "status VARCHAR(20) DEFAULT '待审批',"
                 "reason TEXT,"
                 "created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+                "reviewer_id INT DEFAULT NULL,"
+                "reviewed_at DATETIME DEFAULT NULL,"
+                "review_comment VARCHAR(255) DEFAULT '',"
                 "FOREIGN KEY (emp_id) REFERENCES employees(emp_id) ON DELETE CASCADE"
                 ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4")) {
         qDebug() << "Failed to create profile_change_requests table:" << q.lastError().text();
@@ -271,6 +296,9 @@ bool initDatabaseSchema()
                 "end_date DATE NOT NULL,"
                 "reason VARCHAR(255) DEFAULT NULL,"
                 "status VARCHAR(20) DEFAULT '待审批',"
+                "reviewer_id INT DEFAULT NULL,"
+                "reviewed_at DATETIME DEFAULT NULL,"
+                "review_comment VARCHAR(255) DEFAULT '',"
                 "FOREIGN KEY (emp_id) REFERENCES employees(emp_id) ON DELETE CASCADE"
                 ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4")) {
         qDebug() << "Failed to create leave_requests table:" << q.lastError().text();
@@ -342,6 +370,44 @@ bool initDatabaseSchema()
 
     // Seed default shifts
     q.exec("INSERT IGNORE INTO shifts (shift_name, start_time, end_time) VALUES ('标准班', '09:00:00', '18:00:00')");
+    q.finish();
+
+    // Seed common departments and job salary standards
+    q.exec("INSERT IGNORE INTO departments (dept_name) VALUES ('技术部'), ('人事部'), ('财务部'), ('行政部')");
+    q.finish();
+    q.exec("INSERT IGNORE INTO departments (dept_name) "
+           "SELECT DISTINCT department FROM employees WHERE department IS NOT NULL AND department!=''");
+    q.finish();
+    q.exec("INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
+           "SELECT dept_id, 'Java开发', '初级工程师', 7000.00, 11000.00, 9000.00 FROM departments WHERE dept_name='技术部'");
+    q.finish();
+    q.exec("INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
+           "SELECT dept_id, 'Java开发', '中级工程师', 11000.00, 18000.00, 14000.00 FROM departments WHERE dept_name='技术部'");
+    q.finish();
+    q.exec("INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
+           "SELECT dept_id, 'Java开发', '高级工程师', 18000.00, 30000.00, 22000.00 FROM departments WHERE dept_name='技术部'");
+    q.finish();
+    q.exec("INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
+           "SELECT dept_id, 'HR专员', '初级', 5000.00, 8000.00, 6500.00 FROM departments WHERE dept_name='人事部'");
+    q.finish();
+    q.exec("INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
+           "SELECT dept_id, 'HR专员', '中级', 8000.00, 12000.00, 9500.00 FROM departments WHERE dept_name='人事部'");
+    q.finish();
+    q.exec("INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
+           "SELECT dept_id, '会计', '初级', 5000.00, 8000.00, 6500.00 FROM departments WHERE dept_name='财务部'");
+    q.finish();
+    q.exec("INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
+           "SELECT dept_id, '行政专员', '初级', 4500.00, 7000.00, 5500.00 FROM departments WHERE dept_name='行政部'");
+    q.finish();
+    q.exec("INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
+           "SELECT d.dept_id, e.position, e.title, "
+           "GREATEST(e.base_salary * 0.8, 1), e.base_salary * 1.2, e.base_salary "
+           "FROM employees e "
+           "JOIN departments d ON d.dept_name=e.department "
+           "WHERE e.department IS NOT NULL AND e.department!='' "
+           "AND e.position IS NOT NULL AND e.position!='' "
+           "AND e.title IS NOT NULL AND e.title!='' "
+           "AND e.base_salary > 0");
     q.finish();
 
     // Seed default salary configs
@@ -507,6 +573,35 @@ bool initDatabaseSchema()
                 }
                 q.finish();
             }
+        }
+    }
+
+    // 21. Migration: add reviewer metadata to approval request tables
+    auto ensureColumn = [&](const QString &table, const QString &column, const QString &definition) -> bool {
+        QSqlQuery ck;
+        if (ck.exec(QString("SHOW COLUMNS FROM %1 LIKE '%2'").arg(table, column)) && ck.next()) {
+            ck.finish();
+            return true;
+        }
+        ck.finish();
+
+        QSqlQuery alter;
+        if (!alter.exec(QString("ALTER TABLE %1 ADD COLUMN %2 %3").arg(table, column, definition))) {
+            qDebug() << "Failed to add column" << column << "to" << table << ":" << alter.lastError().text();
+            alter.finish();
+            return false;
+        }
+        alter.finish();
+        return true;
+    };
+
+    const QStringList approvalTables = {"leave_requests", "makeup_requests", "profile_change_requests"};
+    for (const QString &table : approvalTables) {
+        if (!ensureColumn(table, "reviewer_id", "INT DEFAULT NULL") ||
+            !ensureColumn(table, "reviewed_at", "DATETIME DEFAULT NULL") ||
+            !ensureColumn(table, "review_comment", "VARCHAR(255) DEFAULT ''")) {
+            db.rollback();
+            return false;
         }
     }
 

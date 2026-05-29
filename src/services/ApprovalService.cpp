@@ -4,14 +4,21 @@
 
 #include <QSqlError>
 #include <QSqlQuery>
+#include <QMetaType>
+#include <QVariant>
 
 ApprovalService::ApprovalService(const QSqlDatabase &db)
     : m_db(db)
 {
 }
 
-ApprovalService::Result ApprovalService::reviewLeaveRequest(int requestId, bool approved)
+ApprovalService::Result ApprovalService::reviewLeaveRequest(int requestId, bool approved,
+                                                             const QString &comment, int reviewerId)
 {
+    if (!approved && comment.trimmed().isEmpty()) {
+        return fail("拒绝申请时必须填写审批意见，方便员工了解处理原因");
+    }
+
     const int employeeId = employeeIdForLeaveRequest(requestId);
     if (employeeId <= 0) {
         return fail("未找到请假申请对应的员工");
@@ -62,7 +69,7 @@ ApprovalService::Result ApprovalService::reviewLeaveRequest(int requestId, bool 
     }
 
     QString errorText;
-    if (!updateLeaveStatus(requestId, approved, &errorText)) {
+    if (!updateLeaveStatus(requestId, approved, comment.trimmed(), reviewerId, &errorText)) {
         m_db.rollback();
         return fail("更新请假申请状态失败: " + errorText);
     }
@@ -79,12 +86,19 @@ ApprovalService::Result ApprovalService::reviewLeaveRequest(int requestId, bool 
     result.logAction = approved ? "同意请假" : "拒绝请假";
     result.logDetails = "单号: " + QString::number(requestId);
     result.notificationTitle = approved ? "请假已批准" : "请假已拒绝";
-    result.notificationContent = approved ? "你的请假申请已通过审批" : "你的请假申请被拒绝";
+    result.notificationContent = approved
+        ? (comment.trimmed().isEmpty() ? "你的请假申请已通过审批" : "你的请假申请已通过审批，审批意见：" + comment.trimmed())
+        : "你的请假申请被拒绝，原因：" + comment.trimmed();
     return result;
 }
 
-ApprovalService::Result ApprovalService::reviewMakeupRequest(int makeupId, bool approved)
+ApprovalService::Result ApprovalService::reviewMakeupRequest(int makeupId, bool approved,
+                                                             const QString &comment, int reviewerId)
 {
+    if (!approved && comment.trimmed().isEmpty()) {
+        return fail("拒绝申请时必须填写审批意见，方便员工了解处理原因");
+    }
+
     const int employeeId = employeeIdForMakeupRequest(makeupId);
     if (employeeId <= 0) {
         return fail("未找到补卡申请对应的员工");
@@ -147,7 +161,7 @@ ApprovalService::Result ApprovalService::reviewMakeupRequest(int makeupId, bool 
     }
 
     QString errorText;
-    if (!updateMakeupStatus(makeupId, approved, &errorText)) {
+    if (!updateMakeupStatus(makeupId, approved, comment.trimmed(), reviewerId, &errorText)) {
         m_db.rollback();
         return fail("更新补卡申请状态失败: " + errorText);
     }
@@ -169,7 +183,9 @@ ApprovalService::Result ApprovalService::reviewMakeupRequest(int makeupId, bool 
     result.logAction = approved ? "同意补卡" : "拒绝补卡";
     result.logDetails = "单号: " + QString::number(makeupId);
     result.notificationTitle = approved ? "补卡申请已批准" : "补卡申请已拒绝";
-    result.notificationContent = approved ? "你的补卡申请已通过审批" : "你的补卡申请被拒绝";
+    result.notificationContent = approved
+        ? (comment.trimmed().isEmpty() ? "你的补卡申请已通过审批" : "你的补卡申请已通过审批，审批意见：" + comment.trimmed())
+        : "你的补卡申请被拒绝，原因：" + comment.trimmed();
     return result;
 }
 
@@ -208,11 +224,14 @@ int ApprovalService::employeeIdForMakeupRequest(int makeupId) const
     return employeeId;
 }
 
-bool ApprovalService::updateLeaveStatus(int requestId, bool approved, QString *errorText)
+bool ApprovalService::updateLeaveStatus(int requestId, bool approved, const QString &comment,
+                                        int reviewerId, QString *errorText)
 {
     QSqlQuery query(m_db);
-    query.prepare("UPDATE leave_requests SET status=? WHERE request_id=?");
+    query.prepare("UPDATE leave_requests SET status=?, reviewer_id=?, reviewed_at=NOW(), review_comment=? WHERE request_id=?");
     query.addBindValue(approved ? HR::LeaveStatus::APPROVED : HR::LeaveStatus::REJECTED);
+    query.addBindValue(reviewerId > 0 ? QVariant(reviewerId) : QVariant(QMetaType(QMetaType::Int)));
+    query.addBindValue(comment);
     query.addBindValue(requestId);
 
     const bool ok = query.exec();
@@ -223,11 +242,14 @@ bool ApprovalService::updateLeaveStatus(int requestId, bool approved, QString *e
     return ok;
 }
 
-bool ApprovalService::updateMakeupStatus(int makeupId, bool approved, QString *errorText)
+bool ApprovalService::updateMakeupStatus(int makeupId, bool approved, const QString &comment,
+                                         int reviewerId, QString *errorText)
 {
     QSqlQuery query(m_db);
-    query.prepare("UPDATE makeup_requests SET status=? WHERE makeup_id=?");
+    query.prepare("UPDATE makeup_requests SET status=?, reviewer_id=?, reviewed_at=NOW(), review_comment=? WHERE makeup_id=?");
     query.addBindValue(approved ? HR::LeaveStatus::APPROVED : HR::LeaveStatus::REJECTED);
+    query.addBindValue(reviewerId > 0 ? QVariant(reviewerId) : QVariant(QMetaType(QMetaType::Int)));
+    query.addBindValue(comment);
     query.addBindValue(makeupId);
 
     const bool ok = query.exec();

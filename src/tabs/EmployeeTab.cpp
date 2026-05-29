@@ -19,6 +19,51 @@
 #include <QFileDialog>
 #include <QShortcut>
 #include <QInputDialog>
+#include <QComboBox>
+#include <QStyledItemDelegate>
+#include <utility>
+
+class DynamicComboDelegate : public QStyledItemDelegate
+{
+public:
+    using OptionsProvider = std::function<QStringList(const QModelIndex&)>;
+
+    explicit DynamicComboDelegate(OptionsProvider provider, QObject *parent = nullptr)
+        : QStyledItemDelegate(parent), m_provider(std::move(provider)) {}
+
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &, const QModelIndex &index) const override
+    {
+        auto *combo = new QComboBox(parent);
+        combo->addItems(m_provider ? m_provider(index) : QStringList());
+        combo->setEditable(false);
+        combo->setStyleSheet(
+            "color: #0f172a !important;"
+            "background-color: #ffffff !important;"
+            "selection-color: #ffffff !important;"
+            "selection-background-color: #2563eb !important;"
+            "border: 1px solid #3b82f6 !important;"
+            "border-radius: 4px !important;"
+        );
+        return combo;
+    }
+
+    void setEditorData(QWidget *editor, const QModelIndex &index) const override
+    {
+        auto *combo = qobject_cast<QComboBox*>(editor);
+        if (!combo) return;
+        combo->setCurrentText(index.model()->data(index, Qt::EditRole).toString());
+    }
+
+    void setModelData(QWidget *editor, QAbstractItemModel *model, const QModelIndex &index) const override
+    {
+        auto *combo = qobject_cast<QComboBox*>(editor);
+        if (!combo) return;
+        model->setData(index, combo->currentText());
+    }
+
+private:
+    OptionsProvider m_provider;
+};
 
 EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> logFn,
                          QWidget *parent)
@@ -116,6 +161,25 @@ void EmployeeTab::setupDelegates()
     if (m_idxEdu >= 0) m_table->setItemDelegateForColumn(m_idxEdu, new ComboDelegate({"大专", "本科", "硕士", "博士"}, this));
     if (m_idxMarital >= 0) m_table->setItemDelegateForColumn(m_idxMarital, new ComboDelegate({"未婚", "已婚", "离异"}, this));
     if (m_idxDept >= 0) m_table->setItemDelegateForColumn(m_idxDept, new ComboDelegate(loadDepartments(), this));
+    if (m_idxPos >= 0) {
+        m_table->setItemDelegateForColumn(m_idxPos, new DynamicComboDelegate([this](const QModelIndex &index) {
+            const QString dept = (m_idxDept >= 0)
+                ? m_model->data(m_model->index(index.row(), m_idxDept)).toString().trimmed()
+                : QString();
+            return loadPositionsForDepartment(dept);
+        }, this));
+    }
+    if (m_idxTitle >= 0) {
+        m_table->setItemDelegateForColumn(m_idxTitle, new DynamicComboDelegate([this](const QModelIndex &index) {
+            const QString dept = (m_idxDept >= 0)
+                ? m_model->data(m_model->index(index.row(), m_idxDept)).toString().trimmed()
+                : QString();
+            const QString pos = (m_idxPos >= 0)
+                ? m_model->data(m_model->index(index.row(), m_idxPos)).toString().trimmed()
+                : QString();
+            return loadTitlesForJob(dept, pos);
+        }, this));
+    }
 }
 
 void EmployeeTab::setupFilterBar(QVBoxLayout *layout)
@@ -245,6 +309,13 @@ void EmployeeTab::setupActionBar(QVBoxLayout *layout)
 void EmployeeTab::setupModelSignals()
 {
     connect(m_model, &QAbstractItemModel::dataChanged, this, &EmployeeTab::updateDirtyState);
+    connect(m_model, &QAbstractItemModel::dataChanged, this, [this](const QModelIndex &topLeft, const QModelIndex &, const QList<int> &) {
+        if (m_syncingJobFields) return;
+        const int col = topLeft.column();
+        if (col == m_idxDept || col == m_idxPos || col == m_idxTitle) {
+            applyJobStandardForRow(topLeft.row(), col);
+        }
+    });
     connect(m_model, &QAbstractItemModel::rowsInserted, this, &EmployeeTab::updateDirtyState);
     connect(m_model, &QAbstractItemModel::rowsRemoved, this, &EmployeeTab::updateDirtyState);
     connect(m_model, &QAbstractItemModel::modelReset, this, &EmployeeTab::updateDirtyState);
@@ -270,6 +341,96 @@ QStringList EmployeeTab::loadRoles() const
     return roles;
 }
 
+QStringList EmployeeTab::loadPositionsForDepartment(const QString &department) const
+{
+    QStringList positions;
+    if (department.trimmed().isEmpty()) return positions;
+
+    QSqlQuery q;
+    q.prepare("SELECT DISTINCT s.position FROM job_salary_standards s "
+              "JOIN departments d ON d.dept_id=s.dept_id "
+              "WHERE d.dept_name=? AND s.enabled=1 ORDER BY s.position");
+    q.addBindValue(department.trimmed());
+    if (q.exec()) {
+        while (q.next()) positions.append(q.value(0).toString());
+    }
+    q.finish();
+    return positions;
+}
+
+QStringList EmployeeTab::loadTitlesForJob(const QString &department, const QString &position) const
+{
+    QStringList titles;
+    if (department.trimmed().isEmpty() || position.trimmed().isEmpty()) return titles;
+
+    QSqlQuery q;
+    q.prepare("SELECT s.title FROM job_salary_standards s "
+              "JOIN departments d ON d.dept_id=s.dept_id "
+              "WHERE d.dept_name=? AND s.position=? AND s.enabled=1 ORDER BY s.min_salary");
+    q.addBindValue(department.trimmed());
+    q.addBindValue(position.trimmed());
+    if (q.exec()) {
+        while (q.next()) titles.append(q.value(0).toString());
+    }
+    q.finish();
+    return titles;
+}
+
+bool EmployeeTab::defaultSalaryForJob(const QString &department, const QString &position,
+                                      const QString &title, double *salary) const
+{
+    QSqlQuery q;
+    q.prepare("SELECT s.default_salary FROM job_salary_standards s "
+              "JOIN departments d ON d.dept_id=s.dept_id "
+              "WHERE d.dept_name=? AND s.position=? AND s.title=? AND s.enabled=1");
+    q.addBindValue(department.trimmed());
+    q.addBindValue(position.trimmed());
+    q.addBindValue(title.trimmed());
+
+    bool ok = false;
+    if (q.exec() && q.next()) {
+        if (salary) *salary = q.value(0).toDouble();
+        ok = true;
+    }
+    q.finish();
+    return ok;
+}
+
+void EmployeeTab::applyJobStandardForRow(int row, int changedColumn)
+{
+    if (row < 0 || m_idxDept < 0 || m_idxPos < 0 || m_idxTitle < 0 || m_idxSalary < 0) return;
+
+    m_syncingJobFields = true;
+
+    QString dept = m_model->data(m_model->index(row, m_idxDept)).toString().trimmed();
+    QString pos = m_model->data(m_model->index(row, m_idxPos)).toString().trimmed();
+    QString title = m_model->data(m_model->index(row, m_idxTitle)).toString().trimmed();
+
+    if (changedColumn == m_idxDept) {
+        const QStringList positions = loadPositionsForDepartment(dept);
+        if (!positions.isEmpty() && !positions.contains(pos)) {
+            pos = positions.first();
+            m_model->setData(m_model->index(row, m_idxPos), pos);
+        }
+    }
+
+    if (changedColumn == m_idxDept || changedColumn == m_idxPos) {
+        const QStringList titles = loadTitlesForJob(dept, pos);
+        if (!titles.isEmpty() && !titles.contains(title)) {
+            title = titles.first();
+            m_model->setData(m_model->index(row, m_idxTitle), title);
+        }
+    }
+
+    double salary = 0.0;
+    if (defaultSalaryForJob(dept, pos, title, &salary)) {
+        m_model->setData(m_model->index(row, m_idxSalary), QString::number(salary, 'f', 2));
+    }
+
+    m_syncingJobFields = false;
+    updateDirtyState();
+}
+
 void EmployeeTab::add()
 {
     int rc = m_model->rowCount();
@@ -279,6 +440,8 @@ void EmployeeTab::add()
     if (m_idxContract >= 0) m_model->setData(m_model->index(rc, m_idxContract), QDate::currentDate().addYears(3).toString("yyyy-MM-dd")); // 合同到期默认3年后
     if (m_idxStatus >= 0) m_model->setData(m_model->index(rc, m_idxStatus), HR::EmpStatus::ACTIVE);
     if (m_idxRole >= 0) m_model->setData(m_model->index(rc, m_idxRole), "user");
+    if (m_idxDept >= 0 && m_deptCombo->count() > 1) m_model->setData(m_model->index(rc, m_idxDept), m_deptCombo->itemText(1));
+    applyJobStandardForRow(rc, m_idxDept);
     if (m_idxName >= 0) m_table->setCurrentIndex(m_model->index(rc, m_idxName));
     m_log("新增员工记录", "");
     updateDirtyState();
@@ -296,6 +459,16 @@ void EmployeeTab::remove()
 
 void EmployeeTab::save()
 {
+    saveChanges();
+}
+
+bool EmployeeTab::hasUnsavedChanges() const
+{
+    return m_model && m_model->isDirty();
+}
+
+bool EmployeeTab::saveChanges()
+{
     // 新员工无密码时自动注入默认密码 123456 的 SHA-256 哈希
     const QString defaultPwdHash = EmployeeService().defaultPasswordHash();
     for (int r = 0; r < m_model->rowCount(); r++) {
@@ -304,13 +477,15 @@ void EmployeeTab::save()
     }
 
     if (!validateRows()) {
-        return;
+        return false;
     }
 
     if (m_model->submitAll()) {
         m_log("保存员工信息修改", "");
         QMessageBox::information(this, "成功", "所有数据修改已成功");
         GlobalEvents::instance()->dataChanged();
+        updateDirtyState();
+        return true;
     } else {
         QSqlError err = m_model->lastError();
         if (err.driverText() == "OptimisticLockError") {
@@ -320,6 +495,12 @@ void EmployeeTab::save()
         }
     }
     updateDirtyState();
+    return false;
+}
+
+void EmployeeTab::revertChanges()
+{
+    revert();
 }
 
 bool EmployeeTab::validateRows()
@@ -372,8 +553,10 @@ void EmployeeTab::batchChangeDept()
         return;
     }
     for (auto &idx : sel) {
-        if (m_idxDept >= 0)
+        if (m_idxDept >= 0) {
             m_model->setData(m_model->index(idx.row(), m_idxDept), dept);
+            applyJobStandardForRow(idx.row(), m_idxDept);
+        }
     }
     {
         QSqlQuery q;

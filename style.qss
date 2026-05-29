@@ -335,6 +335,16 @@ QMessageBox QPushButton {
     min-width: 80px;
 }
 
+/* Tooltips */
+QToolTip {
+    color: #0f172a;
+    background-color: #ffffff;
+    border: 1px solid #94a3b8;
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 12px;
+}
+
 /* Custom Button Themes */
 QPushButton[theme="dark"] {
     background-color: #1a2233;

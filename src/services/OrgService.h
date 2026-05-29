@@ -37,9 +37,11 @@ public:
 
     QVector<EmployeeOption> activeEmployees() const;
     QMap<QString, int> activeEmployeeCountsByDepartment() const;
+    int activeEmployeeCountInDepartment(const QString &departmentName) const;
     QVector<DepartmentNode> departments() const;
     DepartmentDetail departmentDetail(int departmentId) const;
     Result saveDepartment(int departmentId, const QString &name, const QVariant &parentId, const QVariant &managerId);
+    Result assignEmployeeToDepartment(int employeeId, const QString &departmentName);
     Result removeDepartment(int departmentId);
 
 private:

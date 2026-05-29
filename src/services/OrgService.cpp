@@ -35,6 +35,20 @@ QMap<QString, int> OrgService::activeEmployeeCountsByDepartment() const
     return counts;
 }
 
+int OrgService::activeEmployeeCountInDepartment(const QString &departmentName) const
+{
+    QSqlQuery query(m_db);
+    query.prepare("SELECT COUNT(*) FROM employees WHERE department=? AND status='在职'");
+    query.addBindValue(departmentName);
+
+    int count = 0;
+    if (query.exec() && query.next()) {
+        count = query.value(0).toInt();
+    }
+    query.finish();
+    return count;
+}
+
 QVector<OrgService::DepartmentNode> OrgService::departments() const
 {
     QVector<DepartmentNode> nodes;
@@ -102,8 +116,47 @@ OrgService::Result OrgService::saveDepartment(int departmentId, const QString &n
     return result;
 }
 
+OrgService::Result OrgService::assignEmployeeToDepartment(int employeeId, const QString &departmentName)
+{
+    if (employeeId <= 0) {
+        return fail("请选择要调入部门的员工");
+    }
+    if (departmentName.trimmed().isEmpty()) {
+        return fail("请选择目标部门");
+    }
+
+    QSqlQuery query(m_db);
+    query.prepare("UPDATE employees SET department=?, version=version+1 WHERE emp_id=? AND status='在职'");
+    query.addBindValue(departmentName.trimmed());
+    query.addBindValue(employeeId);
+
+    const bool ok = query.exec();
+    const QString errorText = query.lastError().text();
+    const int affected = query.numRowsAffected();
+    query.finish();
+    if (!ok) {
+        return fail(errorText);
+    }
+    if (affected <= 0) {
+        return fail("未找到在职员工，调入失败");
+    }
+
+    Result result;
+    result.success = true;
+    return result;
+}
+
 OrgService::Result OrgService::removeDepartment(int departmentId)
 {
+    const DepartmentDetail detail = departmentDetail(departmentId);
+    if (!detail.found) {
+        return fail("未找到要删除的部门");
+    }
+    const int employeeCount = activeEmployeeCountInDepartment(detail.name);
+    if (employeeCount > 0) {
+        return fail(QString("该部门下仍有 %1 名在职员工，请先将员工调出后再删除").arg(employeeCount));
+    }
+
     if (!m_db.transaction()) {
         return fail("启动部门删除事务失败: " + m_db.lastError().text());
     }

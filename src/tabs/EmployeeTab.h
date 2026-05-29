@@ -18,6 +18,9 @@ class EmployeeTab : public QWidget
 public:
     EmployeeTab(std::function<void(const QString&, const QString&)> logFn,
                 QWidget *parent = nullptr);
+    bool hasUnsavedChanges() const;
+    bool saveChanges();
+    void revertChanges();
 
 public slots:
     void refresh();
@@ -44,6 +47,10 @@ private:
     void setupModelSignals();
     QStringList loadDepartments() const;
     QStringList loadRoles() const;
+    QStringList loadPositionsForDepartment(const QString &department) const;
+    QStringList loadTitlesForJob(const QString &department, const QString &position) const;
+    bool defaultSalaryForJob(const QString &department, const QString &position, const QString &title, double *salary) const;
+    void applyJobStandardForRow(int row, int changedColumn);
     bool validateRows();
     bool validateEmployeeRow(int row);
 
@@ -58,6 +65,7 @@ private:
     QPushButton *m_btnBatchDept;
     PaginationBar *m_pagination;
     std::function<void(const QString&, const QString&)> m_log;
+    bool m_syncingJobFields = false;
 
     // Dynamic column indexes
     int m_idxEmpId = -1;

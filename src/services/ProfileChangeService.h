@@ -25,8 +25,8 @@ public:
     static bool isAllowedField(const QString &field);
 
     Result submitRequest(int employeeId, const QString &field, const QString &newValue, const QString &reason);
-    Result approveRequest(int requestId);
-    Result rejectRequest(int requestId);
+    Result approveRequest(int requestId, const QString &comment = QString(), int reviewerId = 0);
+    Result rejectRequest(int requestId, const QString &comment = QString(), int reviewerId = 0);
 
 private:
     struct RequestRecord {
@@ -38,7 +38,8 @@ private:
     Result fail(const QString &message) const;
     QString currentEmployeeValue(int employeeId, const QString &field, bool *ok) const;
     RequestRecord requestRecord(int requestId, bool *ok) const;
-    bool updateRequestStatus(int requestId, const QString &status, QString *errorText);
+    bool updateRequestStatus(int requestId, const QString &status, const QString &comment,
+                             int reviewerId, QString *errorText);
 
     QSqlDatabase m_db;
 };

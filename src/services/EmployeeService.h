@@ -9,6 +9,13 @@
 class EmployeeService
 {
 public:
+    struct JobSalaryStandard {
+        bool found = false;
+        double minSalary = 0.0;
+        double maxSalary = 0.0;
+        double defaultSalary = 0.0;
+    };
+
     struct EmployeeRecord {
         QString name;
         QString gender;
@@ -32,8 +39,10 @@ public:
     bool validateEmployeeRecord(const EmployeeRecord &record, int displayRow, QString *errorMessage);
     bool departmentExists(const QString &department) const;
     bool roleExists(const QString &role) const;
+    JobSalaryStandard jobSalaryStandard(const QString &department, const QString &position, const QString &title) const;
 
 private:
+    bool isValidEmployeeName(const QString &name) const;
     QDate parseDate(const QVariant &value) const;
 
     QSqlDatabase m_db;

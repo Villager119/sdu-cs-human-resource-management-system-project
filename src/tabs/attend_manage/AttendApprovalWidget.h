@@ -21,10 +21,16 @@ signals:
 private slots:
     void openLeaveApproval();
     void openMakeupApproval();
+    void approveSelectedLeaves();
+    void rejectSelectedLeaves();
+    void approveSelectedMakeups();
+    void rejectSelectedMakeups();
 
 private:
     void updateLeaveApprovalButton();
     void updateMakeupApprovalButton();
+    void reviewSelectedLeaves(bool approved);
+    void reviewSelectedMakeups(bool approved);
 
     QWidget *createLeaveApprovalPage();
     QWidget *createMakeupApprovalPage();
@@ -39,7 +45,11 @@ private:
     QSqlRelationalTableModel *m_makeupModel;
 
     QPushButton *m_btnApproveLeave;
+    QPushButton *m_btnApproveLeaves;
+    QPushButton *m_btnRejectLeaves;
     QPushButton *m_btnApproveMakeup;
+    QPushButton *m_btnApproveMakeups;
+    QPushButton *m_btnRejectMakeups;
 };
 
 #endif // ATTENDAPPROVALWIDGET_H

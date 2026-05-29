@@ -37,6 +37,7 @@ private:
     void addNavItem(const QString &icon, const QString &label, QWidget *page, bool visible = true);
     void updateStatusBar();
     void refreshActiveTab();
+    bool confirmLeavePage(QWidget *page);
     void toggleSidebar();
     void loadCurrentUserName();
     void createContentTabs();
@@ -47,6 +48,9 @@ private:
     void initializeAuditCursor();
     void setupSystemMenu();
     void connectGlobalRefreshSignals();
+    void navigateFromShortcut(const QString &target);
+    void selectNavByLabel(const QString &label);
+    void selectCurrentSubTab(const QString &tabText);
     QSqlDatabase backgroundDatabase();
 
     struct NavItemInfo {
@@ -56,6 +60,8 @@ private:
     };
     QList<NavItemInfo> m_navItems;
     bool m_sidebarCollapsed = false;
+    bool m_suppressNavigationChange = false;
+    int m_lastSidebarRow = -1;
     QWidget *m_sidebarContainer = nullptr;
 
     Ui::MainWindow *ui;

@@ -35,6 +35,9 @@ bool EmployeeService::validateEmployeeRecord(const EmployeeRecord &record, int d
     };
 
     if (record.name.isEmpty()) return fail("姓名不能为空");
+    if (!isValidEmployeeName(record.name)) {
+        return fail("姓名只能包含中文、英文字母或间隔点，长度需为 2-30 个字符，不能包含数字和特殊符号");
+    }
     if (record.gender != "男" && record.gender != "女") return fail("性别必须是 '男' 或 '女'");
 
     if (record.phone.isEmpty()) return fail("联系电话不能为空");
@@ -49,6 +52,7 @@ bool EmployeeService::validateEmployeeRecord(const EmployeeRecord &record, int d
     }
 
     if (record.position.isEmpty()) return fail("岗位不能为空");
+    if (record.title.isEmpty()) return fail("职称不能为空");
     if (!roleExists(record.role)) return fail(QString("系统角色 '%1' 在系统中不存在").arg(record.role));
 
     const QStringList validStatus = {
@@ -81,9 +85,26 @@ bool EmployeeService::validateEmployeeRecord(const EmployeeRecord &record, int d
         if (contractDate < hireDate) return fail("合同到期日期不能早于入职日期");
     }
 
-    if (record.title.isEmpty()) return fail("职称不能为空（如果无职称，请填写'无'）");
+    const JobSalaryStandard standard = jobSalaryStandard(record.department, record.position, record.title);
+    if (!standard.found) {
+        return fail(QString("部门 '%1' 下不存在岗位 '%2' 与职称 '%3' 的薪资标准，请先在岗位薪资标准中配置")
+                    .arg(record.department, record.position, record.title));
+    }
+    if (salary < standard.minSalary || salary > standard.maxSalary) {
+        return fail(QString("%1 / %2 / %3 的基础薪资范围为 %4-%5 元，建议默认薪资为 %6 元")
+                    .arg(record.department, record.position, record.title)
+                    .arg(standard.minSalary, 0, 'f', 2)
+                    .arg(standard.maxSalary, 0, 'f', 2)
+                    .arg(standard.defaultSalary, 0, 'f', 2));
+    }
 
     return true;
+}
+
+bool EmployeeService::isValidEmployeeName(const QString &name) const
+{
+    static const QRegularExpression re(QStringLiteral("^[\\p{Han}A-Za-z·]{2,30}$"));
+    return re.match(name.trimmed()).hasMatch();
 }
 
 bool EmployeeService::departmentExists(const QString &department) const
@@ -106,6 +127,30 @@ bool EmployeeService::roleExists(const QString &role) const
     const bool exists = query.exec() && query.next() && query.value(0).toInt() > 0;
     query.finish();
     return exists;
+}
+
+EmployeeService::JobSalaryStandard EmployeeService::jobSalaryStandard(const QString &department,
+                                                                       const QString &position,
+                                                                       const QString &title) const
+{
+    QSqlQuery query(m_db);
+    query.prepare("SELECT s.min_salary, s.max_salary, s.default_salary "
+                  "FROM job_salary_standards s "
+                  "JOIN departments d ON d.dept_id=s.dept_id "
+                  "WHERE d.dept_name=? AND s.position=? AND s.title=? AND s.enabled=1");
+    query.addBindValue(department);
+    query.addBindValue(position);
+    query.addBindValue(title);
+
+    JobSalaryStandard standard;
+    if (query.exec() && query.next()) {
+        standard.found = true;
+        standard.minSalary = query.value(0).toDouble();
+        standard.maxSalary = query.value(1).toDouble();
+        standard.defaultSalary = query.value(2).toDouble();
+    }
+    query.finish();
+    return standard;
 }
 
 QDate EmployeeService::parseDate(const QVariant &value) const

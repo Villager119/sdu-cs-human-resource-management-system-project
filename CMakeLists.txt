@@ -53,6 +53,7 @@ set(PROJECT_SOURCES
     src/widgets/OptimisticSqlTableModel.cpp src/widgets/OptimisticSqlTableModel.h
     src/utils/CsvExport.cpp src/utils/CsvExport.h
     src/utils/DbUtils.cpp src/utils/DbUtils.h
+    src/utils/MessageHelper.h
     src/utils/UiStyles.cpp src/utils/UiStyles.h
     src/core/Logger.cpp src/core/Logger.h
     src/core/SessionManager.cpp src/core/SessionManager.h

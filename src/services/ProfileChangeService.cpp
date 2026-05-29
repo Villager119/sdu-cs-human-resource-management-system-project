@@ -1,8 +1,10 @@
 #include "ProfileChangeService.h"
 
 #include <QMap>
+#include <QMetaType>
 #include <QSqlError>
 #include <QSqlQuery>
+#include <QVariant>
 
 ProfileChangeService::ProfileChangeService(const QSqlDatabase &db)
     : m_db(db)
@@ -69,7 +71,9 @@ ProfileChangeService::Result ProfileChangeService::submitRequest(int employeeId,
     return result;
 }
 
-ProfileChangeService::Result ProfileChangeService::approveRequest(int requestId)
+ProfileChangeService::Result ProfileChangeService::approveRequest(int requestId,
+                                                                   const QString &comment,
+                                                                   int reviewerId)
 {
     bool recordOk = false;
     const RequestRecord record = requestRecord(requestId, &recordOk);
@@ -97,7 +101,7 @@ ProfileChangeService::Result ProfileChangeService::approveRequest(int requestId)
     updateEmployee.finish();
 
     QString statusError;
-    if (!updateRequestStatus(requestId, "已同意", &statusError)) {
+    if (!updateRequestStatus(requestId, "已同意", comment.trimmed(), reviewerId, &statusError)) {
         m_db.rollback();
         return fail(statusError);
     }
@@ -117,12 +121,20 @@ ProfileChangeService::Result ProfileChangeService::approveRequest(int requestId)
     result.logAction = "同意信息修改";
     result.logDetails = QString("申请#%1 %2→%3").arg(requestId).arg(displayName, record.newValue);
     result.notificationTitle = "信息修改已批准";
-    result.notificationContent = QString("你的%1修改申请已通过审批").arg(displayName);
+    result.notificationContent = comment.trimmed().isEmpty()
+        ? QString("你的%1修改申请已通过审批").arg(displayName)
+        : QString("你的%1修改申请已通过审批，审批意见：%2").arg(displayName, comment.trimmed());
     return result;
 }
 
-ProfileChangeService::Result ProfileChangeService::rejectRequest(int requestId)
+ProfileChangeService::Result ProfileChangeService::rejectRequest(int requestId,
+                                                                  const QString &comment,
+                                                                  int reviewerId)
 {
+    if (comment.trimmed().isEmpty()) {
+        return fail("拒绝申请时必须填写审批意见，方便员工了解处理原因");
+    }
+
     bool recordOk = false;
     const RequestRecord record = requestRecord(requestId, &recordOk);
     if (!recordOk) {
@@ -130,7 +142,7 @@ ProfileChangeService::Result ProfileChangeService::rejectRequest(int requestId)
     }
 
     QString statusError;
-    if (!updateRequestStatus(requestId, "已拒绝", &statusError)) {
+    if (!updateRequestStatus(requestId, "已拒绝", comment.trimmed(), reviewerId, &statusError)) {
         return fail(statusError);
     }
 
@@ -142,7 +154,7 @@ ProfileChangeService::Result ProfileChangeService::rejectRequest(int requestId)
     result.logAction = "拒绝信息修改";
     result.logDetails = QString("申请#%1 %2").arg(requestId).arg(displayName);
     result.notificationTitle = "信息修改已拒绝";
-    result.notificationContent = QString("你的%1修改申请未通过审批").arg(displayName);
+    result.notificationContent = QString("你的%1修改申请未通过审批，原因：%2").arg(displayName, comment.trimmed());
     return result;
 }
 
@@ -189,11 +201,15 @@ ProfileChangeService::RequestRecord ProfileChangeService::requestRecord(int requ
     return record;
 }
 
-bool ProfileChangeService::updateRequestStatus(int requestId, const QString &status, QString *errorText)
+bool ProfileChangeService::updateRequestStatus(int requestId, const QString &status,
+                                               const QString &comment, int reviewerId,
+                                               QString *errorText)
 {
     QSqlQuery query(m_db);
-    query.prepare("UPDATE profile_change_requests SET status=? WHERE request_id=?");
+    query.prepare("UPDATE profile_change_requests SET status=?, reviewer_id=?, reviewed_at=NOW(), review_comment=? WHERE request_id=?");
     query.addBindValue(status);
+    query.addBindValue(reviewerId > 0 ? QVariant(reviewerId) : QVariant(QMetaType(QMetaType::Int)));
+    query.addBindValue(comment);
     query.addBindValue(requestId);
 
     const bool ok = query.exec();

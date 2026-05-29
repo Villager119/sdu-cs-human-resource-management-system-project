@@ -2,6 +2,7 @@
 #include "../services/ProfileChangeService.h"
 #include "../utils/Toast.h"
 #include "../utils/DbUtils.h"
+#include "../utils/MessageHelper.h"
 #include "../core/GlobalEvents.h"
 #include "../core/SessionManager.h"
 #include "../widgets/CommonDelegates.h"
@@ -13,6 +14,7 @@
 #include <QLabel>
 #include <QMessageBox>
 #include <QTextEdit>
+#include <QInputDialog>
 #include <QStyledItemDelegate>
 #include <QPainter>
 #include <QHeaderView>
@@ -34,6 +36,9 @@ ProfileChangeTab::ProfileChangeTab(int empId, const QString &role,
     m_model->setHeaderData(5, Qt::Horizontal, "状态");
     m_model->setHeaderData(6, Qt::Horizontal, "理由");
     m_model->setHeaderData(7, Qt::Horizontal, "提交时间");
+    m_model->setHeaderData(8, Qt::Horizontal, "审批人ID");
+    m_model->setHeaderData(9, Qt::Horizontal, "审批时间");
+    m_model->setHeaderData(10, Qt::Horizontal, "审批意见");
 
     if (!SessionManager::instance()->hasPermission("approve_profile_change"))
         m_model->setFilter(QString("emp_id=%1").arg(m_empId));
@@ -333,8 +338,13 @@ void ProfileChangeTab::submitRequest()
     QString field = m_fieldCombo->currentData().toString();
     QString nv = m_newValueEdit->text().trimmed();
     QString reason = m_reasonEdit->toPlainText().trimmed();
-    if (nv.isEmpty() || reason.isEmpty()) {
-        Toast::show(this, "新值和理由不能为空", Toast::Warning);
+    if (nv.isEmpty()) {
+        MessageHelper::formWarning(this, "新值", "请输入要修改的新内容");
+        restoreSubmitButton();
+        return;
+    }
+    if (reason.isEmpty()) {
+        MessageHelper::formWarning(this, "理由", "请说明为什么需要修改，方便审批人判断");
         restoreSubmitButton();
         return;
     }
@@ -349,7 +359,7 @@ void ProfileChangeTab::submitRequest()
         m_newValueEdit->clear();
         m_reasonEdit->clear();
     } else {
-        QMessageBox::critical(this, "提交失败", result.errorMessage);
+        MessageHelper::operationFailed(this, "提交信息修改申请", result.errorMessage);
     }
     restoreSubmitButton();
 }
@@ -367,9 +377,18 @@ void ProfileChangeTab::approve()
     }
     int id = m_model->data(m_model->index(row, 0)).toInt();
 
-    const ProfileChangeService::Result result = ProfileChangeService().approveRequest(id);
+    bool ok = true;
+    const QString comment = QInputDialog::getMultiLineText(this, "同意信息修改",
+        "审批意见（可选）:", "已核验通过", &ok).trimmed();
+    if (!ok) {
+        updateApprovalButtons();
+        return;
+    }
+
+    const ProfileChangeService::Result result =
+        ProfileChangeService().approveRequest(id, comment, SessionManager::instance()->empId);
     if (!result.success) {
-        QMessageBox::critical(this, "审批失败", result.errorMessage);
+        MessageHelper::operationFailed(this, "审批信息修改申请", result.errorMessage);
         updateApprovalButtons();
         return;
     }
@@ -395,7 +414,21 @@ void ProfileChangeTab::reject()
     }
     int id = m_model->data(m_model->index(row, 0)).toInt();
 
-    const ProfileChangeService::Result result = ProfileChangeService().rejectRequest(id);
+    bool ok = true;
+    const QString comment = QInputDialog::getMultiLineText(this, "拒绝信息修改",
+        "拒绝原因（必填）:", QString(), &ok).trimmed();
+    if (!ok) {
+        updateApprovalButtons();
+        return;
+    }
+    if (comment.isEmpty()) {
+        MessageHelper::formWarning(this, "拒绝原因", "拒绝申请时必须填写原因，员工端会展示该原因");
+        updateApprovalButtons();
+        return;
+    }
+
+    const ProfileChangeService::Result result =
+        ProfileChangeService().rejectRequest(id, comment, SessionManager::instance()->empId);
     if (result.success) {
         m_log(result.logAction, result.logDetails);
         m_notify(result.employeeId, result.notificationTitle, result.notificationContent);
@@ -403,7 +436,7 @@ void ProfileChangeTab::reject()
         m_model->select();
         GlobalEvents::instance()->dataChanged();
     } else {
-        QMessageBox::critical(this, "审批失败", result.errorMessage);
+        MessageHelper::operationFailed(this, "审批信息修改申请", result.errorMessage);
     }
     updateApprovalButtons();
 }

@@ -13,7 +13,10 @@
 #include <QLabel>
 #include <QDialog>
 #include <QHeaderView>
+#include <QInputDialog>
 #include <QMessageBox>
+#include <QStringList>
+#include <QTextEdit>
 
 namespace ApprovalDialogCode {
 constexpr int Approved = QDialog::Accepted;
@@ -28,7 +31,7 @@ public:
         : QDialog(parent)
     {
         setWindowTitle("请假申请单审批");
-        setFixedSize(380, 240);
+        setFixedSize(420, 330);
 
         auto *l = new QVBoxLayout(this);
         l->setContentsMargins(20, 20, 20, 20);
@@ -52,6 +55,11 @@ public:
 
         l->addLayout(form);
 
+        m_commentEdit = new QTextEdit(this);
+        m_commentEdit->setPlaceholderText("审批意见；拒绝时必填");
+        m_commentEdit->setFixedHeight(70);
+        l->addWidget(m_commentEdit);
+
         auto *btnRow = new QHBoxLayout;
         btnRow->setSpacing(10);
         btnRow->addStretch();
@@ -72,6 +80,11 @@ public:
         connect(btnReject, &QPushButton::clicked, this, [this]() { done(ApprovalDialogCode::Rejected); });
         connect(btnCancel, &QPushButton::clicked, this, [this]() { reject(); });
     }
+
+    QString comment() const { return m_commentEdit ? m_commentEdit->toPlainText().trimmed() : QString(); }
+
+private:
+    QTextEdit *m_commentEdit = nullptr;
 };
 
 // Modal for Makeup Approval
@@ -82,7 +95,7 @@ public:
         : QDialog(parent)
     {
         setWindowTitle("补卡申请单审批");
-        setFixedSize(380, 260);
+        setFixedSize(420, 350);
 
         auto *l = new QVBoxLayout(this);
         l->setContentsMargins(20, 20, 20, 20);
@@ -114,6 +127,11 @@ public:
 
         l->addLayout(form);
 
+        m_commentEdit = new QTextEdit(this);
+        m_commentEdit->setPlaceholderText("审批意见；拒绝时必填");
+        m_commentEdit->setFixedHeight(70);
+        l->addWidget(m_commentEdit);
+
         auto *btnRow = new QHBoxLayout;
         btnRow->setSpacing(10);
         btnRow->addStretch();
@@ -134,6 +152,11 @@ public:
         connect(btnReject, &QPushButton::clicked, this, [this]() { done(ApprovalDialogCode::Rejected); });
         connect(btnCancel, &QPushButton::clicked, this, [this]() { reject(); });
     }
+
+    QString comment() const { return m_commentEdit ? m_commentEdit->toPlainText().trimmed() : QString(); }
+
+private:
+    QTextEdit *m_commentEdit = nullptr;
 };
 
 AttendApprovalWidget::AttendApprovalWidget(int empId, const QString &role, QWidget *parent)
@@ -171,7 +194,7 @@ QWidget *AttendApprovalWidget::createLeaveApprovalPage()
     m_leaveTable->setModel(m_leaveModel);
     m_leaveTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_leaveTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_leaveTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_leaveTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_leaveTable->setShowGrid(false);
     m_leaveTable->verticalHeader()->setVisible(false);
     m_leaveTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
@@ -184,12 +207,22 @@ QWidget *AttendApprovalWidget::createLeaveApprovalPage()
     m_btnApproveLeave = new QPushButton("办理审批", leavePage);
     m_btnApproveLeave->setStyleSheet(UiStyles::actionButton());
     m_btnApproveLeave->setEnabled(false);
+    m_btnApproveLeaves = new QPushButton("批量同意", leavePage);
+    m_btnApproveLeaves->setStyleSheet(UiStyles::successButton());
+    m_btnApproveLeaves->setEnabled(false);
+    m_btnRejectLeaves = new QPushButton("批量拒绝", leavePage);
+    m_btnRejectLeaves->setStyleSheet(UiStyles::dangerButton());
+    m_btnRejectLeaves->setEnabled(false);
     btnRowLeave->addStretch();
     btnRowLeave->addWidget(m_btnApproveLeave);
+    btnRowLeave->addWidget(m_btnApproveLeaves);
+    btnRowLeave->addWidget(m_btnRejectLeaves);
     l1->addLayout(btnRowLeave);
 
     connect(m_leaveTable->selectionModel(), &QItemSelectionModel::selectionChanged, this, &AttendApprovalWidget::updateLeaveApprovalButton);
     connect(m_btnApproveLeave, &QPushButton::clicked, this, &AttendApprovalWidget::openLeaveApproval);
+    connect(m_btnApproveLeaves, &QPushButton::clicked, this, &AttendApprovalWidget::approveSelectedLeaves);
+    connect(m_btnRejectLeaves, &QPushButton::clicked, this, &AttendApprovalWidget::rejectSelectedLeaves);
     connect(m_leaveTable, &QTableView::doubleClicked, this, &AttendApprovalWidget::openLeaveApproval);
 
     return leavePage;
@@ -217,7 +250,7 @@ QWidget *AttendApprovalWidget::createMakeupApprovalPage()
     m_makeupTable->setModel(m_makeupModel);
     m_makeupTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_makeupTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_makeupTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_makeupTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_makeupTable->setShowGrid(false);
     m_makeupTable->verticalHeader()->setVisible(false);
     m_makeupTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
@@ -231,12 +264,22 @@ QWidget *AttendApprovalWidget::createMakeupApprovalPage()
     m_btnApproveMakeup = new QPushButton("办理审批", makeupPage);
     m_btnApproveMakeup->setStyleSheet(UiStyles::actionButton());
     m_btnApproveMakeup->setEnabled(false);
+    m_btnApproveMakeups = new QPushButton("批量同意", makeupPage);
+    m_btnApproveMakeups->setStyleSheet(UiStyles::successButton());
+    m_btnApproveMakeups->setEnabled(false);
+    m_btnRejectMakeups = new QPushButton("批量拒绝", makeupPage);
+    m_btnRejectMakeups->setStyleSheet(UiStyles::dangerButton());
+    m_btnRejectMakeups->setEnabled(false);
     btnRowMakeup->addStretch();
     btnRowMakeup->addWidget(m_btnApproveMakeup);
+    btnRowMakeup->addWidget(m_btnApproveMakeups);
+    btnRowMakeup->addWidget(m_btnRejectMakeups);
     l2->addLayout(btnRowMakeup);
 
     connect(m_makeupTable->selectionModel(), &QItemSelectionModel::selectionChanged, this, &AttendApprovalWidget::updateMakeupApprovalButton);
     connect(m_btnApproveMakeup, &QPushButton::clicked, this, &AttendApprovalWidget::openMakeupApproval);
+    connect(m_btnApproveMakeups, &QPushButton::clicked, this, &AttendApprovalWidget::approveSelectedMakeups);
+    connect(m_btnRejectMakeups, &QPushButton::clicked, this, &AttendApprovalWidget::rejectSelectedMakeups);
     connect(m_makeupTable, &QTableView::doubleClicked, this, &AttendApprovalWidget::openMakeupApproval);
 
     return makeupPage;
@@ -246,12 +289,16 @@ void AttendApprovalWidget::updateLeaveApprovalButton()
 {
     auto selected = m_leaveTable->selectionModel() ? m_leaveTable->selectionModel()->selectedRows() : QModelIndexList();
     m_btnApproveLeave->setEnabled(selected.size() == 1);
+    m_btnApproveLeaves->setEnabled(!selected.isEmpty());
+    m_btnRejectLeaves->setEnabled(!selected.isEmpty());
 }
 
 void AttendApprovalWidget::updateMakeupApprovalButton()
 {
     auto selected = m_makeupTable->selectionModel() ? m_makeupTable->selectionModel()->selectedRows() : QModelIndexList();
     m_btnApproveMakeup->setEnabled(selected.size() == 1);
+    m_btnApproveMakeups->setEnabled(!selected.isEmpty());
+    m_btnRejectMakeups->setEnabled(!selected.isEmpty());
 }
 
 void AttendApprovalWidget::refresh()
@@ -288,7 +335,8 @@ void AttendApprovalWidget::openLeaveApproval()
     }
 
     const bool approved = (res == ApprovalDialogCode::Approved);
-    const ApprovalService::Result result = ApprovalService().reviewLeaveRequest(id, approved);
+    const ApprovalService::Result result =
+        ApprovalService().reviewLeaveRequest(id, approved, dlg.comment(), SessionManager::instance()->empId);
     if (!result.success) {
         QMessageBox::critical(this, "审批失败", result.errorMessage);
         updateLeaveApprovalButton();
@@ -331,7 +379,8 @@ void AttendApprovalWidget::openMakeupApproval()
     }
 
     const bool approved = (res == ApprovalDialogCode::Approved);
-    const ApprovalService::Result result = ApprovalService().reviewMakeupRequest(mid, approved);
+    const ApprovalService::Result result =
+        ApprovalService().reviewMakeupRequest(mid, approved, dlg.comment(), SessionManager::instance()->empId);
     if (!result.success) {
         QMessageBox::critical(this, "审批失败", result.errorMessage);
         updateMakeupApprovalButton();
@@ -346,4 +395,106 @@ void AttendApprovalWidget::openMakeupApproval()
     refresh();
     updateMakeupApprovalButton();
     GlobalEvents::instance()->dataChanged();
+}
+
+void AttendApprovalWidget::approveSelectedLeaves()
+{
+    reviewSelectedLeaves(true);
+}
+
+void AttendApprovalWidget::rejectSelectedLeaves()
+{
+    reviewSelectedLeaves(false);
+}
+
+void AttendApprovalWidget::approveSelectedMakeups()
+{
+    reviewSelectedMakeups(true);
+}
+
+void AttendApprovalWidget::rejectSelectedMakeups()
+{
+    reviewSelectedMakeups(false);
+}
+
+void AttendApprovalWidget::reviewSelectedLeaves(bool approved)
+{
+    const auto selected = m_leaveTable->selectionModel() ? m_leaveTable->selectionModel()->selectedRows() : QModelIndexList();
+    if (selected.isEmpty()) return;
+
+    bool ok = true;
+    QString comment = QInputDialog::getMultiLineText(this,
+        approved ? "批量同意请假" : "批量拒绝请假",
+        approved ? "审批意见（可选）:" : "拒绝原因（必填）:",
+        approved ? "已核验通过" : QString(), &ok).trimmed();
+    if (!ok) return;
+    if (!approved && comment.isEmpty()) {
+        QMessageBox::warning(this, "请填写原因", "批量拒绝时必须填写拒绝原因，员工端会展示该原因。");
+        return;
+    }
+
+    int successCount = 0;
+    QStringList failures;
+    for (const QModelIndex &idx : selected) {
+        const int id = m_leaveModel->data(m_leaveModel->index(idx.row(), 0)).toInt();
+        const ApprovalService::Result result =
+            ApprovalService().reviewLeaveRequest(id, approved, comment, SessionManager::instance()->empId);
+        if (result.success) {
+            ++successCount;
+            emit logRequested(result.logAction, result.logDetails);
+            emit notificationRequested(result.employeeId, result.notificationTitle, result.notificationContent);
+        } else {
+            failures << QString("#%1：%2").arg(id).arg(result.errorMessage);
+        }
+    }
+
+    refresh();
+    updateLeaveApprovalButton();
+    GlobalEvents::instance()->dataChanged();
+    Toast::show(this, QString("已处理 %1 条请假申请").arg(successCount),
+                failures.isEmpty() ? Toast::Success : Toast::Warning);
+    if (!failures.isEmpty()) {
+        QMessageBox::warning(this, "部分申请处理失败", failures.join("\n"));
+    }
+}
+
+void AttendApprovalWidget::reviewSelectedMakeups(bool approved)
+{
+    const auto selected = m_makeupTable->selectionModel() ? m_makeupTable->selectionModel()->selectedRows() : QModelIndexList();
+    if (selected.isEmpty()) return;
+
+    bool ok = true;
+    QString comment = QInputDialog::getMultiLineText(this,
+        approved ? "批量同意补卡" : "批量拒绝补卡",
+        approved ? "审批意见（可选）:" : "拒绝原因（必填）:",
+        approved ? "已核验通过" : QString(), &ok).trimmed();
+    if (!ok) return;
+    if (!approved && comment.isEmpty()) {
+        QMessageBox::warning(this, "请填写原因", "批量拒绝时必须填写拒绝原因，员工端会展示该原因。");
+        return;
+    }
+
+    int successCount = 0;
+    QStringList failures;
+    for (const QModelIndex &idx : selected) {
+        const int id = m_makeupModel->data(m_makeupModel->index(idx.row(), 0)).toInt();
+        const ApprovalService::Result result =
+            ApprovalService().reviewMakeupRequest(id, approved, comment, SessionManager::instance()->empId);
+        if (result.success) {
+            ++successCount;
+            emit logRequested(result.logAction, result.logDetails);
+            emit notificationRequested(result.employeeId, result.notificationTitle, result.notificationContent);
+        } else {
+            failures << QString("#%1：%2").arg(id).arg(result.errorMessage);
+        }
+    }
+
+    refresh();
+    updateMakeupApprovalButton();
+    GlobalEvents::instance()->dataChanged();
+    Toast::show(this, QString("已处理 %1 条补卡申请").arg(successCount),
+                failures.isEmpty() ? Toast::Success : Toast::Warning);
+    if (!failures.isEmpty()) {
+        QMessageBox::warning(this, "部分申请处理失败", failures.join("\n"));
+    }
 }

@@ -98,6 +98,9 @@ QWidget *AppCenterWidget::createLeavePage(QTabWidget *tabs)
     m_leaveModel->setHeaderData(3, Qt::Horizontal, "结束日期");
     m_leaveModel->setHeaderData(4, Qt::Horizontal, "请假理由");
     m_leaveModel->setHeaderData(5, Qt::Horizontal, "状态");
+    m_leaveModel->setHeaderData(6, Qt::Horizontal, "审批人ID");
+    m_leaveModel->setHeaderData(7, Qt::Horizontal, "审批时间");
+    m_leaveModel->setHeaderData(8, Qt::Horizontal, "审批意见");
 
     m_leaveTable = new QTableView(leaveRight);
     m_leaveTable->setModel(m_leaveModel);
@@ -190,6 +193,9 @@ QWidget *AppCenterWidget::createMakeupPage(QTabWidget *tabs)
     m_makeupModel->setHeaderData(4, Qt::Horizontal, "时间");
     m_makeupModel->setHeaderData(5, Qt::Horizontal, "理由");
     m_makeupModel->setHeaderData(6, Qt::Horizontal, "状态");
+    m_makeupModel->setHeaderData(7, Qt::Horizontal, "审批人ID");
+    m_makeupModel->setHeaderData(8, Qt::Horizontal, "审批时间");
+    m_makeupModel->setHeaderData(9, Qt::Horizontal, "审批意见");
 
     m_makeupTable = new QTableView(makeupRight);
     m_makeupTable->setModel(m_makeupModel);

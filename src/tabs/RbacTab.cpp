@@ -69,6 +69,7 @@ RbacTab::RbacTab(std::function<void(const QString&, const QString&)> logFn, QWid
 
     QHBoxLayout *saveLayout = new QHBoxLayout;
     m_btnSavePerms = new QPushButton("保存权限修改");
+    m_btnSavePerms->setEnabled(false);
     saveLayout->addStretch(1);
     saveLayout->addWidget(m_btnSavePerms);
     permLayout->addLayout(saveLayout);
@@ -98,6 +99,7 @@ void RbacTab::loadRoles()
     if (m_roleList->count() > 0) {
         m_roleList->setCurrentRow(0);
     }
+    updateRbacButtons();
 }
 
 void RbacTab::loadPermissions()
@@ -128,6 +130,21 @@ void RbacTab::loadPermissions()
     layout->addStretch(1);
 }
 
+void RbacTab::updateRbacButtons()
+{
+    QListWidgetItem *current = m_roleList->currentItem();
+    if (!current) {
+        m_btnDelRole->setEnabled(false);
+        m_btnSavePerms->setEnabled(false);
+        return;
+    }
+
+    QString roleName = current->text();
+    bool isSystemRole = (roleName == "admin" || roleName == "user");
+    m_btnDelRole->setEnabled(!isSystemRole);
+    m_btnSavePerms->setEnabled(true);
+}
+
 void RbacTab::onRoleSelected(QListWidgetItem *current, QListWidgetItem *previous)
 {
     Q_UNUSED(previous);
@@ -138,29 +155,39 @@ void RbacTab::onRoleSelected(QListWidgetItem *current, QListWidgetItem *previous
     }
 
     if (!current) {
-        m_btnDelRole->setEnabled(false);
-        m_btnSavePerms->setEnabled(false);
+        updateRbacButtons();
         return;
     }
 
-    m_btnSavePerms->setEnabled(true);
     QString roleName = current->text();
-
-    // Disable deletion of system roles
-    bool isSystemRole = (roleName == "admin" || roleName == "user");
-    m_btnDelRole->setEnabled(!isSystemRole);
-
     const QSet<QString> keys = RbacService().permissionKeysForRole(roleName);
     for (const QString &key : keys) {
         if (m_permCheckBoxes.contains(key)) {
             m_permCheckBoxes.value(key)->setChecked(true);
         }
     }
+
+    updateRbacButtons();
 }
 
 void RbacTab::addRole()
 {
+    m_btnAddRole->setEnabled(false);
+    m_btnDelRole->setEnabled(false);
+    m_btnSavePerms->setEnabled(false);
+
+    auto restoreButtons = [this]() {
+        m_btnAddRole->setEnabled(true);
+        updateRbacButtons();
+    };
+
     QString roleName = m_newRoleEdit->text().trimmed();
+    if (roleName.isEmpty()) {
+        QMessageBox::warning(this, "添加失败", "角色名称不能为空！");
+        restoreButtons();
+        return;
+    }
+
     const RbacService::Result result = RbacService().addRole(roleName);
     if (result.success) {
         logAction("添加角色", roleName);
@@ -176,26 +203,44 @@ void RbacTab::addRole()
         }
         
         emit GlobalEvents::instance()->dataChanged();
-        QMessageBox::information(this, "成功", QString("已成功添加角色 '%1'！").arg(roleName));
+        QMessageBox::information(this, "添加成功", QString("已成功添加角色 '%1'！").arg(roleName));
     } else {
-        QMessageBox::critical(this, "错误", result.errorMessage);
+        QMessageBox::critical(this, "添加失败", result.errorMessage);
     }
+
+    restoreButtons();
 }
 
 void RbacTab::deleteRole()
 {
+    m_btnAddRole->setEnabled(false);
+    m_btnDelRole->setEnabled(false);
+    m_btnSavePerms->setEnabled(false);
+
+    auto restoreButtons = [this]() {
+        m_btnAddRole->setEnabled(true);
+        updateRbacButtons();
+    };
+
     QListWidgetItem *current = m_roleList->currentItem();
-    if (!current) return;
+    if (!current) {
+        restoreButtons();
+        return;
+    }
 
     QString roleName = current->text();
-    auto reply = QMessageBox::question(this, "确认删除",
+    auto reply = QMessageBox::question(this, "删除确认",
                                       QString("确定要删除角色 '%1' 吗？\n该角色下的所有员工将被自动降级为 'user' 角色。").arg(roleName),
                                       QMessageBox::Yes | QMessageBox::No);
-    if (reply != QMessageBox::Yes) return;
+    if (reply != QMessageBox::Yes) {
+        restoreButtons();
+        return;
+    }
 
     const RbacService::Result result = RbacService().deleteRole(roleName);
     if (!result.success) {
-        QMessageBox::critical(this, "错误", "删除角色失败！\n" + result.errorMessage);
+        QMessageBox::critical(this, "删除失败", "删除角色失败！\n" + result.errorMessage);
+        restoreButtons();
         return;
     }
 
@@ -203,13 +248,27 @@ void RbacTab::deleteRole()
     loadRoles();
 
     emit GlobalEvents::instance()->dataChanged();
-    QMessageBox::information(this, "成功", QString("已成功删除角色 '%1'！").arg(roleName));
+    QMessageBox::information(this, "删除成功", QString("已成功删除角色 '%1'！").arg(roleName));
+
+    restoreButtons();
 }
 
 void RbacTab::savePermissions()
 {
+    m_btnAddRole->setEnabled(false);
+    m_btnDelRole->setEnabled(false);
+    m_btnSavePerms->setEnabled(false);
+
+    auto restoreButtons = [this]() {
+        m_btnAddRole->setEnabled(true);
+        updateRbacButtons();
+    };
+
     QListWidgetItem *current = m_roleList->currentItem();
-    if (!current) return;
+    if (!current) {
+        restoreButtons();
+        return;
+    }
 
     QString roleName = current->text();
     const int roleId = RbacService().roleId(roleName);
@@ -222,7 +281,8 @@ void RbacTab::savePermissions()
 
     const RbacService::Result result = RbacService().saveRolePermissions(roleId, checkedKeys);
     if (!result.success) {
-        QMessageBox::critical(this, "错误", result.errorMessage);
+        QMessageBox::critical(this, "保存失败", result.errorMessage);
+        restoreButtons();
         return;
     }
 
@@ -232,7 +292,9 @@ void RbacTab::savePermissions()
     }
 
     logAction("修改角色权限", roleName);
-    QMessageBox::information(this, "成功", QString("角色 '%1' 的权限配置已成功保存！").arg(roleName));
+    QMessageBox::information(this, "保存成功", QString("角色 '%1' 的权限配置已成功保存！").arg(roleName));
+
+    restoreButtons();
 }
 
 void RbacTab::logAction(const QString &action, const QString &target)

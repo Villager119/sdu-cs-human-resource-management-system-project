@@ -33,6 +33,7 @@ private:
     QWidget *m_permsContainer;
     QMap<QString, QCheckBox*> m_permCheckBoxes;
 
+    void updateRbacButtons();
     void logAction(const QString &action, const QString &target = QString());
 };
 

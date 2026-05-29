@@ -188,10 +188,7 @@ QWidget *AttendApprovalWidget::createLeaveApprovalPage()
     btnRowLeave->addWidget(m_btnApproveLeave);
     l1->addLayout(btnRowLeave);
 
-    connect(m_leaveTable->selectionModel(), &QItemSelectionModel::selectionChanged, this, [this]() {
-        auto selected = m_leaveTable->selectionModel()->selectedRows();
-        m_btnApproveLeave->setEnabled(selected.size() == 1);
-    });
+    connect(m_leaveTable->selectionModel(), &QItemSelectionModel::selectionChanged, this, &AttendApprovalWidget::updateLeaveApprovalButton);
     connect(m_btnApproveLeave, &QPushButton::clicked, this, &AttendApprovalWidget::openLeaveApproval);
     connect(m_leaveTable, &QTableView::doubleClicked, this, &AttendApprovalWidget::openLeaveApproval);
 
@@ -238,14 +235,23 @@ QWidget *AttendApprovalWidget::createMakeupApprovalPage()
     btnRowMakeup->addWidget(m_btnApproveMakeup);
     l2->addLayout(btnRowMakeup);
 
-    connect(m_makeupTable->selectionModel(), &QItemSelectionModel::selectionChanged, this, [this]() {
-        auto selected = m_makeupTable->selectionModel()->selectedRows();
-        m_btnApproveMakeup->setEnabled(selected.size() == 1);
-    });
+    connect(m_makeupTable->selectionModel(), &QItemSelectionModel::selectionChanged, this, &AttendApprovalWidget::updateMakeupApprovalButton);
     connect(m_btnApproveMakeup, &QPushButton::clicked, this, &AttendApprovalWidget::openMakeupApproval);
     connect(m_makeupTable, &QTableView::doubleClicked, this, &AttendApprovalWidget::openMakeupApproval);
 
     return makeupPage;
+}
+
+void AttendApprovalWidget::updateLeaveApprovalButton()
+{
+    auto selected = m_leaveTable->selectionModel() ? m_leaveTable->selectionModel()->selectedRows() : QModelIndexList();
+    m_btnApproveLeave->setEnabled(selected.size() == 1);
+}
+
+void AttendApprovalWidget::updateMakeupApprovalButton()
+{
+    auto selected = m_makeupTable->selectionModel() ? m_makeupTable->selectionModel()->selectedRows() : QModelIndexList();
+    m_btnApproveMakeup->setEnabled(selected.size() == 1);
 }
 
 void AttendApprovalWidget::refresh()
@@ -259,8 +265,13 @@ void AttendApprovalWidget::refresh()
 
 void AttendApprovalWidget::openLeaveApproval()
 {
+    m_btnApproveLeave->setEnabled(false);
+
     int row = m_leaveTable->currentIndex().row();
-    if (row < 0) return;
+    if (row < 0) {
+        updateLeaveApprovalButton();
+        return;
+    }
 
     int id = m_leaveModel->data(m_leaveModel->index(row, 0)).toInt();
     QString applicant = m_leaveModel->data(m_leaveModel->index(row, 1)).toString();
@@ -272,6 +283,7 @@ void AttendApprovalWidget::openLeaveApproval()
     int res = dlg.exec();
 
     if (res != ApprovalDialogCode::Approved && res != ApprovalDialogCode::Rejected) {
+        updateLeaveApprovalButton();
         return;
     }
 
@@ -279,6 +291,7 @@ void AttendApprovalWidget::openLeaveApproval()
     const ApprovalService::Result result = ApprovalService().reviewLeaveRequest(id, approved);
     if (!result.success) {
         QMessageBox::critical(this, "审批失败", result.errorMessage);
+        updateLeaveApprovalButton();
         return;
     }
 
@@ -287,13 +300,19 @@ void AttendApprovalWidget::openLeaveApproval()
     Toast::show(this, approved ? "审批通过" : "已拒绝该申请", approved ? Toast::Success : Toast::Info);
 
     refresh();
+    updateLeaveApprovalButton();
     GlobalEvents::instance()->dataChanged();
 }
 
 void AttendApprovalWidget::openMakeupApproval()
 {
+    m_btnApproveMakeup->setEnabled(false);
+
     int row = m_makeupTable->currentIndex().row();
-    if (row < 0) return;
+    if (row < 0) {
+        updateMakeupApprovalButton();
+        return;
+    }
 
     int mid = m_makeupModel->data(m_makeupModel->index(row, 0)).toInt();
     QString applicant = m_makeupModel->data(m_makeupModel->index(row, 1)).toString();
@@ -307,6 +326,7 @@ void AttendApprovalWidget::openMakeupApproval()
     int res = dlg.exec();
 
     if (res != ApprovalDialogCode::Approved && res != ApprovalDialogCode::Rejected) {
+        updateMakeupApprovalButton();
         return;
     }
 
@@ -314,6 +334,7 @@ void AttendApprovalWidget::openMakeupApproval()
     const ApprovalService::Result result = ApprovalService().reviewMakeupRequest(mid, approved);
     if (!result.success) {
         QMessageBox::critical(this, "审批失败", result.errorMessage);
+        updateMakeupApprovalButton();
         return;
     }
 
@@ -323,5 +344,6 @@ void AttendApprovalWidget::openMakeupApproval()
                 approved ? Toast::Success : Toast::Info);
 
     refresh();
+    updateMakeupApprovalButton();
     GlobalEvents::instance()->dataChanged();
 }

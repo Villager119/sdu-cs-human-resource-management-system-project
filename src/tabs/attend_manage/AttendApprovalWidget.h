@@ -23,6 +23,9 @@ private slots:
     void openMakeupApproval();
 
 private:
+    void updateLeaveApprovalButton();
+    void updateMakeupApprovalButton();
+
     QWidget *createLeaveApprovalPage();
     QWidget *createMakeupApprovalPage();
 

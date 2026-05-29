@@ -2,9 +2,9 @@
 
 > **标准符合性声明**：本说明书参考软件架构描述的最新国际标准 **ISO/IEC/IEEE 42010:2011(E)** 进行编写，旨在从多视角、多维度系统地描述系统架构设计，确保利益相关者的架构关注点得到全面解决。
 >
-> **版本**：V1.3 (正式稿)  
-> **日期**：2026-05-28  
-> **项目代号**：HRMS  
+> **版本**：V1.4 (正式稿)
+> **日期**：2026-05-29
+> **项目代号**：HRMS
 
 ---
 
@@ -31,7 +31,7 @@
 
 ### 1.2 系统范围与定位
 
-HRMS 是一套基于 **C++/Qt6/MySQL** 的桌面端企业级人力资源管理系统，主要包括：员工档案CRUD与批量调整、考勤打卡、补卡与请假审批、多维度绩效评分、一键自动薪酬核算、组织架构树呈现、多维统计报表、未读通知推送以及全局安全操作审计日志等功能。该系统部署于局域网或单机环境，不面向高并发、外网或移动端场景。
+HRMS 是一套基于 **C++/Qt6/MySQL** 的桌面端企业级人力资源管理系统，主要包括：员工档案CRUD与批量调整、岗位职称薪资标准校验、考勤打卡、补卡与请假审批、多维度绩效评分、一键自动薪酬核算、组织架构树呈现、多维统计报表、未读通知推送以及全局安全操作审计日志等功能。该系统部署于局域网或单机环境，不面向高并发、外网或移动端场景。
 
 ### 1.3 架构上下文
 
@@ -60,7 +60,7 @@ graph TD
 ### 1.4 参考标准
 
 * **ISO/IEC/IEEE 42010:2011(E)** — Systems and software engineering — Architecture description.
-- **HRMS 软件需求规格说明书 (SRS) V3.2** — 包含核心需求与数据定义。
+- **HRMS 软件需求规格说明书 (SRS) V3.3** — 包含核心需求与数据定义。
 
 ---
 
@@ -139,6 +139,7 @@ classDiagram
         +DbUtils
         +CsvExport
         +UiStyles
+        +MessageHelper
     }
 
     class Services {
@@ -213,7 +214,7 @@ classDiagram
 
 #### 3.2.1 数据库物理设计 (E-R图)
 
-系统内置的 16 张数据表结构符合第三范式 (3NF)（审计表在姓名上做了冗余反规范化除外）。关系模型如下：
+系统内置的 17 张数据表结构符合第三范式 (3NF)（审计表在姓名上做了冗余反规范化除外）。关系模型如下：
 
 ```mermaid
 erDiagram
@@ -247,6 +248,9 @@ erDiagram
         date end_date
         string reason
         string status
+        int reviewer_id FK
+        datetime reviewed_at
+        string review_comment
     }
     payroll {
         int payroll_id PK
@@ -298,6 +302,9 @@ erDiagram
         string new_value
         string status
         string reason
+        int reviewer_id FK
+        datetime reviewed_at
+        string review_comment
     }
     attendances {
         int att_id PK
@@ -316,6 +323,19 @@ erDiagram
         time request_time
         string reason
         string status
+        int reviewer_id FK
+        datetime reviewed_at
+        string review_comment
+    }
+    job_salary_standards {
+        int standard_id PK
+        string department
+        string position
+        string title
+        decimal min_salary
+        decimal max_salary
+        decimal default_salary
+        int enabled
     }
     shifts {
         int shift_id PK
@@ -349,13 +369,18 @@ erDiagram
 
     departments ||--o{ employees : "belongs to"
     employees ||--o{ leave_requests : "applies"
+    employees ||--o{ leave_requests : "reviews"
     employees ||--o{ payroll : "receives"
     employees ||--o{ audit_logs : "action log"
     employees ||--o{ notifications : "receives notif"
     employees ||--o{ performance_scores : "evaluated"
     employees ||--o{ profile_change_requests : "requests"
+    employees ||--o{ profile_change_requests : "reviews"
     employees ||--o{ attendances : "clocks in/out"
     employees ||--o{ makeup_requests : "submits"
+    employees ||--o{ makeup_requests : "reviews"
+    departments ||--o{ job_salary_standards : "defines standards"
+    job_salary_standards ||--o{ employees : "validates title salary"
     departments ||--o{ departments : "parent-child hierarchy"
     roles ||--o{ employees : "defines authority of"
     roles ||--o{ role_permissions : "contains"
@@ -429,7 +454,7 @@ flowchart TD
     ConnTest -->|连接失败| GuideDialog
     ConnTest -->|连接成功| Migrate["Idempotent Schema Bootstrapping 数据库自愈建表"]
     
-    Migrate --> CheckTable{"利用 SHOW TABLES<br/>检查 16 张表是否存在"}
+    Migrate --> CheckTable{"利用 SHOW TABLES<br/>检查 17 张表是否存在"}
     CheckTable -->|部分表缺失| CreateTable["CREATE TABLE IF NOT EXISTS"]
     CheckTable -->|全部存在| InitDefault["校验并插入默认管理员 admin 及五险一金默认值"]
     CreateTable --> InitDefault
@@ -579,7 +604,7 @@ graph TD
 ### 4.1 视图间对应规则
 
 1. **Logical-to-Data 对应规则**：逻辑视图（C++ 代码类）中的各业务 Tab 类（如 `EmployeeTab`、`LeaveTab`、`PayrollTab`）必须与数据视图（E-R图）中的物理表（`employees`、`leave_requests`、`payroll`）建立强对应的映射。每一个 Tab 类对数据库的操作必须在 E-R 图关联范围之内，严禁越权直接操作无关表。
-2. **Process-to-Data 对应规则**：在运行过程视图中定义的数据库自愈迁移（Idempotent Schema Migration）表序列必须严格涵盖数据视图（E-R图）中出现的全部 16 张表结构，确保系统在首次运行或补全字段时能自动初始化数据结构。
+2. **Process-to-Data 对应规则**：在运行过程视图中定义的数据库自愈迁移（Idempotent Schema Migration）表序列必须严格涵盖数据视图（E-R图）中出现的全部 17 张表结构，确保系统在首次运行或补全字段时能自动初始化数据结构。
 3. **Deployment-to-Process 对应规则**：物理部署视图中加载的 `config.ini` 参数必须作为运行过程视图中引导流程（main 引导）的直接入参输入，保证连接链路能够成功建立。
 
 ### 4.2 架构冲突与折中分析 (Refactoring & Anti-Normalization)

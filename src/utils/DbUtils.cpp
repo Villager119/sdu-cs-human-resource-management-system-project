@@ -379,25 +379,28 @@ bool initDatabaseSchema()
            "SELECT DISTINCT department FROM employees WHERE department IS NOT NULL AND department!=''");
     q.finish();
     q.exec("INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
-           "SELECT dept_id, 'Java开发', '初级工程师', 7000.00, 11000.00, 9000.00 FROM departments WHERE dept_name='技术部'");
+           "SELECT dept_id, '开发工程师', '初级', 7000.00, 11000.00, 9000.00 FROM departments WHERE dept_name='技术部'");
     q.finish();
     q.exec("INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
-           "SELECT dept_id, 'Java开发', '中级工程师', 11000.00, 18000.00, 14000.00 FROM departments WHERE dept_name='技术部'");
+           "SELECT dept_id, '开发工程师', '中级', 11000.00, 18000.00, 14000.00 FROM departments WHERE dept_name='技术部'");
     q.finish();
     q.exec("INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
-           "SELECT dept_id, 'Java开发', '高级工程师', 18000.00, 30000.00, 22000.00 FROM departments WHERE dept_name='技术部'");
+           "SELECT dept_id, '开发工程师', '高级', 18000.00, 30000.00, 22000.00 FROM departments WHERE dept_name='技术部'");
     q.finish();
     q.exec("INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
-           "SELECT dept_id, 'HR专员', '初级', 5000.00, 8000.00, 6500.00 FROM departments WHERE dept_name='人事部'");
+           "SELECT dept_id, '人力资源专员', '初级', 5000.00, 8000.00, 6500.00 FROM departments WHERE dept_name='人事部'");
     q.finish();
     q.exec("INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
-           "SELECT dept_id, 'HR专员', '中级', 8000.00, 12000.00, 9500.00 FROM departments WHERE dept_name='人事部'");
+           "SELECT dept_id, '人力资源专员', '中级', 8000.00, 12000.00, 9500.00 FROM departments WHERE dept_name='人事部'");
     q.finish();
     q.exec("INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
-           "SELECT dept_id, '会计', '初级', 5000.00, 8000.00, 6500.00 FROM departments WHERE dept_name='财务部'");
+           "SELECT dept_id, '财务会计', '初级', 5000.00, 8000.00, 6500.00 FROM departments WHERE dept_name='财务部'");
     q.finish();
     q.exec("INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
            "SELECT dept_id, '行政专员', '初级', 4500.00, 7000.00, 5500.00 FROM departments WHERE dept_name='行政部'");
+    q.finish();
+    q.exec("INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
+           "SELECT dept_id, '行政专员', '中级', 8000.00, 12000.00, 9500.00 FROM departments WHERE dept_name='行政部'");
     q.finish();
     q.exec("INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
            "SELECT d.dept_id, e.position, e.title, "

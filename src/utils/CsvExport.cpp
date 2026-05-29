@@ -50,9 +50,12 @@ static bool writeCsvDataToFile(const CsvData &data, const QString &filePath)
     if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
         return false;
     }
+    if (f.write("\xEF\xBB\xBF", 3) != 3) {
+        f.close();
+        return false;
+    }
     QTextStream out(&f);
     out.setEncoding(QStringConverter::Utf8);
-    out << "\xEF\xBB\xBF"; // UTF-8 BOM
 
     // Write headers
     for (int i = 0; i < data.headers.size(); i++) {

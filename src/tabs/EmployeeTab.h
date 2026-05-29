@@ -8,18 +8,21 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <functional>
+#include "../utils/UnsavedChangesGuard.h"
 
 class PaginationBar;
 class QVBoxLayout;
 
-class EmployeeTab : public QWidget
+class EmployeeTab : public QWidget, public UnsavedChangesGuard
 {
     Q_OBJECT
 public:
     EmployeeTab(std::function<void(const QString&, const QString&)> logFn,
                 QWidget *parent = nullptr);
-    bool hasUnsavedChanges() const;
-    bool saveChanges();
+    bool hasUnsavedChanges() const override;
+    bool saveChanges() override;
+    void discardChanges() override { revertChanges(); }
+    QString unsavedChangesMessage() const override { return "员工信息还有未保存的修改，是否先保存再离开？"; }
     void revertChanges();
 
 public slots:

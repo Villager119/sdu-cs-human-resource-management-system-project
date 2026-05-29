@@ -7,6 +7,7 @@
 #include <QPushButton>
 #include <QComboBox>
 #include <QLabel>
+#include <QLineEdit>
 #include <functional>
 
 class PayrollTab : public QWidget
@@ -32,6 +33,7 @@ private:
     QTableView *m_table;
     QPushButton *m_btnCalc;
     QComboBox *m_monthCombo;
+    QLineEdit *m_employeeNameEdit;
     QPushButton *m_btnSearch;
     QPushButton *m_btnReset;
 

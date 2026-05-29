@@ -13,6 +13,7 @@ QT_END_NAMESPACE
 class EmployeeTab; class MyAttendanceTab; class AttendManageTab; class PayrollTab; class AuditTab;
 class DashboardTab; class PerformanceTab;
 class OrgTab; class ProfileChangeTab; class RbacTab;
+class UnsavedChangesGuard;
 
 class MainWindow : public QMainWindow
 {
@@ -38,6 +39,7 @@ private:
     void updateStatusBar();
     void refreshActiveTab();
     bool confirmLeavePage(QWidget *page);
+    UnsavedChangesGuard *findUnsavedChangesGuard(QWidget *page) const;
     void toggleSidebar();
     void loadCurrentUserName();
     void createContentTabs();

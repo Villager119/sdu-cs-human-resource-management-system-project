@@ -19,6 +19,7 @@
 #include "../services/AuthService.h"
 #include "../services/NotificationService.h"
 #include "../utils/DbUtils.h"
+#include "../utils/UnsavedChangesGuard.h"
 #include <QMenu>
 #include <QTabWidget>
 #include <QVBoxLayout>
@@ -494,22 +495,15 @@ void MainWindow::refreshActiveTab()
 
 bool MainWindow::confirmLeavePage(QWidget *page)
 {
-    if (!page || !m_empTab || !m_empTab->hasUnsavedChanges()) {
-        return true;
-    }
-
-    bool leavingEmployeeTab = (page == m_empTab);
-    if (!leavingEmployeeTab) {
-        leavingEmployeeTab = page->findChild<EmployeeTab*>() == m_empTab;
-    }
-    if (!leavingEmployeeTab) {
+    UnsavedChangesGuard *guard = findUnsavedChangesGuard(page);
+    if (!guard) {
         return true;
     }
 
     QMessageBox prompt(this);
     prompt.setIcon(QMessageBox::Question);
-    prompt.setWindowTitle("保存修改");
-    prompt.setText("员工信息还有未保存的修改，是否先保存再离开？");
+    prompt.setWindowTitle(guard->unsavedChangesTitle());
+    prompt.setText(guard->unsavedChangesMessage());
     QPushButton *saveButton = prompt.addButton("保存", QMessageBox::AcceptRole);
     QPushButton *discardButton = prompt.addButton("不保存", QMessageBox::DestructiveRole);
     prompt.addButton("取消", QMessageBox::RejectRole);
@@ -517,13 +511,32 @@ bool MainWindow::confirmLeavePage(QWidget *page)
     prompt.exec();
 
     if (prompt.clickedButton() == saveButton) {
-        return m_empTab->saveChanges();
+        return guard->saveChanges();
     }
     if (prompt.clickedButton() == discardButton) {
-        m_empTab->revertChanges();
+        guard->discardChanges();
         return true;
     }
     return false;
+}
+
+UnsavedChangesGuard *MainWindow::findUnsavedChangesGuard(QWidget *page) const
+{
+    if (!page) {
+        return nullptr;
+    }
+
+    if (auto *guard = dynamic_cast<UnsavedChangesGuard*>(page); guard && guard->hasUnsavedChanges()) {
+        return guard;
+    }
+
+    const auto children = page->findChildren<QWidget*>();
+    for (auto *child : children) {
+        if (auto *guard = dynamic_cast<UnsavedChangesGuard*>(child); guard && guard->hasUnsavedChanges()) {
+            return guard;
+        }
+    }
+    return nullptr;
 }
 
 void MainWindow::logAction(const QString &action, const QString &target)

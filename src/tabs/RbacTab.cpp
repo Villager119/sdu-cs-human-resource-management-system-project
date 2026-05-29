@@ -124,6 +124,11 @@ void RbacTab::loadPermissions()
             "QCheckBox::indicator:unchecked:hover { border-color: #3b82f6; background-color: #f8fafc; }"
             "QCheckBox::indicator:checked { border-color: #2563eb; background-color: #2563eb; image: url(check.png); /* Fallback to standard check drawing if no image */ }"
         );
+        connect(cb, &QCheckBox::toggled, this, [this]() {
+            if (!m_loadingPermissions) {
+                updateRbacButtons();
+            }
+        });
         layout->addWidget(cb);
         m_permCheckBoxes.insert(permission.key, cb);
     }
@@ -142,32 +147,63 @@ void RbacTab::updateRbacButtons()
     QString roleName = current->text();
     bool isSystemRole = (roleName == "admin" || roleName == "user");
     m_btnDelRole->setEnabled(!isSystemRole);
-    m_btnSavePerms->setEnabled(true);
+    m_btnSavePerms->setEnabled(hasUnsavedChanges());
 }
 
 void RbacTab::onRoleSelected(QListWidgetItem *current, QListWidgetItem *previous)
 {
     Q_UNUSED(previous);
 
+    m_loadingPermissions = true;
     // Uncheck all first
     for (auto *cb : m_permCheckBoxes.values()) {
         cb->setChecked(false);
     }
 
     if (!current) {
+        m_loadedPermissionKeys.clear();
+        m_loadingPermissions = false;
         updateRbacButtons();
         return;
     }
 
     QString roleName = current->text();
-    const QSet<QString> keys = RbacService().permissionKeysForRole(roleName);
-    for (const QString &key : keys) {
+    m_loadedPermissionKeys = RbacService().permissionKeysForRole(roleName);
+    for (const QString &key : m_loadedPermissionKeys) {
         if (m_permCheckBoxes.contains(key)) {
             m_permCheckBoxes.value(key)->setChecked(true);
         }
     }
+    m_loadingPermissions = false;
 
     updateRbacButtons();
+}
+
+QSet<QString> RbacTab::checkedPermissionKeys() const
+{
+    QSet<QString> checkedKeys;
+    for (auto it = m_permCheckBoxes.begin(); it != m_permCheckBoxes.end(); ++it) {
+        if (it.value()->isChecked()) {
+            checkedKeys.insert(it.key());
+        }
+    }
+    return checkedKeys;
+}
+
+bool RbacTab::hasUnsavedChanges() const
+{
+    return checkedPermissionKeys() != m_loadedPermissionKeys;
+}
+
+bool RbacTab::saveChanges()
+{
+    savePermissions();
+    return !hasUnsavedChanges();
+}
+
+void RbacTab::discardChanges()
+{
+    onRoleSelected(m_roleList->currentItem(), nullptr);
 }
 
 void RbacTab::addRole()
@@ -272,12 +308,7 @@ void RbacTab::savePermissions()
 
     QString roleName = current->text();
     const int roleId = RbacService().roleId(roleName);
-    QSet<QString> checkedKeys;
-    for (auto it = m_permCheckBoxes.begin(); it != m_permCheckBoxes.end(); ++it) {
-        if (it.value()->isChecked()) {
-            checkedKeys.insert(it.key());
-        }
-    }
+    QSet<QString> checkedKeys = checkedPermissionKeys();
 
     const RbacService::Result result = RbacService().saveRolePermissions(roleId, checkedKeys);
     if (!result.success) {
@@ -292,6 +323,7 @@ void RbacTab::savePermissions()
     }
 
     logAction("修改角色权限", roleName);
+    m_loadedPermissionKeys = checkedKeys;
     QMessageBox::information(this, "保存成功", QString("角色 '%1' 的权限配置已成功保存！").arg(roleName));
 
     restoreButtons();

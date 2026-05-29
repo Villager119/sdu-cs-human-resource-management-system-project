@@ -74,7 +74,11 @@ ServerSettingsDialog::ServerSettingsDialog(const QString &configPath, QWidget *p
     m_portSpin->setValue(settings.value("Database/Port", 3306).toInt());
     m_dbEdit->setText(settings.value("Database/Database", "hrms_db").toString());
     m_uidEdit->setText(settings.value("Database/UID", "root").toString());
-    m_pwdEdit->setText(decodeConfigPassword(settings.value("Database/PWD", "").toString()));
+    QString storedPwd = settings.value("Database/PWD", "").toString();
+    if (storedPwd.isEmpty()) {
+        storedPwd = settings.value("Database/Password", "").toString();
+    }
+    m_pwdEdit->setText(decodeConfigPassword(storedPwd));
 
     // 连接信号
     connect(m_scanBtn, &QPushButton::clicked, this, &ServerSettingsDialog::onScan);
@@ -209,7 +213,9 @@ void ServerSettingsDialog::onSave()
     settings.setValue("Database/Port",     m_portSpin->value());
     settings.setValue("Database/Database", m_dbEdit->text().trimmed());
     settings.setValue("Database/UID",      m_uidEdit->text().trimmed());
-    settings.setValue("Database/PWD",      QString(m_pwdEdit->text().toUtf8().toBase64()));
+    const QString encodedPwd = QString(m_pwdEdit->text().toUtf8().toBase64());
+    settings.setValue("Database/PWD",      encodedPwd);
+    settings.setValue("Database/Password", encodedPwd);
     settings.sync();
 
     accept();

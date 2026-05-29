@@ -226,6 +226,7 @@ void PerformanceDrawer::setupAddMode()
     m_commentEdit->clear();
 
     updateTotal();
+    rememberCurrentState();
 }
 
 void PerformanceDrawer::setupEditMode(int empId, const QString &month, int a1, int a2, int a3, int a4, const QString &comment)
@@ -245,6 +246,7 @@ void PerformanceDrawer::setupEditMode(int empId, const QString &month, int a1, i
     m_commentEdit->setPlainText(comment);
 
     updateTotal();
+    rememberCurrentState();
 }
 
 void PerformanceDrawer::updateTotal()
@@ -274,7 +276,45 @@ void PerformanceDrawer::submitScore()
 
     emit logRequested(result.logAction, result.logDetails);
     Toast::show(this, result.message, Toast::Success);
+    rememberCurrentState();
     
     emit scoreSubmitted();
     GlobalEvents::instance()->dataChanged();
+}
+
+void PerformanceDrawer::rememberCurrentState()
+{
+    m_savedEmpId = m_empCombo->currentData().toInt();
+    m_savedMonth = m_drawerMonthEdit->text().trimmed();
+    m_savedS1 = m_s1->value();
+    m_savedS2 = m_s2->value();
+    m_savedS3 = m_s3->value();
+    m_savedS4 = m_s4->value();
+    m_savedComment = m_commentEdit->toPlainText().trimmed();
+}
+
+bool PerformanceDrawer::hasUnsavedChanges() const
+{
+    if (!isVisible()) {
+        return false;
+    }
+    return m_empCombo->currentData().toInt() != m_savedEmpId
+        || m_drawerMonthEdit->text().trimmed() != m_savedMonth
+        || m_s1->value() != m_savedS1
+        || m_s2->value() != m_savedS2
+        || m_s3->value() != m_savedS3
+        || m_s4->value() != m_savedS4
+        || m_commentEdit->toPlainText().trimmed() != m_savedComment;
+}
+
+bool PerformanceDrawer::saveChanges()
+{
+    submitScore();
+    return !hasUnsavedChanges();
+}
+
+void PerformanceDrawer::discardChanges()
+{
+    rememberCurrentState();
+    emit closeRequested();
 }

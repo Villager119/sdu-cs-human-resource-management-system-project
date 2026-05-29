@@ -240,6 +240,9 @@ OrgTab::OrgTab(std::function<void(const QString&, const QString&)> logFn,
     connect(m_btnAddJob, &QPushButton::clicked, this, &OrgTab::addJobStandard);
     connect(m_btnDelJob, &QPushButton::clicked, this, &OrgTab::removeJobStandard);
     connect(m_btnSaveJobs, &QPushButton::clicked, this, &OrgTab::saveJobStandards);
+    connect(m_nameEdit, &QLineEdit::textEdited, this, &OrgTab::markDepartmentDirty);
+    connect(m_parentCombo, &QComboBox::currentIndexChanged, this, &OrgTab::markDepartmentDirty);
+    connect(m_managerCombo, &QComboBox::currentIndexChanged, this, &OrgTab::markDepartmentDirty);
     connect(m_jobTable->selectionModel(), &QItemSelectionModel::selectionChanged,
             this, &OrgTab::updateJobStandardButtons);
     connect(m_jobModel, &QAbstractItemModel::dataChanged, this, &OrgTab::updateJobStandardButtons);
@@ -270,6 +273,7 @@ OrgTab::OrgTab(std::function<void(const QString&, const QString&)> logFn,
 
 void OrgTab::refresh()
 {
+    m_loadingDepartment = true;
     m_treeModel->clear();
     m_parentCombo->clear(); m_parentCombo->addItem("(无-顶级)", QVariant());
     m_managerCombo->clear(); m_managerCombo->addItem("(请先选择部门)", QVariant());
@@ -294,6 +298,8 @@ void OrgTab::refresh()
         if (pid == -1 || !items.contains(pid)) m_treeModel->appendRow(it.value());
         else items[pid]->appendRow(it.value());
     }
+    m_loadingDepartment = false;
+    m_departmentDirty = false;
 
     // Delete orphaned items in circular references to prevent memory leak
     for (auto *item : items.values()) {
@@ -321,6 +327,7 @@ void OrgTab::onTreeSelectionChanged()
         m_btnAssignEmployee->setEnabled(false);
         m_jobModel->setFilter("1=0");
         m_jobModel->select();
+        m_departmentDirty = false;
         updateJobStandardButtons();
         return;
     }
@@ -330,6 +337,7 @@ void OrgTab::onTreeSelectionChanged()
 
     const OrgService::DepartmentDetail detail = OrgService().departmentDetail(m_selectedDeptId);
     if (detail.found) {
+        m_loadingDepartment = true;
         m_nameEdit->setText(detail.name);
         int pid = detail.parentId > 0 ? m_parentCombo->findData(detail.parentId) : 0;
         m_parentCombo->setCurrentIndex(pid > 0 ? pid : 0);
@@ -350,6 +358,8 @@ void OrgTab::onTreeSelectionChanged()
         managerQuery.finish();
         int mid = detail.managerId > 0 ? m_managerCombo->findData(detail.managerId) : 0;
         m_managerCombo->setCurrentIndex(mid > 0 ? mid : 0);
+        m_loadingDepartment = false;
+        m_departmentDirty = false;
         // 显示该部门在职员工
         QString escapedName = detail.name;
         escapedName.replace("'", "''");
@@ -439,6 +449,45 @@ void OrgTab::updateJobStandardButtons()
     m_btnSaveJobs->setEnabled(hasDept && m_jobModel->isDirty());
 }
 
+void OrgTab::markDepartmentDirty()
+{
+    if (!m_loadingDepartment) {
+        m_departmentDirty = true;
+    }
+}
+
+bool OrgTab::hasUnsavedChanges() const
+{
+    return m_departmentDirty || (m_jobModel && m_jobModel->isDirty());
+}
+
+bool OrgTab::saveChanges()
+{
+    if (m_departmentDirty) {
+        saveDepartment();
+        if (m_departmentDirty) {
+            return false;
+        }
+    }
+    if (m_jobModel && m_jobModel->isDirty()) {
+        saveJobStandards();
+        if (m_jobModel->isDirty()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void OrgTab::discardChanges()
+{
+    if (m_jobModel) {
+        m_jobModel->revertAll();
+        m_jobModel->select();
+    }
+    m_departmentDirty = false;
+    onTreeSelectionChanged();
+}
+
 void OrgTab::assignEmployeeToSelectedDepartment()
 {
     if (m_selectedDeptId <= 0) {
@@ -512,6 +561,7 @@ void OrgTab::saveDepartment()
         m_log("新增部门", name);
     }
     Toast::show(this, "部门信息已保存", Toast::Success);
+    m_departmentDirty = false;
     m_selectedDeptId = -1;
     m_nameEdit->clear();
     refresh();

@@ -10,17 +10,22 @@
 #include <QLineEdit>
 #include <QComboBox>
 #include <functional>
+#include "../utils/UnsavedChangesGuard.h"
 
 class QPushButton;
 class OrgChartView;
 class QTabWidget;
 
-class OrgTab : public QWidget
+class OrgTab : public QWidget, public UnsavedChangesGuard
 {
     Q_OBJECT
 public:
     OrgTab(std::function<void(const QString&, const QString&)> logFn,
            QWidget *parent = nullptr);
+    bool hasUnsavedChanges() const override;
+    bool saveChanges() override;
+    void discardChanges() override;
+    QString unsavedChangesMessage() const override { return "组织信息还有未保存的修改，是否先保存再离开？"; }
 
 public slots:
     void refresh();
@@ -34,6 +39,7 @@ private slots:
     void removeJobStandard();
     void saveJobStandards();
     void updateJobStandardButtons();
+    void markDepartmentDirty();
 
 private:
     QTreeView *m_tree;
@@ -55,6 +61,8 @@ private:
     QSplitter *m_splitter;
     OrgChartView *m_chartView;
     QTabWidget *m_tabWidget;
+    bool m_loadingDepartment = false;
+    bool m_departmentDirty = false;
 };
 
 #endif

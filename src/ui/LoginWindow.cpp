@@ -112,7 +112,11 @@ void LoginWindow::tryReconnect()
     int     port     = settings.value("Database/Port",     3306).toInt();
     QString database = settings.value("Database/Database", "hrms_db").toString();
     QString uid      = settings.value("Database/UID",      "root").toString();
-    QString pwd      = decodeConfigPassword(settings.value("Database/PWD", "").toString());
+    QString storedPwd = settings.value("Database/PWD", "").toString();
+    if (storedPwd.isEmpty()) {
+        storedPwd = settings.value("Database/Password", "").toString();
+    }
+    QString pwd      = decodeConfigPassword(storedPwd);
 
     QSqlDatabase db = QSqlDatabase::database();
     db.close();

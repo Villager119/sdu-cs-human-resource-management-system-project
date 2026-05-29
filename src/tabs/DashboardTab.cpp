@@ -666,6 +666,30 @@ void DashboardTab::refreshChart()
         }
     };
 
+    auto applyDistinctPieColors = [](QPieSeries *series) {
+        const QList<QColor> colors = {
+            QColor("#2563eb"), // blue
+            QColor("#f97316"), // orange
+            QColor("#16a34a"), // green
+            QColor("#9333ea"), // purple
+            QColor("#dc2626"), // red
+            QColor("#0891b2"), // cyan
+            QColor("#ca8a04"), // amber
+            QColor("#db2777"), // pink
+            QColor("#4f46e5"), // indigo
+            QColor("#65a30d"), // lime
+            QColor("#0f766e"), // teal
+            QColor("#7c2d12")  // brown
+        };
+
+        int i = 0;
+        for (auto *slice : series->slices()) {
+            slice->setBrush(colors.at(i % colors.size()));
+            slice->setPen(QPen(Qt::white, 1.5));
+            ++i;
+        }
+    };
+
     auto appendCompactCategory = [&](QStringList &categories, const QString &raw) {
         categories << compactLabel(raw, 7);
     };
@@ -783,6 +807,7 @@ void DashboardTab::refreshChart()
             auto *s = new QPieSeries;
             for (const auto &item : items) s->append(item.first, item.second);
             tunePieSeries(s);
+            applyDistinctPieColors(s);
             for (auto *slice : s->slices()) {
                 formatPieLabel(slice, "人");
                 installPieTooltip(slice, "人");
@@ -799,6 +824,7 @@ void DashboardTab::refreshChart()
             while (q.next()) s->append(q.value(0).toString(), q.value(1).toInt());
             q.finish();
             tunePieSeries(s);
+            applyDistinctPieColors(s);
             for (auto *slice : s->slices()) {
                 formatPieLabel(slice, "人");
                 installPieTooltip(slice, "人");
@@ -821,6 +847,7 @@ void DashboardTab::refreshChart()
             auto *s = new QPieSeries;
             for (const auto &item : items) s->append(item.first, item.second);
             tunePieSeries(s);
+            applyDistinctPieColors(s);
             for (auto *slice : s->slices()) {
                 formatPieLabel(slice, "人");
                 installPieTooltip(slice, "人");
@@ -843,6 +870,7 @@ void DashboardTab::refreshChart()
             auto *s = new QPieSeries;
             for (const auto &item : items) s->append(item.first, item.second);
             tunePieSeries(s);
+            applyDistinctPieColors(s);
             for (auto *slice : s->slices()) {
                 formatPieLabel(slice, "人");
                 installPieTooltip(slice, "人");
@@ -865,6 +893,7 @@ void DashboardTab::refreshChart()
             auto *s = new QPieSeries;
             for (const auto &item : items) s->append(item.first, item.second);
             tunePieSeries(s);
+            applyDistinctPieColors(s);
             for (auto *slice : s->slices()) {
                 formatPieLabel(slice, "人");
                 installPieTooltip(slice, "人");

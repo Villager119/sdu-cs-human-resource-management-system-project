@@ -51,6 +51,15 @@ PayrollTab::PayrollTab(int empId, const QString &role,
     filterRow->addWidget(new QLabel("选择月份:"));
     m_monthCombo = new QComboBox;
     filterRow->addWidget(m_monthCombo);
+    if (SessionManager::instance()->hasPermission("calculate_payroll")) {
+        filterRow->addWidget(new QLabel("员工姓名:"));
+        m_employeeNameEdit = new QLineEdit;
+        m_employeeNameEdit->setPlaceholderText("输入姓名查询工资条");
+        m_employeeNameEdit->setMinimumWidth(180);
+        filterRow->addWidget(m_employeeNameEdit);
+    } else {
+        m_employeeNameEdit = nullptr;
+    }
 
     m_btnSearch = new QPushButton("查询");
     m_btnReset = new QPushButton("重置");
@@ -76,8 +85,14 @@ PayrollTab::PayrollTab(int empId, const QString &role,
     connect(m_btnSearch, &QPushButton::clicked, this, &PayrollTab::filterPayroll);
     connect(m_btnReset, &QPushButton::clicked, this, [this]() {
         m_monthCombo->setCurrentIndex(0);
+        if (m_employeeNameEdit) {
+            m_employeeNameEdit->clear();
+        }
         filterPayroll();
     });
+    if (m_employeeNameEdit) {
+        connect(m_employeeNameEdit, &QLineEdit::returnPressed, this, &PayrollTab::filterPayroll);
+    }
 
     refreshMonthCombo();
     m_model->select();
@@ -144,6 +159,15 @@ void PayrollTab::filterPayroll()
         QString month = m_monthCombo->currentText();
         month.replace("'", "''");
         conds << QString("payroll.month = '%1'").arg(month);
+    }
+    if (m_employeeNameEdit && !m_employeeNameEdit->text().trimmed().isEmpty()) {
+        QString name = m_employeeNameEdit->text().trimmed();
+        name.replace("\\", "\\\\");
+        name.replace("'", "''");
+        name.replace("%", "\\%");
+        name.replace("_", "\\_");
+        conds << QString("payroll.emp_id IN (SELECT emp_id FROM employees WHERE name LIKE '%%1%' ESCAPE '\\\\')")
+                     .arg(name);
     }
     m_model->setFilter(conds.isEmpty() ? "" : conds.join(" AND "));
     m_model->select();

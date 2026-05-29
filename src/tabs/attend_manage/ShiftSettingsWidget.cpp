@@ -10,6 +10,24 @@
 #include <QSqlError>
 #include <QTime>
 
+static QTime parseShiftTime(const QVariant &value)
+{
+    QTime parsed = value.toTime();
+    if (parsed.isValid()) {
+        return parsed;
+    }
+
+    QString text = value.toString();
+    if (text.size() >= 8) {
+        text = text.left(8);
+    }
+    parsed = QTime::fromString(text, "HH:mm:ss");
+    if (parsed.isValid()) {
+        return parsed;
+    }
+    return QTime::fromString(text, "HH:mm");
+}
+
 ShiftSettingsWidget::ShiftSettingsWidget(int empId, const QString &role, QWidget *parent)
     : QWidget(parent), m_empId(empId), m_role(role)
 {
@@ -95,10 +113,18 @@ void ShiftSettingsWidget::refresh()
     {
         QSqlQuery sq;
         if (sq.exec("SELECT start_time, end_time FROM shifts WHERE shift_id = 1") && sq.next()) {
-            QTime start = QTime::fromString(sq.value(0).toString(), "HH:mm:ss");
-            QTime end = QTime::fromString(sq.value(1).toString(), "HH:mm:ss");
-            if (m_shiftStartEdit) m_shiftStartEdit->setTime(start);
-            if (m_shiftEndEdit) m_shiftEndEdit->setTime(end);
+            QTime start = parseShiftTime(sq.value(0));
+            QTime end = parseShiftTime(sq.value(1));
+            if (!start.isValid()) start = QTime(9, 0);
+            if (!end.isValid()) end = QTime(18, 0);
+            if (m_shiftStartEdit) {
+                m_shiftStartEdit->setTime(start);
+                m_savedStart = m_shiftStartEdit->time();
+            }
+            if (m_shiftEndEdit) {
+                m_shiftEndEdit->setTime(end);
+                m_savedEnd = m_shiftEndEdit->time();
+            }
         }
         sq.finish();
     }
@@ -106,12 +132,33 @@ void ShiftSettingsWidget::refresh()
 
 void ShiftSettingsWidget::saveShiftSettings()
 {
+    saveInternal(true);
+}
+
+bool ShiftSettingsWidget::hasUnsavedChanges() const
+{
+    return m_shiftStartEdit && m_shiftEndEdit
+        && (m_shiftStartEdit->time() != m_savedStart || m_shiftEndEdit->time() != m_savedEnd);
+}
+
+bool ShiftSettingsWidget::saveChanges()
+{
+    return saveInternal(true);
+}
+
+void ShiftSettingsWidget::discardChanges()
+{
+    refresh();
+}
+
+bool ShiftSettingsWidget::saveInternal(bool showMessage)
+{
     QTime start = m_shiftStartEdit->time();
     QTime end = m_shiftEndEdit->time();
 
     if (end <= start) {
         Toast::show(this, "下班时间不能早于或等于上班时间", Toast::Warning);
-        return;
+        return false;
     }
 
     bool ok = false;
@@ -127,10 +174,16 @@ void ShiftSettingsWidget::saveShiftSettings()
     }
 
     if (ok) {
-        Toast::show(this, "班次时间设置已保存", Toast::Success);
+        m_savedStart = start;
+        m_savedEnd = end;
+        if (showMessage) {
+            Toast::show(this, "班次时间设置已保存", Toast::Success);
+        }
         emit logRequested("修改班次时间", QString("上班: %1, 下班: %2").arg(start.toString("HH:mm"), end.toString("HH:mm")));
         GlobalEvents::instance()->dataChanged();
+        return true;
     } else {
         Toast::show(this, "保存失败：" + err, Toast::Error);
+        return false;
     }
 }

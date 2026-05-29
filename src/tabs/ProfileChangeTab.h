@@ -32,10 +32,12 @@ private:
     QLineEdit *m_newValueEdit;
     class QTextEdit *m_reasonEdit;
     QPushButton *m_btnApprove, *m_btnReject;
+    QPushButton *m_btnSubmit;
     int m_empId;
     QString m_role;
     std::function<void(const QString&, const QString&)> m_log;
     std::function<void(int, const QString&, const QString&)> m_notify;
+    void updateApprovalButtons();
 };
 
 #endif

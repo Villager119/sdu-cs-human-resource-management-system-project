@@ -164,9 +164,9 @@ ProfileChangeTab::ProfileChangeTab(int empId, const QString &role,
     btnSubmitLayout->setContentsMargins(0, 0, 0, 0);
     btnSubmitLayout->addStretch();
 
-    QPushButton *btnSubmit = new QPushButton("提交申请", leftPanel);
-    btnSubmit->setObjectName("btnSubmit");
-    btnSubmit->setStyleSheet(
+    m_btnSubmit = new QPushButton("提交申请", leftPanel);
+    m_btnSubmit->setObjectName("btnSubmit");
+    m_btnSubmit->setStyleSheet(
         "QPushButton#btnSubmit {"
         "  background-color: #2563eb;"
         "  color: #ffffff;"
@@ -183,10 +183,10 @@ ProfileChangeTab::ProfileChangeTab(int empId, const QString &role,
         "  background-color: #1e40af;"
         "}"
     );
-    btnSubmitLayout->addWidget(btnSubmit);
+    btnSubmitLayout->addWidget(m_btnSubmit);
     leftLayout->addLayout(btnSubmitLayout);
 
-    connect(btnSubmit, &QPushButton::clicked, this, &ProfileChangeTab::submitRequest);
+    connect(m_btnSubmit, &QPushButton::clicked, this, &ProfileChangeTab::submitRequest);
 
     mainLayout->addWidget(leftPanel);
 
@@ -311,19 +311,7 @@ ProfileChangeTab::ProfileChangeTab(int empId, const QString &role,
     m_btnApprove->setEnabled(false);
     m_btnReject->setEnabled(false);
 
-    connect(m_table->selectionModel(), &QItemSelectionModel::selectionChanged, this, [this]() {
-        auto selected = m_table->selectionModel()->selectedRows();
-        if (selected.size() == 1) {
-            int row = selected.first().row();
-            QString status = m_model->data(m_model->index(row, 5)).toString();
-            bool isPending = (status == "待审批");
-            m_btnApprove->setEnabled(isPending);
-            m_btnReject->setEnabled(isPending);
-        } else {
-            m_btnApprove->setEnabled(false);
-            m_btnReject->setEnabled(false);
-        }
-    });
+    connect(m_table->selectionModel(), &QItemSelectionModel::selectionChanged, this, &ProfileChangeTab::updateApprovalButtons);
 
     if (!SessionManager::instance()->hasPermission("request_profile_change")) {
         leftPanel->setVisible(false);
@@ -337,10 +325,19 @@ ProfileChangeTab::ProfileChangeTab(int empId, const QString &role,
 
 void ProfileChangeTab::submitRequest()
 {
+    m_btnSubmit->setEnabled(false);
+    auto restoreSubmitButton = [this]() {
+        m_btnSubmit->setEnabled(true);
+    };
+
     QString field = m_fieldCombo->currentData().toString();
     QString nv = m_newValueEdit->text().trimmed();
     QString reason = m_reasonEdit->toPlainText().trimmed();
-    if (nv.isEmpty() || reason.isEmpty()) { Toast::show(this, "新值和理由不能为空", Toast::Warning); return; }
+    if (nv.isEmpty() || reason.isEmpty()) {
+        Toast::show(this, "新值和理由不能为空", Toast::Warning);
+        restoreSubmitButton();
+        return;
+    }
 
     const ProfileChangeService::Result result =
         ProfileChangeService().submitRequest(m_empId, field, nv, reason);
@@ -349,32 +346,53 @@ void ProfileChangeTab::submitRequest()
         m_log(result.logAction, result.logDetails);
         m_notify(0, result.notificationTitle, result.notificationContent);
         m_model->select();
-        m_newValueEdit->clear(); m_reasonEdit->clear();
+        m_newValueEdit->clear();
+        m_reasonEdit->clear();
     } else {
-        QMessageBox::critical(this, "错误", result.errorMessage);
+        QMessageBox::critical(this, "提交失败", result.errorMessage);
     }
+    restoreSubmitButton();
 }
 
 void ProfileChangeTab::approve()
 {
+    m_btnApprove->setEnabled(false);
+    m_btnReject->setEnabled(false);
+
     int row = m_table->currentIndex().row();
-    if (row < 0) { Toast::show(this, "请选中一条申请", Toast::Warning); return; }
+    if (row < 0) {
+        Toast::show(this, "请选中一条申请", Toast::Warning);
+        updateApprovalButtons();
+        return;
+    }
     int id = m_model->data(m_model->index(row, 0)).toInt();
 
     const ProfileChangeService::Result result = ProfileChangeService().approveRequest(id);
-    if (!result.success) { QMessageBox::critical(this, "失败", result.errorMessage); return; }
+    if (!result.success) {
+        QMessageBox::critical(this, "审批失败", result.errorMessage);
+        updateApprovalButtons();
+        return;
+    }
 
     m_log(result.logAction, result.logDetails);
     m_notify(result.employeeId, result.notificationTitle, result.notificationContent);
     Toast::show(this, "信息修改申请已批准，数据已更新", Toast::Success);
     m_model->select();
     GlobalEvents::instance()->dataChanged();
+    updateApprovalButtons();
 }
 
 void ProfileChangeTab::reject()
 {
+    m_btnApprove->setEnabled(false);
+    m_btnReject->setEnabled(false);
+
     int row = m_table->currentIndex().row();
-    if (row < 0) { Toast::show(this, "请选中一条申请", Toast::Warning); return; }
+    if (row < 0) {
+        Toast::show(this, "请选中一条申请", Toast::Warning);
+        updateApprovalButtons();
+        return;
+    }
     int id = m_model->data(m_model->index(row, 0)).toInt();
 
     const ProfileChangeService::Result result = ProfileChangeService().rejectRequest(id);
@@ -385,11 +403,33 @@ void ProfileChangeTab::reject()
         m_model->select();
         GlobalEvents::instance()->dataChanged();
     } else {
-        QMessageBox::critical(this, "失败", result.errorMessage);
+        QMessageBox::critical(this, "审批失败", result.errorMessage);
     }
+    updateApprovalButtons();
 }
 
 void ProfileChangeTab::refresh()
 {
     m_model->select();
+    updateApprovalButtons();
+}
+
+void ProfileChangeTab::updateApprovalButtons()
+{
+    if (!m_table->selectionModel()) {
+        m_btnApprove->setEnabled(false);
+        m_btnReject->setEnabled(false);
+        return;
+    }
+    auto selected = m_table->selectionModel()->selectedRows();
+    if (selected.size() == 1) {
+        int row = selected.first().row();
+        QString status = m_model->data(m_model->index(row, 5)).toString();
+        bool isPending = (status == "待审批");
+        m_btnApprove->setEnabled(isPending);
+        m_btnReject->setEnabled(isPending);
+    } else {
+        m_btnApprove->setEnabled(false);
+        m_btnReject->setEnabled(false);
+    }
 }

@@ -50,12 +50,18 @@ private:
     void setupModelSignals();
     QStringList loadDepartments() const;
     QStringList loadRoles() const;
+    QStringList loadShiftIds() const;
     QStringList loadPositionsForDepartment(const QString &department) const;
     QStringList loadTitlesForJob(const QString &department, const QString &position) const;
     bool defaultSalaryForJob(const QString &department, const QString &position, const QString &title, double *salary) const;
     void applyJobStandardForRow(int row, int changedColumn);
     bool validateRows();
     bool validateEmployeeRow(int row);
+    QString employeeBaseFilter() const;
+    QString employeePagedFilter(QString *errorText = nullptr) const;
+    int filteredEmployeeCount(QString *errorText = nullptr) const;
+    void loadEmployeePage(bool resetPage = false);
+    bool handlePendingChangesBeforePageSwitch();
 
     OptimisticSqlTableModel *m_model;
     QTableView *m_table;
@@ -69,6 +75,7 @@ private:
     PaginationBar *m_pagination;
     std::function<void(const QString&, const QString&)> m_log;
     bool m_syncingJobFields = false;
+    int m_loadedEmployeePage = 1;
 
     // Dynamic column indexes
     int m_idxEmpId = -1;
@@ -81,6 +88,7 @@ private:
     int m_idxSalary = -1;
     int m_idxHire = -1;
     int m_idxContract = -1;
+    int m_idxShift = -1;
     int m_idxStatus = -1;
     int m_idxEdu = -1;
     int m_idxMarital = -1;

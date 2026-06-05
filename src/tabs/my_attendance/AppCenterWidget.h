@@ -32,19 +32,19 @@ private:
     QString m_role;
 
     // Leave request components
-    QDateEdit *m_leaveStart;
-    QDateEdit *m_leaveEnd;
-    QTextEdit *m_leaveReason;
-    QTableView *m_leaveTable;
-    QSqlRelationalTableModel *m_leaveModel;
+    QDateEdit *m_leaveStart = nullptr;
+    QDateEdit *m_leaveEnd = nullptr;
+    QTextEdit *m_leaveReason = nullptr;
+    QTableView *m_leaveTable = nullptr;
+    QSqlRelationalTableModel *m_leaveModel = nullptr;
 
     // Makeup request components
-    QDateEdit *m_makeupDate;
-    QComboBox *m_makeupType;
-    QTimeEdit *m_makeupTime;
-    QTextEdit *m_makeupReason;
-    QTableView *m_makeupTable;
-    QSqlRelationalTableModel *m_makeupModel;
+    QDateEdit *m_makeupDate = nullptr;
+    QComboBox *m_makeupType = nullptr;
+    QTimeEdit *m_makeupTime = nullptr;
+    QTextEdit *m_makeupReason = nullptr;
+    QTableView *m_makeupTable = nullptr;
+    QSqlRelationalTableModel *m_makeupModel = nullptr;
 };
 
 #endif // APPCENTERWIDGET_H

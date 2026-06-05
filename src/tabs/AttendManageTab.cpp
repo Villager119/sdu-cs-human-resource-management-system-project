@@ -2,6 +2,7 @@
 #include "attend_manage/AttendBoardWidget.h"
 #include "attend_manage/AttendApprovalWidget.h"
 #include "attend_manage/ShiftSettingsWidget.h"
+#include "../core/SessionManager.h"
 #include <QVBoxLayout>
 #include <QTabWidget>
 
@@ -25,31 +26,45 @@ AttendManageTab::AttendManageTab(int empId, const QString &role,
         "}"
     );
 
-    m_boardWidget = new AttendBoardWidget(m_empId, m_role, this);
-    m_approvalWidget = new AttendApprovalWidget(m_empId, m_role, this);
-    m_settingsWidget = new ShiftSettingsWidget(m_empId, m_role, this);
+    const bool canApproveLeave = SessionManager::instance()->hasPermission("approve_leave");
+    const bool canApproveMakeup = SessionManager::instance()->hasPermission("approve_makeup");
+    const bool canManageShifts = SessionManager::instance()->hasPermission("manage_shifts");
 
-    topTabs->addTab(m_boardWidget, "📊 考勤看板");
-    topTabs->addTab(m_approvalWidget, "✍ 审批中心");
-    topTabs->addTab(m_settingsWidget, "⚙ 班次设置");
+    if (canApproveLeave || canApproveMakeup) {
+        m_boardWidget = new AttendBoardWidget(m_empId, m_role, this);
+        m_approvalWidget = new AttendApprovalWidget(m_empId, m_role, this);
+        topTabs->addTab(m_boardWidget, "📊 考勤看板");
+        topTabs->addTab(m_approvalWidget, "✍ 审批中心");
+    }
+
+    if (canManageShifts) {
+        m_settingsWidget = new ShiftSettingsWidget(m_empId, m_role, this);
+        topTabs->addTab(m_settingsWidget, "⚙ 班次设置");
+    }
 
     mainLayout->addWidget(topTabs);
 
     // Connect signals for decoupling
-    connect(m_boardWidget, &AttendBoardWidget::logRequested, this, [this](const QString &act, const QString &det) {
-        if (m_log) m_log(act, det);
-    });
+    if (m_boardWidget) {
+        connect(m_boardWidget, &AttendBoardWidget::logRequested, this, [this](const QString &act, const QString &det) {
+            if (m_log) m_log(act, det);
+        });
+    }
 
-    connect(m_approvalWidget, &AttendApprovalWidget::logRequested, this, [this](const QString &act, const QString &det) {
-        if (m_log) m_log(act, det);
-    });
-    connect(m_approvalWidget, &AttendApprovalWidget::notificationRequested, this, [this](int targetId, const QString &t, const QString &c) {
-        if (m_notify) m_notify(targetId, t, c);
-    });
+    if (m_approvalWidget) {
+        connect(m_approvalWidget, &AttendApprovalWidget::logRequested, this, [this](const QString &act, const QString &det) {
+            if (m_log) m_log(act, det);
+        });
+        connect(m_approvalWidget, &AttendApprovalWidget::notificationRequested, this, [this](int targetId, const QString &t, const QString &c) {
+            if (m_notify) m_notify(targetId, t, c);
+        });
+    }
 
-    connect(m_settingsWidget, &ShiftSettingsWidget::logRequested, this, [this](const QString &act, const QString &det) {
-        if (m_log) m_log(act, det);
-    });
+    if (m_settingsWidget) {
+        connect(m_settingsWidget, &ShiftSettingsWidget::logRequested, this, [this](const QString &act, const QString &det) {
+            if (m_log) m_log(act, det);
+        });
+    }
 
     refresh();
 }

@@ -35,7 +35,7 @@ private:
     double loadWorkDaysPerMonth();
     QList<TaxItem> loadTaxItems();
     double loadTaxThreshold();
-    QList<ActiveEmployee> loadActiveEmployees();
+    QList<ActiveEmployee> loadActiveEmployees(const QString &month);
     int leaveDaysForEmployee(int empId, const QString &month);
     double performanceBonusForEmployee(int empId, const QString &month, double baseSalary);
     bool deletePayrollRows(const QString &month, QString *errorText);

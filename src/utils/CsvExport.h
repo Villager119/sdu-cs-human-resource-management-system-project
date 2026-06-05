@@ -3,6 +3,7 @@
 
 #include <QAbstractItemModel>
 #include <QString>
+#include <QStringList>
 #include <QList>
 #include <QWidget>
 
@@ -13,5 +14,8 @@ void exportModelToCSV(QAbstractItemModel *model, const QString &filePath,
 // Modern asynchronous non-blocking export
 void exportModelToCSVAsync(QAbstractItemModel *model, const QString &filePath,
                            QWidget *parent = nullptr, const QList<int> &skipCols = {});
+
+void exportRowsToCSVAsync(const QStringList &headers, const QList<QStringList> &rows,
+                          const QString &filePath, QWidget *parent = nullptr);
 
 #endif // CSVEXPORT_H

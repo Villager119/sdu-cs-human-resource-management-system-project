@@ -28,7 +28,4 @@ config.ini
 *.sqlite
 
 # 未追踪文档
-CLAUDE.md
 项目进度与工作跟踪表.md
-实验四.md
-答辩应对指南.md

@@ -34,6 +34,7 @@
 #include <QTimer>
 #include <QStyle>
 #include <QSignalBlocker>
+#include <QStringList>
 
 MainWindow::MainWindow(int empId, QString role, QWidget *parent)
     : QMainWindow(parent), ui(new Ui::MainWindow), m_empId(empId), m_role(role)
@@ -108,7 +109,8 @@ void MainWindow::applyPermissionVisibility()
         m_myAttendTab->hide();
     }
     if (!(SessionManager::instance()->hasPermission("approve_leave") ||
-          SessionManager::instance()->hasPermission("approve_makeup"))) {
+          SessionManager::instance()->hasPermission("approve_makeup") ||
+          SessionManager::instance()->hasPermission("manage_shifts"))) {
         m_attendManageTab->hide();
     }
     if (!(SessionManager::instance()->hasPermission("view_personal_payroll") ||
@@ -251,7 +253,8 @@ void MainWindow::setupNavigation()
     const bool showMyAttend = SessionManager::instance()->hasPermission("apply_leave_makeup") ||
                               SessionManager::instance()->hasPermission("apply_leave");
     const bool showAttendManage = SessionManager::instance()->hasPermission("approve_leave") ||
-                                  SessionManager::instance()->hasPermission("approve_makeup");
+                                  SessionManager::instance()->hasPermission("approve_makeup") ||
+                                  SessionManager::instance()->hasPermission("manage_shifts");
 
     addNavItem("🏠", "首页", homePage, homePage != nullptr);
     addNavItem("👥", "员工", empPage, empPage != nullptr);
@@ -333,9 +336,7 @@ void MainWindow::connectGlobalRefreshSignals()
     connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_payrollTab, &PayrollTab::refresh);
     connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_myAttendTab, &MyAttendanceTab::refresh);
     connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, m_attendManageTab, &AttendManageTab::refresh);
-    connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, this, []() {
-        SessionManager::instance()->reloadPermissions();
-    });
+    connect(GlobalEvents::instance(), &GlobalEvents::dataChanged, this, &MainWindow::handlePermissionReload);
     connect(GlobalEvents::instance(), &GlobalEvents::auditRefresh, m_auditTab, &AuditTab::refresh);
 }
 
@@ -381,6 +382,31 @@ void MainWindow::selectCurrentSubTab(const QString &tabText)
             }
         }
     }
+}
+
+QString MainWindow::permissionSignature() const
+{
+    const auto *session = SessionManager::instance();
+    QStringList permissions = session->permissionsSet.values();
+    permissions.sort();
+    return session->role + "|" + permissions.join(",");
+}
+
+void MainWindow::handlePermissionReload()
+{
+    const QString before = permissionSignature();
+    SessionManager::instance()->reloadPermissions();
+    const QString after = permissionSignature();
+    m_role = SessionManager::instance()->role;
+    updateStatusBar();
+
+    if (before == after) {
+        return;
+    }
+
+    QMessageBox::information(this, "权限已更新",
+                             "当前账号的角色或权限已发生变化，请重新登录后使用最新菜单。");
+    actionLogoutTriggered();
 }
 
 MainWindow::~MainWindow()

@@ -8,6 +8,8 @@
 #include <QFrame>
 #include <QSqlQuery>
 #include <QSqlError>
+#include <QHeaderView>
+#include <QItemSelectionModel>
 #include <QTime>
 
 static QTime parseShiftTime(const QVariant &value)
@@ -102,6 +104,40 @@ ShiftSettingsWidget::ShiftSettingsWidget(int empId, const QString &role, QWidget
     connect(btnSave, &QPushButton::clicked, this, &ShiftSettingsWidget::saveShiftSettings);
 
     l->addWidget(panel);
+
+    QLabel *tableTitle = new QLabel("班次列表（员工管理中填写对应班次ID）", this);
+    tableTitle->setStyleSheet("font-size: 14px; font-weight: bold; color: #1d4ed8;");
+    l->addWidget(tableTitle);
+
+    m_shiftModel = new QSqlTableModel(this);
+    m_shiftModel->setTable("shifts");
+    m_shiftModel->setEditStrategy(QSqlTableModel::OnManualSubmit);
+    m_shiftModel->setHeaderData(0, Qt::Horizontal, "班次ID");
+    m_shiftModel->setHeaderData(1, Qt::Horizontal, "班次名称");
+    m_shiftModel->setHeaderData(2, Qt::Horizontal, "上班时间");
+    m_shiftModel->setHeaderData(3, Qt::Horizontal, "下班时间");
+
+    m_shiftTable = new QTableView(this);
+    m_shiftTable->setModel(m_shiftModel);
+    m_shiftTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_shiftTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_shiftTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    l->addWidget(m_shiftTable, 1);
+
+    auto *tableBtnRow = new QHBoxLayout;
+    tableBtnRow->addStretch();
+    QPushButton *btnAddShift = new QPushButton("新增班次", this);
+    QPushButton *btnRemoveShift = new QPushButton("删除班次", this);
+    QPushButton *btnSaveTable = new QPushButton("保存班次列表", this);
+    tableBtnRow->addWidget(btnAddShift);
+    tableBtnRow->addWidget(btnRemoveShift);
+    tableBtnRow->addWidget(btnSaveTable);
+    l->addLayout(tableBtnRow);
+
+    connect(btnAddShift, &QPushButton::clicked, this, &ShiftSettingsWidget::addShift);
+    connect(btnRemoveShift, &QPushButton::clicked, this, &ShiftSettingsWidget::removeSelectedShift);
+    connect(btnSaveTable, &QPushButton::clicked, this, &ShiftSettingsWidget::saveShiftTable);
+
     l->addStretch(1);
 
     refresh();
@@ -109,6 +145,10 @@ ShiftSettingsWidget::ShiftSettingsWidget(int empId, const QString &role, QWidget
 
 void ShiftSettingsWidget::refresh()
 {
+    if (m_shiftModel) {
+        m_shiftModel->select();
+    }
+
     // Load shift times for the shift configuration tab
     {
         QSqlQuery sq;
@@ -137,18 +177,105 @@ void ShiftSettingsWidget::saveShiftSettings()
 
 bool ShiftSettingsWidget::hasUnsavedChanges() const
 {
-    return m_shiftStartEdit && m_shiftEndEdit
-        && (m_shiftStartEdit->time() != m_savedStart || m_shiftEndEdit->time() != m_savedEnd);
+    return (m_shiftModel && m_shiftModel->isDirty())
+        || (m_shiftStartEdit && m_shiftEndEdit
+            && (m_shiftStartEdit->time() != m_savedStart || m_shiftEndEdit->time() != m_savedEnd));
 }
 
 bool ShiftSettingsWidget::saveChanges()
 {
-    return saveInternal(true);
+    if (m_shiftModel && m_shiftModel->isDirty()) {
+        QString errorText;
+        if (!validateShiftRows(&errorText)) {
+            Toast::show(this, errorText, Toast::Warning);
+            return false;
+        }
+        if (!m_shiftModel->submitAll()) {
+            Toast::show(this, "保存班次列表失败：" + m_shiftModel->lastError().text(), Toast::Error);
+            return false;
+        }
+    }
+    if (!saveInternal(false)) {
+        return false;
+    }
+    refresh();
+    GlobalEvents::instance()->dataChanged();
+    return true;
 }
 
 void ShiftSettingsWidget::discardChanges()
 {
+    if (m_shiftModel) {
+        m_shiftModel->revertAll();
+    }
     refresh();
+}
+
+void ShiftSettingsWidget::addShift()
+{
+    if (!m_shiftModel) return;
+    const int row = m_shiftModel->rowCount();
+    m_shiftModel->insertRow(row);
+    m_shiftModel->setData(m_shiftModel->index(row, 1), QString("新班次"));
+    m_shiftModel->setData(m_shiftModel->index(row, 2), QString("09:00:00"));
+    m_shiftModel->setData(m_shiftModel->index(row, 3), QString("18:00:00"));
+    if (m_shiftTable) {
+        m_shiftTable->selectRow(row);
+    }
+}
+
+void ShiftSettingsWidget::removeSelectedShift()
+{
+    if (!m_shiftModel || !m_shiftTable || !m_shiftTable->selectionModel()) return;
+    const auto rows = m_shiftTable->selectionModel()->selectedRows();
+    if (rows.isEmpty()) {
+        Toast::show(this, "请先选择要删除的班次", Toast::Warning);
+        return;
+    }
+
+    const int row = rows.first().row();
+    const int shiftId = m_shiftModel->data(m_shiftModel->index(row, 0)).toInt();
+    if (shiftId == 1) {
+        Toast::show(this, "标准班不能删除", Toast::Warning);
+        return;
+    }
+    if (shiftId > 0) {
+        QSqlQuery usedQuery;
+        usedQuery.prepare("SELECT COUNT(*) FROM employees WHERE shift_id=?");
+        usedQuery.addBindValue(shiftId);
+        if (!usedQuery.exec() || !usedQuery.next()) {
+            Toast::show(this, "检查班次占用失败：" + usedQuery.lastError().text(), Toast::Error);
+            usedQuery.finish();
+            return;
+        }
+        const int usedCount = usedQuery.value(0).toInt();
+        usedQuery.finish();
+        if (usedCount > 0) {
+            Toast::show(this, QString("该班次已被 %1 名员工使用，请先调整员工班次").arg(usedCount), Toast::Warning);
+            return;
+        }
+    }
+    m_shiftModel->removeRow(row);
+}
+
+void ShiftSettingsWidget::saveShiftTable()
+{
+    if (!m_shiftModel) return;
+    QString errorText;
+    if (!validateShiftRows(&errorText)) {
+        Toast::show(this, errorText, Toast::Warning);
+        return;
+    }
+
+    if (!m_shiftModel->submitAll()) {
+        Toast::show(this, "保存班次列表失败：" + m_shiftModel->lastError().text(), Toast::Error);
+        return;
+    }
+
+    refresh();
+    emit logRequested("保存班次列表", "更新班次定义");
+    GlobalEvents::instance()->dataChanged();
+    Toast::show(this, "班次列表已保存", Toast::Success);
 }
 
 bool ShiftSettingsWidget::saveInternal(bool showMessage)
@@ -180,10 +307,35 @@ bool ShiftSettingsWidget::saveInternal(bool showMessage)
             Toast::show(this, "班次时间设置已保存", Toast::Success);
         }
         emit logRequested("修改班次时间", QString("上班: %1, 下班: %2").arg(start.toString("HH:mm"), end.toString("HH:mm")));
+        if (m_shiftModel && !m_shiftModel->isDirty()) {
+            m_shiftModel->select();
+        }
         GlobalEvents::instance()->dataChanged();
         return true;
     } else {
         Toast::show(this, "保存失败：" + err, Toast::Error);
         return false;
     }
+}
+
+bool ShiftSettingsWidget::validateShiftRows(QString *errorText) const
+{
+    if (!m_shiftModel) return true;
+    for (int row = 0; row < m_shiftModel->rowCount(); ++row) {
+        if (m_shiftModel->headerData(row, Qt::Vertical).toString() == "!") {
+            continue;
+        }
+        const QString name = m_shiftModel->data(m_shiftModel->index(row, 1)).toString().trimmed();
+        const QTime start = parseShiftTime(m_shiftModel->data(m_shiftModel->index(row, 2)));
+        const QTime end = parseShiftTime(m_shiftModel->data(m_shiftModel->index(row, 3)));
+        if (name.isEmpty()) {
+            if (errorText) *errorText = QString("第 %1 行：班次名称不能为空").arg(row + 1);
+            return false;
+        }
+        if (!start.isValid() || !end.isValid() || end <= start) {
+            if (errorText) *errorText = QString("第 %1 行：班次时间无效").arg(row + 1);
+            return false;
+        }
+    }
+    return true;
 }

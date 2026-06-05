@@ -17,6 +17,7 @@ public:
     };
 
     struct EmployeeRecord {
+        int employeeId = 0;
         QString name;
         QString gender;
         QString phone;
@@ -29,6 +30,7 @@ public:
         QVariant baseSalary;
         QVariant hireDate;
         QVariant contractEndDate;
+        QVariant shiftId;
         QString title;
     };
 
@@ -39,6 +41,8 @@ public:
     bool validateEmployeeRecord(const EmployeeRecord &record, int displayRow, QString *errorMessage);
     bool departmentExists(const QString &department) const;
     bool roleExists(const QString &role) const;
+    bool shiftExists(int shiftId) const;
+    bool phoneAvailableForEmployee(const QString &phone, int employeeId, QString *errorMessage = nullptr) const;
     JobSalaryStandard jobSalaryStandard(const QString &department, const QString &position, const QString &title) const;
 
 private:

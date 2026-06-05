@@ -31,8 +31,12 @@ AppCenterWidget::AppCenterWidget(int empId, const QString &role, QWidget *parent
     QTabWidget *tabs = new QTabWidget(this);
     tabs->setStyleSheet(UiStyles::tabWidget());
 
-    tabs->addTab(createLeavePage(tabs), "💬 请假申请");
-    tabs->addTab(createMakeupPage(tabs), "✉ 补卡申请");
+    if (SessionManager::instance()->hasPermission("apply_leave")) {
+        tabs->addTab(createLeavePage(tabs), "💬 请假申请");
+    }
+    if (SessionManager::instance()->hasPermission("apply_leave_makeup")) {
+        tabs->addTab(createMakeupPage(tabs), "✉ 补卡申请");
+    }
     mainLayout->addWidget(tabs);
 }
 
@@ -117,7 +121,7 @@ QWidget *AppCenterWidget::createLeavePage(QTabWidget *tabs)
 
     leaveLayout->addWidget(leaveRight, 1);
 
-    if (!SessionManager::instance()->hasPermission("apply_leave_makeup")) {
+    if (!SessionManager::instance()->hasPermission("apply_leave")) {
         leaveLeft->setVisible(false);
     }
 
@@ -222,19 +226,28 @@ QWidget *AppCenterWidget::createMakeupPage(QTabWidget *tabs)
 
 void AppCenterWidget::refresh()
 {
-    m_leaveModel->setFilter(QString("leave_requests.emp_id=%1").arg(m_empId));
-    m_leaveModel->select();
-    m_leaveTable->hideColumn(0);
-    m_leaveTable->hideColumn(1);
+    if (m_leaveModel && m_leaveTable) {
+        m_leaveModel->setFilter(QString("leave_requests.emp_id=%1").arg(m_empId));
+        m_leaveModel->select();
+        m_leaveTable->hideColumn(0);
+        m_leaveTable->hideColumn(1);
+    }
 
-    m_makeupModel->setFilter(QString("makeup_requests.emp_id=%1").arg(m_empId));
-    m_makeupModel->select();
-    m_makeupTable->hideColumn(0);
-    m_makeupTable->hideColumn(1);
+    if (m_makeupModel && m_makeupTable) {
+        m_makeupModel->setFilter(QString("makeup_requests.emp_id=%1").arg(m_empId));
+        m_makeupModel->select();
+        m_makeupTable->hideColumn(0);
+        m_makeupTable->hideColumn(1);
+    }
 }
 
 void AppCenterWidget::submitLeave()
 {
+    if (!SessionManager::instance()->hasPermission("apply_leave")) {
+        Toast::show(this, "当前账号没有请假申请权限", Toast::Warning);
+        return;
+    }
+
     QDate s = m_leaveStart->date(), e = m_leaveEnd->date();
     QString r = m_leaveReason->toPlainText().trimmed();
 
@@ -257,6 +270,11 @@ void AppCenterWidget::submitLeave()
 
 void AppCenterWidget::submitMakeup()
 {
+    if (!SessionManager::instance()->hasPermission("apply_leave_makeup")) {
+        Toast::show(this, "当前账号没有补卡申请权限", Toast::Warning);
+        return;
+    }
+
     QDate date = m_makeupDate->date();
     QString type = m_makeupType->currentData().toString();
     QTime time = m_makeupTime->time();

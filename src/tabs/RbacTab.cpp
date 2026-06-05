@@ -324,6 +324,7 @@ void RbacTab::savePermissions()
 
     logAction("修改角色权限", roleName);
     m_loadedPermissionKeys = checkedKeys;
+    emit GlobalEvents::instance()->dataChanged();
     QMessageBox::information(this, "保存成功", QString("角色 '%1' 的权限配置已成功保存！").arg(roleName));
 
     restoreButtons();

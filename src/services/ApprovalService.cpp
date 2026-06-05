@@ -1,6 +1,7 @@
 #include "ApprovalService.h"
 
 #include "../core/Constants.h"
+#include "AttendanceService.h"
 
 #include <QSqlError>
 #include <QSqlQuery>
@@ -40,6 +41,8 @@ ApprovalService::Result ApprovalService::reviewLeaveRequest(int requestId, bool 
     }
     lockQuery.finish();
 
+    QDate approvedStartDate;
+    QDate approvedEndDate;
     if (approved) {
         QSqlQuery dq(m_db);
         dq.prepare("SELECT start_date, end_date FROM leave_requests WHERE request_id = ?");
@@ -66,12 +69,20 @@ ApprovalService::Result ApprovalService::reviewLeaveRequest(int requestId, bool 
             }
             return fail("该日期段内已有其他已同意的请假，无法同意此申请");
         }
+        approvedStartDate = startDate;
+        approvedEndDate = endDate;
     }
 
     QString errorText;
     if (!updateLeaveStatus(requestId, approved, comment.trimmed(), reviewerId, &errorText)) {
         m_db.rollback();
         return fail("更新请假申请状态失败: " + errorText);
+    }
+
+    if (approved && !AttendanceService(m_db).syncApprovedLeaveToAttendance(employeeId, approvedStartDate,
+                                                                           approvedEndDate, &errorText)) {
+        m_db.rollback();
+        return fail("同步请假到考勤失败: " + errorText);
     }
 
     if (!m_db.commit()) {
@@ -137,6 +148,15 @@ ApprovalService::Result ApprovalService::reviewMakeupRequest(int makeupId, bool 
         if (!attDate.isValid() || (requestType != "clock_in" && requestType != "clock_out")) {
             m_db.rollback();
             return fail("补卡申请的日期或类型无效，无法同意此申请");
+        }
+
+        QString leaveErrorText;
+        if (hasApprovedLeaveOnDate(employeeId, attDate, &leaveErrorText)) {
+            m_db.rollback();
+            if (!leaveErrorText.isEmpty()) {
+                return fail("校验请假状态失败: " + leaveErrorText);
+            }
+            return fail("该员工当天已有已同意请假，无法再同意补卡申请");
         }
 
         // 检查是否已有相同日期和类型的已同意补卡记录
@@ -228,36 +248,48 @@ bool ApprovalService::updateLeaveStatus(int requestId, bool approved, const QStr
                                         int reviewerId, QString *errorText)
 {
     QSqlQuery query(m_db);
-    query.prepare("UPDATE leave_requests SET status=?, reviewer_id=?, reviewed_at=NOW(), review_comment=? WHERE request_id=?");
+    query.prepare("UPDATE leave_requests SET status=?, reviewer_id=?, reviewed_at=NOW(), review_comment=? "
+                  "WHERE request_id=? AND status=?");
     query.addBindValue(approved ? HR::LeaveStatus::APPROVED : HR::LeaveStatus::REJECTED);
     query.addBindValue(reviewerId > 0 ? QVariant(reviewerId) : QVariant(QMetaType(QMetaType::Int)));
     query.addBindValue(comment);
     query.addBindValue(requestId);
+    query.addBindValue(HR::LeaveStatus::PENDING);
 
     const bool ok = query.exec();
+    const int affectedRows = ok ? query.numRowsAffected() : -1;
     if (!ok && errorText) {
         *errorText = query.lastError().text();
     }
+    if (ok && affectedRows == 0 && errorText) {
+        *errorText = "申请不存在或已被处理，请刷新列表后重试";
+    }
     query.finish();
-    return ok;
+    return ok && affectedRows != 0;
 }
 
 bool ApprovalService::updateMakeupStatus(int makeupId, bool approved, const QString &comment,
                                          int reviewerId, QString *errorText)
 {
     QSqlQuery query(m_db);
-    query.prepare("UPDATE makeup_requests SET status=?, reviewer_id=?, reviewed_at=NOW(), review_comment=? WHERE makeup_id=?");
+    query.prepare("UPDATE makeup_requests SET status=?, reviewer_id=?, reviewed_at=NOW(), review_comment=? "
+                  "WHERE makeup_id=? AND status=?");
     query.addBindValue(approved ? HR::LeaveStatus::APPROVED : HR::LeaveStatus::REJECTED);
     query.addBindValue(reviewerId > 0 ? QVariant(reviewerId) : QVariant(QMetaType(QMetaType::Int)));
     query.addBindValue(comment);
     query.addBindValue(makeupId);
+    query.addBindValue(HR::LeaveStatus::PENDING);
 
     const bool ok = query.exec();
+    const int affectedRows = ok ? query.numRowsAffected() : -1;
     if (!ok && errorText) {
         *errorText = query.lastError().text();
     }
+    if (ok && affectedRows == 0 && errorText) {
+        *errorText = "申请不存在或已被处理，请刷新列表后重试";
+    }
     query.finish();
-    return ok;
+    return ok && affectedRows != 0;
 }
 
 bool ApprovalService::applyMakeupToAttendance(int makeupId, int employeeId, QString *errorText)
@@ -284,10 +316,21 @@ bool ApprovalService::applyMakeupToAttendance(int makeupId, int employeeId, QStr
         if (!updateAttendanceTime(attendanceId, typeRaw, time, errorText)) {
             return false;
         }
-        return refreshAttendanceStatus(attendanceId, errorText);
+        return AttendanceService(m_db).refreshAttendanceStatus(attendanceId, errorText);
     }
 
-    return createAttendanceRecord(employeeId, date, typeRaw, time, errorText);
+    if (!createAttendanceRecord(employeeId, date, typeRaw, time, errorText)) {
+        return false;
+    }
+
+    int createdAttendanceId = -1;
+    if (!attendanceRecordFor(employeeId, date, &createdAttendanceId)) {
+        if (errorText) {
+            *errorText = "补卡考勤记录创建后无法读取";
+        }
+        return false;
+    }
+    return AttendanceService(m_db).refreshAttendanceStatus(createdAttendanceId, errorText);
 }
 
 bool ApprovalService::attendanceRecordFor(int employeeId, const QString &date, int *attendanceId) const
@@ -310,6 +353,28 @@ bool ApprovalService::attendanceRecordFor(int employeeId, const QString &date, i
 
 bool ApprovalService::updateAttendanceTime(int attendanceId, const QString &typeRaw, const QString &time, QString *errorText)
 {
+    QSqlQuery read(m_db);
+    read.prepare("SELECT clock_in, clock_out FROM attendances WHERE att_id=?");
+    read.addBindValue(attendanceId);
+    if (!read.exec() || !read.next()) {
+        if (errorText) {
+            *errorText = read.lastError().isValid() ? read.lastError().text() : "考勤记录不存在";
+        }
+        read.finish();
+        return false;
+    }
+    const QString existingTime = (typeRaw == "clock_in") ? read.value(0).toString() : read.value(1).toString();
+    read.finish();
+
+    if (!existingTime.isEmpty()) {
+        if (errorText) {
+            *errorText = (typeRaw == "clock_in")
+                ? "当天已有上班打卡记录，无法用补卡覆盖"
+                : "当天已有下班打卡记录，无法用补卡覆盖";
+        }
+        return false;
+    }
+
     QSqlQuery query(m_db);
     if (typeRaw == "clock_in") {
         query.prepare("UPDATE attendances SET clock_in=? WHERE att_id=?");
@@ -350,48 +415,6 @@ bool ApprovalService::createAttendanceRecord(int employeeId, const QString &date
     return ok;
 }
 
-bool ApprovalService::refreshAttendanceStatus(int attendanceId, QString *errorText)
-{
-    QString start = "09:00:00";
-    QString end = "18:00:00";
-    QSqlQuery shiftQuery(m_db);
-    if (shiftQuery.exec("SELECT start_time, end_time FROM shifts WHERE shift_id=1") && shiftQuery.next()) {
-        start = shiftQuery.value(0).toString();
-        end = shiftQuery.value(1).toString();
-    }
-    shiftQuery.finish();
-
-    QSqlQuery readQuery(m_db);
-    readQuery.prepare("SELECT clock_in, clock_out FROM attendances WHERE att_id=?");
-    readQuery.addBindValue(attendanceId);
-    if (!readQuery.exec() || !readQuery.next()) {
-        if (errorText) {
-            *errorText = readQuery.lastError().isValid() ? readQuery.lastError().text() : "考勤记录不存在";
-        }
-        readQuery.finish();
-        return false;
-    }
-    const QString clockIn = readQuery.value(0).toString();
-    const QString clockOut = readQuery.value(1).toString();
-    readQuery.finish();
-
-    QString status = "正常";
-    if (!clockIn.isEmpty() && clockIn > start) status = "迟到";
-    else if (!clockOut.isEmpty() && clockOut < end) status = "早退";
-
-    QSqlQuery updateQuery(m_db);
-    updateQuery.prepare("UPDATE attendances SET status=? WHERE att_id=?");
-    updateQuery.addBindValue(status);
-    updateQuery.addBindValue(attendanceId);
-
-    const bool ok = updateQuery.exec();
-    if (!ok && errorText) {
-        *errorText = updateQuery.lastError().text();
-    }
-    updateQuery.finish();
-    return ok;
-}
-
 bool ApprovalService::hasApprovedLeaveOverlap(int employeeId, const QDate &startDate, const QDate &endDate, int excludeRequestId, QString *errorText) const
 {
     QSqlQuery query(m_db);
@@ -418,4 +441,27 @@ bool ApprovalService::hasApprovedLeaveOverlap(int employeeId, const QDate &start
     }
     query.finish();
     return overlap;
+}
+
+bool ApprovalService::hasApprovedLeaveOnDate(int employeeId, const QDate &date, QString *errorText) const
+{
+    QSqlQuery query(m_db);
+    query.prepare("SELECT COUNT(*) FROM leave_requests "
+                  "WHERE emp_id=? AND status=? AND start_date<=? AND end_date>=?");
+    query.addBindValue(employeeId);
+    query.addBindValue(HR::LeaveStatus::APPROVED);
+    query.addBindValue(date.toString("yyyy-MM-dd"));
+    query.addBindValue(date.toString("yyyy-MM-dd"));
+
+    if (!query.exec()) {
+        if (errorText) {
+            *errorText = query.lastError().text();
+        }
+        query.finish();
+        return true;
+    }
+
+    const bool exists = query.next() && query.value(0).toInt() > 0;
+    query.finish();
+    return exists;
 }

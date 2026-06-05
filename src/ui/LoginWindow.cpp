@@ -160,7 +160,8 @@ void LoginWindow::on_btnLogin_clicked()
         return;
     }
     if (!result.success) {
-        QMessageBox::critical(this,"登录失败","账号或密码错误，请重试！");
+        QMessageBox::critical(this,"登录失败",
+                              result.errorMessage.isEmpty() ? "账号或密码错误，请重试！" : result.errorMessage);
         return;
     }
     // 记住密码与自动登录

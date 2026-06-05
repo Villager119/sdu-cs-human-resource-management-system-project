@@ -53,6 +53,8 @@ private:
     void navigateFromShortcut(const QString &target);
     void selectNavByLabel(const QString &label);
     void selectCurrentSubTab(const QString &tabText);
+    QString permissionSignature() const;
+    void handlePermissionReload();
     QSqlDatabase backgroundDatabase();
 
     struct NavItemInfo {

@@ -38,18 +38,18 @@ private:
     int m_empId;
     QString m_role;
 
-    QTabWidget *m_approvalTabs;
-    QTableView *m_leaveTable;
-    QSqlRelationalTableModel *m_leaveModel;
-    QTableView *m_makeupTable;
-    QSqlRelationalTableModel *m_makeupModel;
+    QTabWidget *m_approvalTabs = nullptr;
+    QTableView *m_leaveTable = nullptr;
+    QSqlRelationalTableModel *m_leaveModel = nullptr;
+    QTableView *m_makeupTable = nullptr;
+    QSqlRelationalTableModel *m_makeupModel = nullptr;
 
-    QPushButton *m_btnApproveLeave;
-    QPushButton *m_btnApproveLeaves;
-    QPushButton *m_btnRejectLeaves;
-    QPushButton *m_btnApproveMakeup;
-    QPushButton *m_btnApproveMakeups;
-    QPushButton *m_btnRejectMakeups;
+    QPushButton *m_btnApproveLeave = nullptr;
+    QPushButton *m_btnApproveLeaves = nullptr;
+    QPushButton *m_btnRejectLeaves = nullptr;
+    QPushButton *m_btnApproveMakeup = nullptr;
+    QPushButton *m_btnApproveMakeups = nullptr;
+    QPushButton *m_btnRejectMakeups = nullptr;
 };
 
 #endif // ATTENDAPPROVALWIDGET_H

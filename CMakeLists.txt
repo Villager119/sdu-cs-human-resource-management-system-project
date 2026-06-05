@@ -51,6 +51,9 @@ set(PROJECT_SOURCES
     src/widgets/TaxConfigPanel.cpp src/widgets/TaxConfigPanel.h
     src/widgets/OrgChartView.cpp src/widgets/OrgChartView.h
     src/widgets/OptimisticSqlTableModel.cpp src/widgets/OptimisticSqlTableModel.h
+    src/db/DbConnection.cpp src/db/DbConnection.h
+    src/db/DbMigration.cpp src/db/DbMigration.h
+    src/db/DbSchema.cpp src/db/DbSchema.h
     src/utils/CsvExport.cpp src/utils/CsvExport.h
     src/utils/DbUtils.cpp src/utils/DbUtils.h
     src/utils/MessageHelper.h

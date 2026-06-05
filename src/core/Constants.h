@@ -27,6 +27,7 @@ namespace HR {
         inline const QString NORMAL  = "正常";
         inline const QString LATE    = "迟到";
         inline const QString EARLY   = "早退";
+        inline const QString LATE_EARLY = "迟到/早退";
         inline const QString MISSING = "缺卡";
         inline const QString LEAVE   = "请假";
     }

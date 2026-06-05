@@ -6,6 +6,7 @@
 #include <QGroupBox>
 #include <QLabel>
 #include <QMessageBox>
+#include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QSqlError>
 #include "SafeEditDelegate.h"
@@ -115,44 +116,65 @@ bool TaxConfigPanel::saveInternal(bool showMessage)
         QMessageBox::warning(this, "提示", "请输入有效的个税起征点！");
         return false;
     }
+    for (int row = 0; row < m_model->rowCount(); ++row) {
+        bool rateOk = false;
+        const double rate = m_model->data(m_model->index(row, 2)).toDouble(&rateOk);
+        if (!rateOk || rate < 0 || rate > 1) {
+            QMessageBox::warning(this, "提示", "社保公积金个人比例必须是 0 到 1 之间的小数！");
+            return false;
+        }
+    }
 
-    // 保存到 system_settings 表
-    bool ok = false;
+    QSqlDatabase db = m_model->database();
+    if (!db.transaction()) {
+        QMessageBox::critical(this, "失败", "启动薪资配置保存事务失败: " + db.lastError().text());
+        return false;
+    }
+
     QString err;
-    {
-        QSqlQuery q;
-        q.prepare("UPDATE system_settings SET value=? WHERE key_name='work_days_per_month'");
-        q.addBindValue(m_workDaysEdit->text().trimmed());
-        if (q.exec()) {
-            q.finish();
-            q.prepare("UPDATE system_settings SET value=? WHERE key_name='tax_threshold'");
-            q.addBindValue(m_taxThresholdEdit->text().trimmed());
-            if (q.exec()) {
-                ok = true;
-            } else {
-                err = "保存个税起征点失败: " + q.lastError().text();
-            }
-        } else {
-            err = "保存月工作天数失败: " + q.lastError().text();
+    QSqlQuery q(db);
+    q.prepare("INSERT INTO system_settings (key_name, value) VALUES ('work_days_per_month', ?) "
+              "ON DUPLICATE KEY UPDATE value=VALUES(value)");
+    q.addBindValue(m_workDaysEdit->text().trimmed());
+    if (!q.exec()) {
+        err = "保存月工作天数失败: " + q.lastError().text();
+    }
+    q.finish();
+
+    if (err.isEmpty()) {
+        q.prepare("INSERT INTO system_settings (key_name, value) VALUES ('tax_threshold', ?) "
+                  "ON DUPLICATE KEY UPDATE value=VALUES(value)");
+        q.addBindValue(m_taxThresholdEdit->text().trimmed());
+        if (!q.exec()) {
+            err = "保存个税起征点失败: " + q.lastError().text();
         }
         q.finish();
     }
-    if (!ok) {
+
+    if (!err.isEmpty()) {
+        db.rollback();
         QMessageBox::critical(this, "失败", err);
         return false;
     }
 
-    // 保存表格中的社保比例模型
-    if (m_model->submitAll()) {
-        m_savedWorkDays = m_workDaysEdit->text().trimmed();
-        m_savedTaxThreshold = m_taxThresholdEdit->text().trimmed();
-        if (showMessage) {
-            QMessageBox::information(this, "成功", "薪资及社保比例配置已保存");
-        }
-        m_log("修改薪薪资及社保配置", QString("月天数:%1, 起征点:%2").arg(wd).arg(threshold));
-        return true;
-    } else {
+    if (!m_model->submitAll()) {
+        db.rollback();
         QMessageBox::critical(this, "失败", "社保比例保存失败: " + m_model->lastError().text());
         return false;
     }
+
+    if (!db.commit()) {
+        const QString commitError = db.lastError().text();
+        db.rollback();
+        QMessageBox::critical(this, "失败", "提交薪资配置保存事务失败: " + commitError);
+        return false;
+    }
+
+    m_savedWorkDays = m_workDaysEdit->text().trimmed();
+    m_savedTaxThreshold = m_taxThresholdEdit->text().trimmed();
+    if (showMessage) {
+        QMessageBox::information(this, "成功", "薪资及社保比例配置已保存");
+    }
+    m_log("修改薪资及社保配置", QString("月天数:%1, 起征点:%2").arg(wd).arg(threshold));
+    return true;
 }

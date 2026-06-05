@@ -1,5 +1,6 @@
 #include "DailyClockWidget.h"
 #include "../../widgets/CommonDelegates.h"
+#include "../../widgets/PaginationBar.h"
 #include "../../services/AttendanceService.h"
 #include "../../utils/Toast.h"
 #include "../../utils/DbUtils.h"
@@ -14,6 +15,8 @@
 #include <QDate>
 #include <QTime>
 #include <QMessageBox>
+#include <QSqlError>
+#include <QSqlQuery>
 
 DailyClockWidget::DailyClockWidget(int empId, const QString &role, QWidget *parent)
     : QWidget(parent), m_empId(empId), m_role(role)
@@ -152,6 +155,12 @@ QWidget *DailyClockWidget::createAttendanceTable()
     m_attTable->setItemDelegateForColumn(5, new AttendanceStatusDelegate(m_attTable));
     boxLayout->addWidget(m_attTable);
 
+    m_pagination = new PaginationBar(10, box);
+    boxLayout->addWidget(m_pagination);
+    connect(m_pagination, &PaginationBar::pageChanged, this, [this](int) {
+        loadAttendancePage(false);
+    });
+
     return box;
 }
 
@@ -183,6 +192,10 @@ void DailyClockWidget::updateClock()
 
 void DailyClockWidget::refresh()
 {
+    const QDate monthStart(QDate::currentDate().year(), QDate::currentDate().month(), 1);
+    QString backfillError;
+    AttendanceService().backfillAttendanceRange(monthStart, QDate::currentDate(), &backfillError, m_empId);
+
     const AttendanceService::TodayStatus today = AttendanceService().todayStatus(m_empId);
     bool hasClockInPerm = SessionManager::instance()->hasPermission("apply_leave_makeup");
 
@@ -216,11 +229,93 @@ void DailyClockWidget::refresh()
             .arg(today.shiftStart, today.shiftEnd));
     }
 
-    // Tables selection
-    m_attModel->setFilter(QString("attendances.emp_id=%1 AND attendances.att_date LIKE '%2%'").arg(m_empId).arg(QDate::currentDate().toString("yyyy-MM")));
-    m_attModel->select();
+    loadAttendancePage(true);
+}
+
+void DailyClockWidget::loadAttendancePage(bool resetPage)
+{
+    if (!m_attModel || !m_pagination) return;
+    if (resetPage) {
+        m_pagination->refresh();
+    }
+
+    QString errorText;
+    const int total = currentMonthAttendanceCount(&errorText);
+    if (!errorText.isEmpty()) {
+        Toast::show(this, "统计考勤记录失败：" + errorText, Toast::Warning);
+        return;
+    }
+    m_pagination->setTotalRecords(total);
+
+    const QString filter = currentMonthPagedFilter(&errorText);
+    if (!errorText.isEmpty()) {
+        Toast::show(this, "读取考勤分页数据失败：" + errorText, Toast::Warning);
+        return;
+    }
+
+    m_attModel->setFilter(filter);
+    m_attModel->setSort(2, Qt::DescendingOrder);
+    if (!m_attModel->select()) {
+        Toast::show(this, "加载考勤记录失败：" + m_attModel->lastError().text(), Toast::Warning);
+        return;
+    }
     m_attTable->hideColumn(0);
     m_attTable->hideColumn(1);
+}
+
+QString DailyClockWidget::currentMonthBaseFilter() const
+{
+    return QString("attendances.emp_id=%1 AND attendances.att_date LIKE '%2%'")
+        .arg(m_empId)
+        .arg(QDate::currentDate().toString("yyyy-MM"));
+}
+
+QString DailyClockWidget::currentMonthPagedFilter(QString *errorText) const
+{
+    if (errorText) errorText->clear();
+    const int pageSize = 10;
+    const int offset = m_pagination ? (m_pagination->currentPage() - 1) * pageSize : 0;
+
+    QSqlQuery query;
+    query.prepare(QString("SELECT attendances.att_id FROM attendances WHERE %1 "
+                          "ORDER BY attendances.att_date DESC, attendances.att_id DESC "
+                          "LIMIT %2 OFFSET %3")
+                      .arg(currentMonthBaseFilter())
+                      .arg(pageSize)
+                      .arg(offset));
+
+    QStringList ids;
+    if (query.exec()) {
+        while (query.next()) {
+            ids << query.value(0).toString();
+        }
+    } else if (errorText) {
+        *errorText = query.lastError().text();
+    }
+    query.finish();
+
+    if (ids.isEmpty()) {
+        return "1=0";
+    }
+    return QString("attendances.att_id IN (%1)").arg(ids.join(","));
+}
+
+int DailyClockWidget::currentMonthAttendanceCount(QString *errorText) const
+{
+    if (errorText) errorText->clear();
+    QSqlQuery query;
+    query.prepare("SELECT COUNT(*) FROM attendances WHERE emp_id=? AND att_date LIKE ?");
+    query.addBindValue(m_empId);
+    query.addBindValue(QDate::currentDate().toString("yyyy-MM") + "%");
+
+    int total = 0;
+    if (query.exec() && query.next()) {
+        total = query.value(0).toInt();
+    } else if (errorText) {
+        *errorText = query.lastError().text();
+    }
+    query.finish();
+    return total;
 }
 
 void DailyClockWidget::clockIn()

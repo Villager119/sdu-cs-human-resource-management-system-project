@@ -168,8 +168,12 @@ AttendApprovalWidget::AttendApprovalWidget(int empId, const QString &role, QWidg
     m_approvalTabs = new QTabWidget(this);
     m_approvalTabs->setStyleSheet(UiStyles::tabWidget());
 
-    m_approvalTabs->addTab(createLeaveApprovalPage(), "💬 请假审批");
-    m_approvalTabs->addTab(createMakeupApprovalPage(), "✉ 补卡审批");
+    if (SessionManager::instance()->hasPermission("approve_leave")) {
+        m_approvalTabs->addTab(createLeaveApprovalPage(), "💬 请假审批");
+    }
+    if (SessionManager::instance()->hasPermission("approve_makeup")) {
+        m_approvalTabs->addTab(createMakeupApprovalPage(), "✉ 补卡审批");
+    }
     l->addWidget(m_approvalTabs);
 }
 
@@ -287,6 +291,7 @@ QWidget *AttendApprovalWidget::createMakeupApprovalPage()
 
 void AttendApprovalWidget::updateLeaveApprovalButton()
 {
+    if (!m_leaveTable || !m_btnApproveLeave || !m_btnApproveLeaves || !m_btnRejectLeaves) return;
     auto selected = m_leaveTable->selectionModel() ? m_leaveTable->selectionModel()->selectedRows() : QModelIndexList();
     m_btnApproveLeave->setEnabled(selected.size() == 1);
     m_btnApproveLeaves->setEnabled(!selected.isEmpty());
@@ -295,6 +300,7 @@ void AttendApprovalWidget::updateLeaveApprovalButton()
 
 void AttendApprovalWidget::updateMakeupApprovalButton()
 {
+    if (!m_makeupTable || !m_btnApproveMakeup || !m_btnApproveMakeups || !m_btnRejectMakeups) return;
     auto selected = m_makeupTable->selectionModel() ? m_makeupTable->selectionModel()->selectedRows() : QModelIndexList();
     m_btnApproveMakeup->setEnabled(selected.size() == 1);
     m_btnApproveMakeups->setEnabled(!selected.isEmpty());
@@ -303,11 +309,15 @@ void AttendApprovalWidget::updateMakeupApprovalButton()
 
 void AttendApprovalWidget::refresh()
 {
-    m_leaveModel->setFilter("leave_requests.status = '待审批'");
-    m_leaveModel->select();
+    if (m_leaveModel) {
+        m_leaveModel->setFilter("leave_requests.status = '待审批'");
+        m_leaveModel->select();
+    }
 
-    m_makeupModel->setFilter("makeup_requests.status = '待审批'");
-    m_makeupModel->select();
+    if (m_makeupModel) {
+        m_makeupModel->setFilter("makeup_requests.status = '待审批'");
+        m_makeupModel->select();
+    }
 }
 
 void AttendApprovalWidget::openLeaveApproval()

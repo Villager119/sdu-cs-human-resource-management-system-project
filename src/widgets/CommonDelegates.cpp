@@ -64,6 +64,9 @@ void AttendanceStatusDelegate::paint(QPainter *painter, const QStyleOptionViewIt
     } else if (status == "早退") {
         bgColor = QColor(0xfe, 0xe2, 0xe2); // Light Red
         textColor = QColor(0xb9, 0x1c, 0x1c);
+    } else if (status == "迟到/早退") {
+        bgColor = QColor(0xff, 0xed, 0xd5); // Light Orange
+        textColor = QColor(0xc2, 0x41, 0x0c);
     } else if (status == "缺卡") {
         bgColor = QColor(0xf1, 0xf5, 0xf9); // Light Gray
         textColor = QColor(0x47, 0x55, 0x69);

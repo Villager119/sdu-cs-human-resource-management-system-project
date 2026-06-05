@@ -1196,16 +1196,19 @@ graph TD
 | `src/core/Logger.h/cpp` | 文件日志系统 |
 | `src/core/SessionManager.h/cpp` | 会话管理器：用户会话 + RBAC 权限内存缓存 |
 | `src/core/GlobalEvents.h/cpp` | 全局事件总线（观察者模式） |
-| `src/utils/DbUtils.h/cpp` | 数据库工具：DSN 构建、配置密码解码、连接克隆、SQL 错误日志、17 表幂等迁移 |
+| `src/db/DbConnection.h/cpp` | 数据库连接基础设施：DSN 构建、配置密码解码、连接克隆、SQL 错误日志 |
+| `src/db/DbMigration.h/cpp` | 数据库迁移辅助：字段补齐、索引创建等幂等操作 |
+| `src/db/DbSchema.h/cpp` | 数据库结构初始化：17 表建表、默认数据与迁移编排 |
+| `src/utils/DbUtils.h/cpp` | 数据库兼容入口：保留历史 include，转发到 `src/db/` 实现 |
 | `src/utils/CsvExport.h/cpp` | CSV 导出工具（UTF-8 BOM） |
 | `src/utils/UiStyles.h/cpp` | 公共界面样式工具，复用申请/审批页面按钮、表格、输入控件 QSS |
 | `src/utils/MessageHelper.h` | 消息弹窗工具，统一常用确认、提示和错误提示入口 |
 | `src/utils/UnsavedChangesGuard.h` | 未保存变更拦截接口，供主窗口在切换页面时统一提示保存 |
 | `src/utils/Toast.h` | Toast 通知提示组件（纯头文件，4 种类型 + 淡入淡出动画） |
-| `CMakeLists.txt` | CMake 构建配置 (Qt6 Core/Gui/Widgets/Sql/Charts/Network) |
+| `CMakeLists.txt` | CMake 构建配置 (Qt6 Core/Gui/Widgets/Sql/Charts/Network/Concurrent) |
 | `config.ini` | 数据库连接配置 + 自动登录配置（演示环境可保留；生产环境不建议纳入版本控制） |
 | `style.qss` | 全局样式表（~390 行，浅石板灰主题 + 动态属性选择器） |
 
 ---
 
-*本文档基于对全部源码文件的审查编写。V3.3 更新于 2026-05-30，反映当前代码库完整功能状态（18 项功能、17 张数据表、10 种统计图表、8 项侧边栏导航、含可折叠侧边栏、岗位薪资标准、审批意见留痕、工资条按姓名查询、统一未保存变更拦截、饼图高区分度配色、可视化组织架构图、QODBC 连接隔离、公共 UI 样式工具与客户端服务层重构）。*
+*本文档基于对全部源码文件的审查编写。V3.4 更新于 2026-06-05，反映当前代码库完整功能状态（18 项功能、17 张数据表、10 种统计图表、8 项侧边栏导航、含可折叠侧边栏、岗位薪资标准、审批意见留痕、工资条按姓名查询、统一未保存变更拦截、饼图高区分度配色、可视化组织架构图、QODBC 连接隔离、公共 UI 样式工具、客户端服务层重构与 `src/db/` 数据库基础设施拆分）。*

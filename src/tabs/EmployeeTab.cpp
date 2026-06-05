@@ -20,6 +20,7 @@
 #include <QShortcut>
 #include <QInputDialog>
 #include <QComboBox>
+#include <QSet>
 #include <QStyledItemDelegate>
 #include <utility>
 
@@ -81,9 +82,7 @@ EmployeeTab::EmployeeTab(std::function<void(const QString&, const QString&)> log
     setupActionBar(layout);
     setupModelSignals();
 
-    m_model->setFilter(QString("status='%1'").arg(HR::EmpStatus::ACTIVE));
-    m_model->select();
-    m_pagination->setTotalRecords(m_model->rowCount());
+    loadEmployeePage(true);
 }
 
 void EmployeeTab::importExistingDepartments()
@@ -108,6 +107,7 @@ void EmployeeTab::setupModel()
     m_idxSalary = m_model->fieldIndex("base_salary");
     m_idxHire = m_model->fieldIndex("hire_date");
     m_idxContract = m_model->fieldIndex("contract_end_date");
+    m_idxShift = m_model->fieldIndex("shift_id");
     m_idxStatus = m_model->fieldIndex("status");
     m_idxEdu = m_model->fieldIndex("education");
     m_idxMarital = m_model->fieldIndex("marital_status");
@@ -123,6 +123,7 @@ void EmployeeTab::setupModel()
     if (m_idxSalary >= 0) m_model->setHeaderData(m_idxSalary, Qt::Horizontal, "基础薪资");
     if (m_idxHire >= 0) m_model->setHeaderData(m_idxHire, Qt::Horizontal, "入职日期");
     if (m_idxContract >= 0) m_model->setHeaderData(m_idxContract, Qt::Horizontal, "合同到期");
+    if (m_idxShift >= 0) m_model->setHeaderData(m_idxShift, Qt::Horizontal, "班次ID");
     if (m_idxStatus >= 0) m_model->setHeaderData(m_idxStatus, Qt::Horizontal, "在职状态");
     if (m_idxEdu >= 0) m_model->setHeaderData(m_idxEdu, Qt::Horizontal, "学历");
     if (m_idxMarital >= 0) m_model->setHeaderData(m_idxMarital, Qt::Horizontal, "婚姻状况");
@@ -158,6 +159,7 @@ void EmployeeTab::setupDelegates()
             HR::EmpStatus::RETIRED
         }, this));
     }
+    if (m_idxShift >= 0) m_table->setItemDelegateForColumn(m_idxShift, new ComboDelegate(loadShiftIds(), this));
     if (m_idxEdu >= 0) m_table->setItemDelegateForColumn(m_idxEdu, new ComboDelegate({"大专", "本科", "硕士", "博士"}, this));
     if (m_idxMarital >= 0) m_table->setItemDelegateForColumn(m_idxMarital, new ComboDelegate({"未婚", "已婚", "离异"}, this));
     if (m_idxDept >= 0) m_table->setItemDelegateForColumn(m_idxDept, new ComboDelegate(loadDepartments(), this));
@@ -245,7 +247,12 @@ void EmployeeTab::setupPagination(QVBoxLayout *layout)
     m_pagination = new PaginationBar(20, this);
     layout->addWidget(m_pagination);
     connect(m_pagination, &PaginationBar::pageChanged, this, [this](int page) {
-        Q_UNUSED(page);
+        if (!handlePendingChangesBeforePageSwitch()) {
+            m_pagination->setCurrentPage(m_loadedEmployeePage);
+            return;
+        }
+        m_loadedEmployeePage = page;
+        loadEmployeePage(false);
         m_table->scrollToTop();
     });
 }
@@ -254,7 +261,7 @@ void EmployeeTab::setupActionBar(QVBoxLayout *layout)
 {
     auto *btnRow = new QGridLayout;
     auto *btnAdd = new QPushButton("添加员工");
-    m_btnDel = new QPushButton("删除选中行");
+    m_btnDel = new QPushButton("移除新行");
     m_btnDel->setEnabled(false);
     m_btnRevert = new QPushButton("撤销修改");
     m_btnRevert->setEnabled(false);
@@ -339,6 +346,18 @@ QStringList EmployeeTab::loadRoles() const
     while (rq.next()) roles.append(rq.value(0).toString());
     rq.finish();
     return roles;
+}
+
+QStringList EmployeeTab::loadShiftIds() const
+{
+    QStringList shifts;
+    QSqlQuery q;
+    if (q.exec("SELECT shift_id FROM shifts ORDER BY shift_id")) {
+        while (q.next()) shifts.append(q.value(0).toString());
+    }
+    q.finish();
+    if (shifts.isEmpty()) shifts << "1";
+    return shifts;
 }
 
 QStringList EmployeeTab::loadPositionsForDepartment(const QString &department) const
@@ -438,6 +457,7 @@ void EmployeeTab::add()
     QString today = QDate::currentDate().toString("yyyy-MM-dd");
     if (m_idxHire >= 0) m_model->setData(m_model->index(rc, m_idxHire), today);              // 入职日期默认今天
     if (m_idxContract >= 0) m_model->setData(m_model->index(rc, m_idxContract), QDate::currentDate().addYears(3).toString("yyyy-MM-dd")); // 合同到期默认3年后
+    if (m_idxShift >= 0) m_model->setData(m_model->index(rc, m_idxShift), 1);
     if (m_idxStatus >= 0) m_model->setData(m_model->index(rc, m_idxStatus), HR::EmpStatus::ACTIVE);
     if (m_idxRole >= 0) m_model->setData(m_model->index(rc, m_idxRole), "user");
     if (m_idxDept >= 0 && m_deptCombo->count() > 1) m_model->setData(m_model->index(rc, m_idxDept), m_deptCombo->itemText(1));
@@ -452,8 +472,18 @@ void EmployeeTab::remove()
     int row = m_table->currentIndex().row();
     if (row < 0) { QMessageBox::warning(this, "提示", "请先在表格中选中要删除的员工！"); return; }
     QString name = (m_idxName >= 0) ? m_model->data(m_model->index(row, m_idxName)).toString() : "";
+    bool empIdOk = false;
+    const int empId = (m_idxEmpId >= 0)
+        ? m_model->data(m_model->index(row, m_idxEmpId)).toInt(&empIdOk)
+        : 0;
+    if (empIdOk && empId > 0) {
+        QMessageBox::warning(this, "无法物理删除",
+                             "已有员工不能直接删除，否则会影响考勤、审批、薪资和审计历史。\n"
+                             "请使用“标记离职”或修改在职状态保留历史记录。");
+        return;
+    }
     m_model->removeRow(row);
-    m_log("删除员工记录", name);
+    m_log("移除未保存员工行", name);
     updateDirtyState();
 }
 
@@ -484,6 +514,7 @@ bool EmployeeTab::saveChanges()
         m_log("保存员工信息修改", "");
         QMessageBox::information(this, "成功", "所有数据修改已成功");
         GlobalEvents::instance()->dataChanged();
+        loadEmployeePage(false);
         updateDirtyState();
         return true;
     } else {
@@ -505,9 +536,21 @@ void EmployeeTab::revertChanges()
 
 bool EmployeeTab::validateRows()
 {
+    QSet<QString> phonesOnPage;
     for (int row = 0; row < m_model->rowCount(); ++row) {
         if (m_model->headerData(row, Qt::Vertical).toString() == "!") {
             continue;
+        }
+        const QString phone = (m_idxPhone >= 0)
+            ? m_model->data(m_model->index(row, m_idxPhone)).toString().trimmed()
+            : QString();
+        if (!phone.isEmpty()) {
+            if (phonesOnPage.contains(phone)) {
+                QMessageBox::warning(this, "校验失败",
+                                     QString("第 %1 行：联系电话与当前页其他员工重复").arg(row + 1));
+                return false;
+            }
+            phonesOnPage.insert(phone);
         }
         if (!validateEmployeeRow(row)) {
             return false;
@@ -519,6 +562,7 @@ bool EmployeeTab::validateRows()
 bool EmployeeTab::validateEmployeeRow(int row)
 {
     EmployeeService::EmployeeRecord record;
+    record.employeeId = (m_idxEmpId >= 0) ? m_model->data(m_model->index(row, m_idxEmpId)).toInt() : 0;
     record.name = (m_idxName >= 0) ? m_model->data(m_model->index(row, m_idxName)).toString().trimmed() : "";
     record.gender = (m_idxGender >= 0) ? m_model->data(m_model->index(row, m_idxGender)).toString().trimmed() : "";
     record.phone = (m_idxPhone >= 0) ? m_model->data(m_model->index(row, m_idxPhone)).toString().trimmed() : "";
@@ -531,6 +575,7 @@ bool EmployeeTab::validateEmployeeRow(int row)
     record.baseSalary = (m_idxSalary >= 0) ? m_model->data(m_model->index(row, m_idxSalary)) : QVariant();
     record.hireDate = (m_idxHire >= 0) ? m_model->data(m_model->index(row, m_idxHire)) : QVariant();
     record.contractEndDate = (m_idxContract >= 0) ? m_model->data(m_model->index(row, m_idxContract)) : QVariant();
+    record.shiftId = (m_idxShift >= 0) ? m_model->data(m_model->index(row, m_idxShift)) : QVariant(1);
     record.title = (m_idxTitle >= 0) ? m_model->data(m_model->index(row, m_idxTitle)).toString().trimmed() : "";
 
     QString errorMessage;
@@ -540,6 +585,154 @@ bool EmployeeTab::validateEmployeeRow(int row)
     }
 
     return true;
+}
+
+QString EmployeeTab::employeeBaseFilter() const
+{
+    QStringList cond;
+    if (m_deptCombo->currentIndex() > 0) {
+        QString value = m_deptCombo->currentText();
+        value.replace("'", "''");
+        cond << QString("department='%1'").arg(value);
+    }
+    if (m_statusCombo->currentIndex() > 0) {
+        QString value = m_statusCombo->currentText();
+        value.replace("'", "''");
+        cond << QString("status='%1'").arg(value);
+    }
+    if (m_maritalCombo->currentIndex() > 0) {
+        QString value = m_maritalCombo->currentText();
+        value.replace("'", "''");
+        cond << QString("marital_status='%1'").arg(value);
+    }
+    if (m_eduCombo->currentIndex() > 0) {
+        QString value = m_eduCombo->currentText();
+        value.replace("'", "''");
+        cond << QString("education='%1'").arg(value);
+    }
+    if (!m_posSearch->text().isEmpty()) {
+        QString escaped = m_posSearch->text().trimmed();
+        escaped.replace("'", "''");
+        cond << QString("(position LIKE '%%1%' OR title LIKE '%%1%')").arg(escaped);
+    }
+    if (!m_nameSearch->text().isEmpty()) {
+        QString escaped = m_nameSearch->text().trimmed();
+        escaped.replace("'", "''");
+        cond << QString("name LIKE '%%1%'").arg(escaped);
+    }
+    return cond.join(" AND ");
+}
+
+QString EmployeeTab::employeePagedFilter(QString *errorText) const
+{
+    if (errorText) errorText->clear();
+    QString filter = employeeBaseFilter();
+    if (filter.isEmpty()) filter = "1=1";
+
+    const int pageSize = 20;
+    const int offset = m_pagination ? (m_pagination->currentPage() - 1) * pageSize : 0;
+
+    QSqlQuery query;
+    query.prepare(QString("SELECT emp_id FROM employees WHERE %1 ORDER BY emp_id ASC LIMIT %2 OFFSET %3")
+                      .arg(filter)
+                      .arg(pageSize)
+                      .arg(offset));
+
+    QStringList ids;
+    if (query.exec()) {
+        while (query.next()) {
+            ids << query.value(0).toString();
+        }
+    } else if (errorText) {
+        *errorText = query.lastError().text();
+    }
+    query.finish();
+
+    if (ids.isEmpty()) {
+        return "1=0";
+    }
+    return QString("%1 AND emp_id IN (%2)").arg(filter, ids.join(","));
+}
+
+int EmployeeTab::filteredEmployeeCount(QString *errorText) const
+{
+    if (errorText) errorText->clear();
+    QString filter = employeeBaseFilter();
+    if (filter.isEmpty()) filter = "1=1";
+
+    QSqlQuery query;
+    query.prepare("SELECT COUNT(*) FROM employees WHERE " + filter);
+
+    int total = 0;
+    if (query.exec() && query.next()) {
+        total = query.value(0).toInt();
+    } else if (errorText) {
+        *errorText = query.lastError().text();
+    }
+    query.finish();
+    return total;
+}
+
+void EmployeeTab::loadEmployeePage(bool resetPage)
+{
+    if (!m_model || !m_pagination) return;
+    if (resetPage) {
+        m_pagination->refresh();
+    }
+
+    QString errorText;
+    const int total = filteredEmployeeCount(&errorText);
+    if (!errorText.isEmpty()) {
+        QMessageBox::warning(this, "分页失败", "统计员工数量失败：" + errorText);
+        return;
+    }
+
+    m_pagination->setTotalRecords(total);
+    const QString pageFilter = employeePagedFilter(&errorText);
+    if (!errorText.isEmpty()) {
+        QMessageBox::warning(this, "分页失败", "读取员工分页数据失败：" + errorText);
+        return;
+    }
+
+    m_model->setFilter(pageFilter);
+    if (m_idxEmpId >= 0) {
+        m_model->setSort(m_idxEmpId, Qt::AscendingOrder);
+    }
+    if (!m_model->select()) {
+        QMessageBox::warning(this, "分页失败", "加载员工列表失败：" + m_model->lastError().text());
+        return;
+    }
+    m_loadedEmployeePage = m_pagination->currentPage();
+}
+
+bool EmployeeTab::handlePendingChangesBeforePageSwitch()
+{
+    if (!hasUnsavedChanges()) {
+        return true;
+    }
+
+    QMessageBox box(this);
+    box.setWindowTitle("存在未保存修改");
+    box.setText("当前页有未保存的员工信息修改，重新加载列表前需要先处理。");
+    QPushButton *saveButton = box.addButton("保存并继续", QMessageBox::AcceptRole);
+    QPushButton *discardButton = box.addButton("放弃修改", QMessageBox::DestructiveRole);
+    QPushButton *cancelButton = box.addButton("取消", QMessageBox::RejectRole);
+    box.setDefaultButton(saveButton);
+    box.exec();
+
+    if (box.clickedButton() == cancelButton) {
+        return false;
+    }
+    if (box.clickedButton() == saveButton) {
+        return saveChanges();
+    }
+    if (box.clickedButton() == discardButton) {
+        m_model->revertAll();
+        updateDirtyState();
+        return true;
+    }
+
+    return false;
 }
 
 void EmployeeTab::batchChangeDept()
@@ -590,52 +783,62 @@ void EmployeeTab::toggleStatus()
 
 void EmployeeTab::search()
 {
-    QStringList cond;
-    if (m_deptCombo->currentIndex() > 0)
-        cond << QString("department='%1'").arg(m_deptCombo->currentText().replace("'", "''"));
-    if (m_statusCombo->currentIndex() > 0)
-        cond << QString("status='%1'").arg(m_statusCombo->currentText().replace("'", "''"));
-    if (m_maritalCombo->currentIndex() > 0)
-        cond << QString("marital_status='%1'").arg(m_maritalCombo->currentText().replace("'", "''"));
-    if (m_eduCombo->currentIndex() > 0)
-        cond << QString("education='%1'").arg(m_eduCombo->currentText().replace("'", "''"));
-    if (!m_posSearch->text().isEmpty()) {
-        QString escaped = m_posSearch->text().trimmed();
-        escaped.replace("'", "''");
-        cond << QString("(position LIKE '%%1%' OR title LIKE '%%1%')").arg(escaped);
+    if (!handlePendingChangesBeforePageSwitch()) {
+        return;
     }
-    if (!m_nameSearch->text().isEmpty()) {
-        QString escaped = m_nameSearch->text().trimmed();
-        escaped.replace("'", "''");
-        cond << QString("name LIKE '%%1%'").arg(escaped);
-    }
-    m_model->setFilter(cond.isEmpty() ? "" : cond.join(" AND "));
-    m_model->select();
-    m_pagination->refresh();
-    m_pagination->setTotalRecords(m_model->rowCount());
+    loadEmployeePage(true);
 }
 
 void EmployeeTab::resetFilter()
 {
+    if (!handlePendingChangesBeforePageSwitch()) {
+        return;
+    }
     m_deptCombo->setCurrentIndex(0);
     m_statusCombo->setCurrentIndex(1); // 默认在职
     m_maritalCombo->setCurrentIndex(0);
     m_eduCombo->setCurrentIndex(0);
     m_posSearch->clear();
     m_nameSearch->clear();
-    m_model->setFilter(QString("status='%1'").arg(HR::EmpStatus::ACTIVE));
-    m_model->select();
-    m_pagination->refresh();
-    m_pagination->setTotalRecords(m_model->rowCount());
+    loadEmployeePage(true);
 }
 
 void EmployeeTab::exportCSV()
 {
+    if (hasUnsavedChanges()) {
+        QMessageBox::warning(this, "无法导出", "当前页有未保存的修改，请先保存或撤销后再导出。");
+        return;
+    }
+
     QString path = QFileDialog::getSaveFileName(this, "导出员工表", "员工信息.csv", "CSV文件 (*.csv)");
     if (path.isEmpty()) return;
-    QList<int> skipCols;
-    if (m_idxPwd >= 0) skipCols.append(m_idxPwd);
-    exportModelToCSVAsync(m_model, path, this, skipCols); // 异步导出
+
+    QString filter = employeeBaseFilter();
+    if (filter.isEmpty()) filter = "1=1";
+
+    QSqlQuery query;
+    query.prepare(QString("SELECT emp_id,name,gender,phone,department,role,base_salary,hire_date,"
+                          "contract_end_date,shift_id,status,education,marital_status,position,title "
+                          "FROM employees WHERE %1 ORDER BY emp_id ASC").arg(filter));
+    if (!query.exec()) {
+        QMessageBox::warning(this, "导出失败", "读取员工数据失败：" + query.lastError().text());
+        query.finish();
+        return;
+    }
+
+    QList<QStringList> rows;
+    while (query.next()) {
+        QStringList row;
+        for (int i = 0; i < 15; ++i) {
+            row << query.value(i).toString();
+        }
+        rows << row;
+    }
+    query.finish();
+
+    exportRowsToCSVAsync({"员工编号", "姓名", "性别", "联系电话", "所属部门", "系统角色", "基础薪资",
+                          "入职日期", "合同到期", "班次ID", "在职状态", "学历", "婚姻状况", "岗位", "职称"},
+                         rows, path, this);
 }
 
 void EmployeeTab::refresh()
@@ -681,9 +884,13 @@ void EmployeeTab::refresh()
         if (oldDel) oldDel->deleteLater();
     }
 
-    m_model->select();
-    m_pagination->refresh();
-    m_pagination->setTotalRecords(m_model->rowCount());
+    if (m_idxShift >= 0) {
+        auto *oldDel = m_table->itemDelegateForColumn(m_idxShift);
+        m_table->setItemDelegateForColumn(m_idxShift, new ComboDelegate(loadShiftIds(), this));
+        if (oldDel) oldDel->deleteLater();
+    }
+
+    loadEmployeePage(true);
 }
 
 void EmployeeTab::updateDirtyState()

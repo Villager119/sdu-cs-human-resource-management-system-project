@@ -2,8 +2,8 @@
 
 > **标准符合性声明**：本说明书参考软件架构描述的最新国际标准 **ISO/IEC/IEEE 42010:2011(E)** 进行编写，旨在从多视角、多维度系统地描述系统架构设计，确保利益相关者的架构关注点得到全面解决。
 >
-> **版本**：V1.4 (正式稿)
-> **日期**：2026-05-30
+> **版本**：V1.5 (改进稿)
+> **日期**：2026-06-05
 > **项目代号**：HRMS
 
 ---
@@ -18,8 +18,19 @@
    - [3.3 运行过程视角与视图 (Process View)](#33-运行过程视角与视图-process-view)
    - [3.4 部署视角与视图 (Deployment View)](#34-部署视角与视图-deployment-view)
    - [3.5 安全视角与视图 (Security View)](#35-安全视角与视图-security-view)
+   - [3.6 质量属性场景 (Quality Attribute Scenarios)](#36-质量属性场景-quality-attribute-scenarios)
 4. [架构元素对应与一致性分析](#4-架构元素对应与一致性分析)
 5. [架构决策与决策合理性说明 (Architecture Rationale)](#5-架构决策与决策合理性说明-architecture-rationale)
+6. [架构验证与后续维护建议](#6-架构验证与后续维护建议)
+
+---
+
+## 版本修订记录
+
+| 版本 | 日期 | 主要变更 |
+| :--- | :--- | :--- |
+| V1.5 | 2026-06-05 | 同步 `src/db/` 数据库基础设施拆分；修正启动流程；补充质量属性场景、验证清单与维护风险。 |
+| V1.4 | 2026-05-30 | 完善组织架构、RBAC、QODBC 连接隔离、图表与异步导出等架构说明。 |
 
 ---
 
@@ -60,7 +71,7 @@ graph TD
 ### 1.4 参考标准
 
 * **ISO/IEC/IEEE 42010:2011(E)** — Systems and software engineering — Architecture description.
-- **HRMS 软件需求规格说明书 (SRS) V3.3** — 包含核心需求与数据定义。
+- **HRMS 软件需求规格说明书 (SRS) V3.4** — 包含核心需求、数据定义与当前源码文件清单。
 
 ---
 
@@ -136,11 +147,17 @@ classDiagram
     }
 
     class Utils {
-        +DbUtils
         +CsvExport
         +UiStyles
         +MessageHelper
         +UnsavedChangesGuard
+    }
+
+    class Database {
+        +DbConnection
+        +DbMigration
+        +DbSchema
+        +DbUtils : compatibility facade
     }
 
     class Services {
@@ -191,20 +208,24 @@ classDiagram
     }
 
     MainEntrance --> UI_Main : "1. 引导启动登录"
+    MainEntrance --> Database : "读取配置/连接数据库/执行迁移"
     UI_Main --> Tabs_Business : "2. 加载侧边栏 Tab 模块"
     UI_Main --> Tabs_Finance : "2. 加载侧边栏 Tab 模块"
     UI_Main --> Services : "认证/通知/审计服务"
+    UI_Main --> Database : "服务器设置与连接测试"
     Tabs_Business --> Services : "业务规则与数据库写入"
     Tabs_Finance --> Services : "薪酬/绩效计算"
     Tabs_Business --> Core : "事件总线/会话/日志"
     Tabs_Finance --> Core : "事件总线/会话/日志"
     Tabs_Business --> Utils : "使用工具库"
     Tabs_Finance --> Utils : "使用工具库"
+    Services --> Database : "连接隔离/迁移辅助"
     Tabs_Business --> Widgets_Custom : "绑定组件与表格委托"
     Tabs_Finance --> Widgets_Custom : "绑定组件与表格委托"
     
     style Core fill:#ff9999,stroke:#333,stroke-width:2px
     style Services fill:#ffe599,stroke:#333,stroke-width:2px
+    style Database fill:#c7d2fe,stroke:#333,stroke-width:1px
     style Utils fill:#99ff99,stroke:#333,stroke-width:1px
     style Widgets_Custom fill:#99ccff,stroke:#333,stroke-width:1px
 ```
@@ -441,27 +462,30 @@ graph LR
 
 #### 3.3.1 系统启动自愈引导流 (Idempotent Schema Migration)
 
-为了实现零运维成本和自动升级，系统启动时会自动对本地和远程数据库做自愈迁移检测，流程如下：
+为了实现低运维成本和数据库结构自动补齐，系统启动时会读取本地配置并尝试连接目标 MySQL 数据库。若连接成功，则执行幂等建表与迁移；若连接失败，系统仍展示登录窗口并提示用户进入服务器设置重新配置连接。流程如下：
 
 ```mermaid
 flowchart TD
-    Start([main 引导运行]) --> Pathcheck["查找本地 config.ini 连接文件"]
-    Pathcheck -->|存在文件| Readconf["Base64 解码数据库连接信息"]
-    Pathcheck -->|不存在文件| GuideDialog["弹出 ServerSettingsDialog<br/>强制提示输入主机名与密码"]
-    
-    Readconf --> ConnTest["测试 MySQL ODBC 连接"]
-    GuideDialog -->|输入保存| ConnTest
-    
-    ConnTest -->|连接失败| GuideDialog
-    ConnTest -->|连接成功| Migrate["Idempotent Schema Bootstrapping 数据库自愈建表"]
-    
-    Migrate --> CheckTable{"利用 SHOW TABLES<br/>检查 17 张表是否存在"}
-    CheckTable -->|部分表缺失| CreateTable["CREATE TABLE IF NOT EXISTS"]
-    CheckTable -->|全部存在| InitDefault["校验并插入默认管理员 admin 及五险一金默认值"]
-    CreateTable --> InitDefault
-    
-    InitDefault --> LoginWin["显示登录窗口 LoginWindow"]
-    
+    Start([main 引导运行]) --> LogInit["初始化 Logger<br/>写入 hrms.log"]
+    LogInit --> LoadStyle["按可执行目录/上级目录/当前目录查找并加载 style.qss"]
+    LoadStyle --> FindConfig["定位 config.ini<br/>缺失项使用默认连接参数"]
+    FindConfig --> Readconf["读取 Database 配置<br/>兼容 PWD 与 Password 键名"]
+    Readconf --> DecodePwd["Base64 解码连接密码"]
+    DecodePwd --> ConnTest["构建 ODBC DSN 并尝试连接 MySQL"]
+
+    ConnTest -->|连接成功| Migrate["调用 initDatabaseSchema()<br/>执行幂等建表与迁移"]
+    ConnTest -->|连接失败| LoginWinBad["显示 LoginWindow<br/>setDbConnected(false)"]
+
+    Migrate --> SchemaOps["CREATE TABLE IF NOT EXISTS<br/>补齐字段/唯一键/性能索引"]
+    SchemaOps --> SeedData["插入默认角色、权限、班次、薪资配置和 admin 账号"]
+    SeedData --> LoginWinOk["显示 LoginWindow<br/>setDbConnected(true)"]
+
+    LoginWinBad -->|用户点击服务器设置| SettingDialog["ServerSettingsDialog<br/>修改连接配置并测试"]
+    SettingDialog --> Reconnect["LoginWindow::tryReconnect()"]
+    Reconnect --> ConnTest
+
+    LoginWinOk --> LoginWin["等待登录/尝试自动登录"]
+    LoginWinBad --> LoginWin
     LoginWin -->|点击忘记密码| ResetPwd["弹出 RecoverPasswordDialog<br/>身份多维校验并安全重置密码"]
     ResetPwd --> LoginWin
     
@@ -485,11 +509,11 @@ sequenceDiagram
     participant EventBus as 全局事件总线 GlobalEvents
 
     User ->> LWin: 输入账号(手机号)及密码, 点击登录
+    activate LWin
     LWin ->> LWin: 将密码生成 SHA-256 哈希字符串
     LWin ->> DB: 准备参数化 SQL 查询符合条件记录 (prepare + bindValue)
     activate DB
     DB -->> LWin: 返回匹配的员工记录 (包含 emp_id, name, role)
-    deactivate LWin
     deactivate DB
     
     Note over LWin: 验证通过, 提取用户角色 role
@@ -502,6 +526,7 @@ sequenceDiagram
     MWin ->> DB: 自动向 audit_logs 插入用户成功登录日志
     MWin -->> User: 呈现定制化的 HRMS 系统操作主界面
     deactivate MWin
+    deactivate LWin
 ```
 
 #### 3.3.3 并发控制与多端数据同步设计 (OCC & Active Polling)
@@ -594,7 +619,21 @@ graph TD
 
 1. **SQL 注入防护 (Parameterized Queries)**：系统在所有涉及外部变量的数据库交互中，杜绝使用字符串拼接 SQL 的做法，统一采用 Qt 的 `prepare()` 以及 `bindValue()` 进行参数占位绑定，利用数据库驱动在底层转义，阻断注入式代码。
 2. **安全散列算法 (SHA-256 Hashing)**：员工在系统中的登录密码绝不以明文存储在 `employees` 表的 `password_hash` 字段中。系统在注册和修改密码时对其进行 SHA-256 散列后再行存取。登录比对也是比对密码的 SHA-256 散列值。
-3. **配置文件敏感数据编码 (Base64 protection)**：为了防止运维人员在服务器共享或直接拷贝 config.ini 时导致生产数据库用户名与密码被肉眼直接读取，配置文件中存储的连接凭据使用 Base64 进行遮蔽混淆。
+3. **配置文件敏感数据编码 (Base64 protection)**：为了防止运维人员在服务器共享或直接拷贝 config.ini 时导致生产数据库用户名与密码被肉眼直接读取，配置文件中存储的连接凭据使用 Base64 进行遮蔽混淆。该机制属于低成本视觉遮蔽，并不等同于加密；正式生产部署仍应结合操作系统文件权限、数据库最小权限账号和网络白名单共同保护。
+
+### 3.6 质量属性场景 (Quality Attribute Scenarios)
+
+为避免架构质量只停留在抽象描述，本节将核心质量属性拆解为可观察的场景、架构策略与验证证据。
+
+| 质量属性 | 场景刺激 | 架构响应 | 主要实现位置 / 证据 |
+| :--- | :--- | :--- | :--- |
+| 可维护性 [M-1] | 后续新增业务模块或调整数据库初始化逻辑 | UI、服务、数据库基础设施分层；数据库连接、迁移辅助和建表编排拆到 `src/db/` | `src/services/`、`src/db/DbConnection.*`、`src/db/DbMigration.*`、`src/db/DbSchema.*` |
+| 数据一致性 [D-1] | 管理员重新核算某月工资，中途任一员工写入失败 | 删除旧工资条与写入新工资条处于同一事务，失败时整体回滚 | `PayrollService` 的月度核算事务 |
+| 并发安全 [D-1] | 两个客户端同时编辑同一员工记录 | `version` 乐观锁校验旧版本，冲突时阻止覆盖并提示刷新 | `OptimisticSqlTableModel`、`employees.version` |
+| 响应性能 [P-1] | 大量员工数据导出 CSV | 主线程只提取模型数据，磁盘写入交给 `QtConcurrent` 后台执行 | `CsvExport`、`QFutureWatcher` |
+| QODBC 稳定性 [U-1] | 多个 `QSqlTableModel` 和后台轮询同时访问数据库 | 长生命周期模型使用克隆连接，临时查询显式 `finish()` 释放结果 | `DbConnection::createClonedDatabaseConnection()` 与各 Tab 模型初始化 |
+| 安全性 [S-1] | 普通员工尝试访问管理员菜单或数据 | 侧边栏/子页签 UI 过滤 + SQL 按当前用户绑定数据范围 | `SessionManager`、`MainWindow`、各业务 Tab 查询过滤 |
+| 可部署性 [U-1] | 新环境首次启动或旧数据库缺少新增字段 | `initDatabaseSchema()` 幂等建表、补列、补索引并插入默认数据 | `DbSchema` 与 `DbMigration` |
 
 ---
 
@@ -615,12 +654,13 @@ graph TD
 - **一致性冲突**：这违背了关系型数据库第三范式 (3NF) 的设计要求（因为 `emp_name` 传递依赖于 `emp_id`）。
 - **折中理由**：如果不冗余姓名，在员工姓名修改后，历史日志关联查询出的姓名会被错误地更新为新值（导致历史追溯失真）；且审计日志页面需要高频读取并以极快速度进行数据绑定。使用多表外键联查 (Join) 在日志数量极大时会导致查询响应时间变慢。因此，反规范化设计能有效折中解决**可审计性 (Auditability)** 与 **性能 [P-1]** 的诉求。
 - **二层架构下的服务层边界**：系统没有引入独立后端服务，`src/services/` 仍运行在 Qt 客户端进程内。该服务层并不改变 C/S 部署形态，而是用于集中业务规则、事务和临时 SQL 查询，使 UI 类保持交互职责，降低后续维护成本。
+- **数据库基础设施拆分**：原集中在 `DbUtils` 中的连接、迁移辅助与建表编排已拆分到 `src/db/DbConnection.*`、`src/db/DbMigration.*` 和 `src/db/DbSchema.*`。`src/utils/DbUtils.*` 保留为兼容入口，既避免全项目 include 大面积变更，又让数据库职责边界更清晰。
 
 ---
 
 ## 5. 架构决策与决策合理性说明 (Architecture Rationale)
 
-在 HRMS 的架构开发中，围绕系统的环境约束和核心质量指标，我们做出了以下七个关键技术决策，并在此处给出其合理性理由解释。
+在 HRMS 的架构开发中，围绕系统的环境约束和核心质量指标，我们做出了以下八个关键技术决策，并在此处给出其合理性理由解释。
 
 ### 决策 1：选用二层 C/S 直连架构，摒弃三层 (B/S 或带有 Java/Go 后端的 C/S) 架构
 
@@ -680,4 +720,47 @@ graph TD
 - **决策合理性**：
   - **规避驱动级状态冲突**：将表格模型、后台轮询和临时查询分离到不同连接后，每个连接上的语句生命周期更清晰，降低 QODBC 函数序列错误出现概率。
   - **保持界面响应性**：后台轮询不再阻塞或干扰前台表格模型加载，登录进入主窗口后各模块初始化更稳定。
-  - **便于维护定位**：`DbUtils` 集中提供连接克隆和 SQL 错误日志函数，后续新增 SQL Model 或后台任务时可以沿用统一策略。
+  - **便于维护定位**：数据库基础设施已拆分为连接、迁移辅助和建表编排三类文件；`DbUtils` 作为兼容入口继续暴露旧接口，后续新增 SQL Model 或后台任务时可以沿用统一策略。
+
+### 决策 8：将数据库基础设施从通用工具层拆分为 `src/db/`
+
+* **问题描述**：早期 `DbUtils.cpp` 同时承载 DSN 构建、密码解码、克隆连接、SQL 错误日志、建表、默认数据和历史迁移逻辑，文件职责过宽。随着审批、考勤、绩效和薪酬功能扩展，数据库初始化逻辑继续堆叠会降低可读性，也不利于后续定位 QODBC 连接问题或迁移失败。
+- **架构决策**：
+  1. 将连接相关逻辑拆分到 `src/db/DbConnection.*`，集中处理 DSN、配置密码解码、克隆连接和 SQL 错误日志。
+  2. 将字段补齐、索引创建等幂等迁移辅助拆分到 `src/db/DbMigration.*`。
+  3. 将 17 张表初始化、默认数据和迁移编排保留在 `src/db/DbSchema.*`。
+  4. 保留 `src/utils/DbUtils.*` 作为兼容入口，避免历史页面、服务和 IDE 索引一次性大范围调整。
+- **决策合理性**：
+  - **职责边界更清楚 [M-1]**：连接、迁移辅助和建表流程各自有明确文件归属，后续定位错误不必在单个大文件中检索。
+  - **降低重构风险 [U-1]**：保留兼容入口后，现有 include 不需要同步迁移，避免产生大面积机械改动。
+  - **便于后续演进 [M-1]**：若后续继续做数据库版本化迁移，可在 `DbMigration` 基础上扩展迁移记录表或版本号机制。
+
+---
+
+## 6. 架构验证与后续维护建议
+
+### 6.1 架构验证清单
+
+| 验证项 | 推荐命令 / 操作 | 通过标准 |
+| :--- | :--- | :--- |
+| 构建完整性 | `cmake --build build` | CMake 配置、自动 MOC/UIC、编译和链接全部通过 |
+| 启动烟测 | `build\HRMS.exe --test` | 程序可完成启动链路并在测试计时器触发后正常退出 |
+| 运行时依赖 | 临时补充 Qt/MinGW 路径后执行烟测 | 若直接运行缺少运行时 DLL，应补充 `D:\QT\6.5.3\mingw_64\bin` 和 `C:\msys64\ucrt64\bin` 到 PATH |
+| 数据库初始化 | 首次连接空库或旧库启动 | 自动创建 17 张表、补齐字段/唯一键/索引、插入默认角色权限和 admin 账号 |
+| 权限隔离 | admin/user 分别登录 | 普通员工不可见管理菜单，管理员可访问审批、薪酬、组织和 RBAC |
+| 数据同步 | 多客户端或多窗口修改数据 | 审计日志轮询触发 `GlobalEvents` 刷新，不长期停留在旧数据 |
+
+### 6.2 剩余风险与边界
+
+- **Base64 不是加密**：`config.ini` 中的数据库密码只是编码遮蔽，不能抵御具备文件读取权限的攻击者。正式生产应使用操作系统账号权限、数据库最小权限账户和内网访问控制。
+- **二层 C/S 直连数据库**：系统适合课设、局域网或小规模办公场景，不适合直接暴露到公网或承载高并发移动端访问。
+- **迁移未版本化**：当前数据库迁移采用幂等检查方式，适合字段补齐和默认数据插入；若后续出现复杂数据转换，应引入显式迁移版本表。
+- **UI 层仍存在直接 SQL 查询**：部分统计页和表格页仍直接查询数据库，后续可按模块逐步沉到服务层或查询 helper 中。
+- **自动烟测覆盖有限**：`--test` 主要验证启动链路，不能替代人工点击审批、导出、核算和图表刷新流程。
+
+### 6.3 后续演进顺序
+
+1. **仪表盘拆分**：将 `DashboardTab` 中的统计 SQL 与图表构建拆出 `DashboardQueries` 和 `DashboardCharts`，降低首页大文件维护成本。
+2. **员工页拆分**：将部门/角色/班次/岗位职称候选项与导出逻辑从 `EmployeeTab` 中拆出，保留页面装配和交互流程。
+3. **数据库迁移版本化**：在当前 `DbMigration` 基础上增加迁移记录表，记录已执行迁移编号，提升长期升级可追溯性。
+4. **测试用例补齐**：优先补覆盖薪酬核算、审批回写、员工乐观锁和 RBAC 菜单隔离的最小自动化验证。

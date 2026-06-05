@@ -36,6 +36,11 @@ public:
     Result submitLeaveRequest(int employeeId, const QDate &startDate, const QDate &endDate, const QString &reason);
     Result submitMakeupRequest(int employeeId, const QDate &date, const QString &type,
                                const QTime &time, const QString &reason);
+    bool syncApprovedLeaveToAttendance(int employeeId, const QDate &startDate,
+                                       const QDate &endDate, QString *errorText = nullptr);
+    bool backfillAttendanceRange(const QDate &startDate, const QDate &endDate,
+                                 QString *errorText = nullptr, int employeeId = 0);
+    bool refreshAttendanceStatus(int attendanceId, QString *errorText = nullptr);
 
 private:
     struct ShiftTimes {
@@ -44,7 +49,12 @@ private:
     };
 
     Result fail(const QString &message) const;
-    ShiftTimes shiftTimes() const;
+    ShiftTimes shiftTimes(int employeeId = 0) const;
+    QString statusForTimes(const QString &clockIn, const QString &clockOut,
+                           const ShiftTimes &shift, bool requireCompletePunches) const;
+    bool isCompletedAttendanceDate(int employeeId, const QDate &date) const;
+    bool isWorkday(const QDate &date) const;
+    bool hasApprovedLeaveOnDate(int employeeId, const QDate &date) const;
     bool hasLeaveOverlap(int employeeId, const QDate &startDate, const QDate &endDate) const;
 
     QSqlDatabase m_db;

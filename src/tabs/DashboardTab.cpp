@@ -409,7 +409,8 @@ void DashboardTab::refresh()
             "font-size: 30px; font-weight: 700; color: #2563eb; border: none; background: transparent;");
 
         // 5. 最新绩效评分
-        q.prepare("SELECT score FROM performance_scores WHERE emp_id = ? ORDER BY eval_month DESC LIMIT 1");
+        q.prepare("SELECT score FROM performance_scores WHERE emp_id = ? AND status = '已发布' "
+                  "ORDER BY eval_month DESC LIMIT 1");
         q.addBindValue(empId);
         QString perfStr = "暂无评分";
         if (q.exec() && q.next()) {
@@ -745,7 +746,7 @@ void DashboardTab::refreshChart()
         chart->setTitle("本月个人考勤状态统计");
 
         QPieSeries *series = new QPieSeries();
-        int normalCount = 0, lateCount = 0, earlyCount = 0;
+        int normalCount = 0, lateCount = 0, earlyCount = 0, lateEarlyCount = 0;
         int empId = SessionManager::instance()->empId;
 
         QSqlQuery aq;
@@ -761,6 +762,7 @@ void DashboardTab::refreshChart()
                 if (status == "正常") normalCount += count;
                 else if (status == "迟到") lateCount += count;
                 else if (status == "早退") earlyCount += count;
+                else if (status == "迟到/早退") lateEarlyCount += count;
             }
         }
         aq.finish();
@@ -768,6 +770,7 @@ void DashboardTab::refreshChart()
         if (normalCount > 0) series->append("正常出勤", normalCount);
         if (lateCount > 0) series->append("迟到", lateCount);
         if (earlyCount > 0) series->append("早退", earlyCount);
+        if (lateEarlyCount > 0) series->append("迟到/早退", lateEarlyCount);
 
         if (series->isEmpty()) {
             series->append("无打卡记录", 1);
@@ -780,6 +783,8 @@ void DashboardTab::refreshChart()
                 slice->setBrush(QBrush(QColor(0xf5, 0x9e, 0x0b))); // Modern Orange
             } else if (slice->label() == "早退") {
                 slice->setBrush(QBrush(QColor(0xef, 0x44, 0x44))); // Modern Red
+            } else if (slice->label() == "迟到/早退") {
+                slice->setBrush(QBrush(QColor(0xf9, 0x73, 0x16))); // Modern Orange
             } else {
                 slice->setBrush(QBrush(QColor(0x94, 0xa3, 0xb8))); // Slate Grey
             }

@@ -4,7 +4,32 @@
 
 ---
 
-## 🌟 项目亮点与课程设计加分项
+## 快速开始
+
+```powershell
+cmake -B build -S . -G "MinGW Makefiles" `
+  -DCMAKE_PREFIX_PATH="D:/Qt/6.5.3/mingw_64" `
+  -DCMAKE_CXX_COMPILER="D:/Qt/Tools/mingw1120_64/bin/g++.exe"
+
+cmake --build build
+
+# 如命令行直接运行缺少 Qt/MinGW 运行时 DLL，可先临时补充 PATH
+$env:PATH = "D:\QT\6.5.3\mingw_64\bin;C:\msys64\ucrt64\bin;$env:PATH"
+build\HRMS.exe --test
+```
+
+默认演示账户：
+
+| 角色 | 账号 | 密码 |
+| :--- | :--- | :--- |
+| 管理员 | `admin` 或 `13800000000` | `admin1` |
+| 普通员工 | 管理员在员工管理中新建 | `123456` |
+
+首次运行前需准备 MySQL 数据库 `hrms_db` 和 MySQL ODBC 驱动。若连接失败，登录窗口会提示“数据库未连接”，点击 **服务器设置** 填写连接参数后可重新连接并自动执行建表/迁移。
+
+---
+
+## 🌟 项目亮点
 
 1. **数据库设计规范性**：
    - 数据库表结构完全符合第三范式 (3NF)。
@@ -28,6 +53,7 @@
    - 临时查询使用后显式释放语句结果，长生命周期 SQL Model 与后台轮询使用独立克隆连接，降低 QODBC 函数序列错误风险。
 9. **代码可维护性整理**：
    - 认证、员工、考勤、审批、薪酬、绩效、组织、权限、通知和审计等业务逻辑抽取到 `src/services/`，UI 类主要负责交互与展示。
+   - 数据库连接、迁移辅助和表结构初始化拆分到 `src/db/`，`DbUtils` 保留兼容入口，降低后续维护成本。
    - 抽取 `UiStyles` 复用公共界面样式，减少重复 QSS 字符串。
 
 ---
@@ -35,11 +61,22 @@
 ## 🛠️ 技术栈
 
 - **开发语言**: C++17
-- **UI 框架**: Qt 6.5.3 (Widgets, Sql, Charts, Network)
+- **UI 框架**: Qt 6.5.3 (Widgets, Sql, Charts, Network, Concurrent)
 - **数据库**: MySQL 8.x (通过 QODBC 驱动直连)
 - **构建系统**: CMake 3.16+
 - **编译器**: MinGW 64-bit (GCC 11.2)
 - **操作系统**: Windows 10/11
+
+---
+
+## 文档索引
+
+| 文档 | 用途 |
+| :--- | :--- |
+| [`docs/SRS正式稿.md`](docs/SRS正式稿.md) | 需求规格、功能清单、数据表和界面约束 |
+| [`docs/SAD正式稿.md`](docs/SAD正式稿.md) | 架构视图、质量属性、架构决策和维护风险 |
+| [`docs/可行性分析报告.md`](docs/可行性分析报告.md) | 技术选型、方案对比和课程设计可行性论证 |
+| [`docs/CASE工具调研.md`](docs/CASE工具调研.md) | CASE/配置管理工具调研材料 |
 
 ---
 
@@ -71,7 +108,9 @@ HRMS/
 │   ├── SRS正式稿.md         # 软件需求规格说明书 (包含 E-R图、DFD图、用例图)
 │   ├── SAD初稿.md           # 软件架构设计说明书 (ISO/IEC/IEEE 42010)
 │   ├── 可行性分析报告.md    # 可行性研究报告
-│   └── CASE工具调研.md      # CASE 工具调研材料
+│   ├── CASE工具调研.md      # CASE 工具调研材料
+│   ├── 项目进度与工作跟踪表.md # 项目周进度、成员分工与交付物跟踪
+│   └── 源码布局优化方案.md  # 源码分层边界与后续拆分建议
 └── src/                     # C++ 源代码
     ├── main.cpp             # 程序入口：初始化数据库连接、检测表结构、调出登录窗口
     ├── core/                # 核心机制与全局状态
@@ -110,8 +149,12 @@ HRMS/
     │   ├── TaxConfigPanel.h/cpp      # 社保公积金比例配置面板
     │   ├── OrgChartView.h/cpp        # 可视化组织架构图 (Graphics View)
     │   └── OptimisticSqlTableModel.h/cpp # 乐观锁表格模型
+    ├── db/                  # 数据库基础设施与自愈迁移
+    │   ├── DbConnection.h/cpp        # DSN 构建、密码解码、连接克隆、SQL 错误日志
+    │   ├── DbMigration.h/cpp         # 字段补齐、索引创建等幂等迁移辅助
+    │   └── DbSchema.h/cpp            # 17 张表初始化、默认数据和迁移编排
     └── utils/               # 工具类
-        ├── DbUtils.h/cpp             # 数据库辅助操作 (DSN构建 + 连接克隆 + 表迁移)
+        ├── DbUtils.h/cpp             # 数据库兼容入口，转发到 src/db/ 实现
         ├── CsvExport.h/cpp           # CSV 导出工具
         ├── UiStyles.h/cpp            # 公共界面样式工具
         ├── MessageHelper.h           # 消息弹窗工具
@@ -124,6 +167,8 @@ HRMS/
 ## 💾 数据库设计
 
 系统启动时会自动扫描数据库并执行结构自愈迁移（Idempotent Schema Migration），若不存在表则会自动创建。包含以下 **17 张表**：
+
+数据库初始化入口为 `initDatabaseSchema()`，实现位于 `src/db/DbSchema.cpp`；字段补齐、索引创建等可复用迁移辅助位于 `src/db/DbMigration.cpp`；连接克隆与 DSN 构建位于 `src/db/DbConnection.cpp`。旧的 `src/utils/DbUtils.h` 仍保留为兼容入口，避免历史模块大面积调整 include。
 
 1. **`employees`**：员工基础信息与系统账户（含密码 SHA-256 哈希值）。
 2. **`departments`**：部门字典表（支持自引用父子层级）。
@@ -157,10 +202,10 @@ HRMS/
 ### 命令行编译步骤
 在项目根目录下打开命令行工具（如 PowerShell/CMD）：
 
-```bash
+```powershell
 # 1. 生成 CMake 构建工程 (请根据本机 Qt 的实际安装路径修改 D:/Qt/...)
-cmake -B build -S . -G "MinGW Makefiles" \
-  -DCMAKE_PREFIX_PATH="D:/Qt/6.5.3/mingw_64" \
+cmake -B build -S . -G "MinGW Makefiles" `
+  -DCMAKE_PREFIX_PATH="D:/Qt/6.5.3/mingw_64" `
   -DCMAKE_CXX_COMPILER="D:/Qt/Tools/mingw1120_64/bin/g++.exe"
 
 # 2. 编译项目
@@ -169,8 +214,6 @@ cmake --build build
 
 ### 运行说明
 1. 编译完成后，双击 `./build/HRMS.exe` 启动。
-2. 若首次启动或数据库配置错误，系统会自动引导进入 **服务器配置** 对话框。
-3. 输入您的 MySQL 主机 IP、端口、用户名和密码，点击 **保存** 成功后即可开始使用。
-4. **内置默认账户**：
-   - **管理员**：姓名 `admin` 或 手机号 `13800000000`，密码 `admin1`。
-   - **普通员工**：可以在管理员登录后，在"员工管理"中自行添加并保存，新员工默认密码为 `123456`。
+2. 若首次启动或数据库配置错误，登录窗口会显示数据库未连接提示。
+3. 点击 **服务器设置**，输入 MySQL 主机 IP、端口、用户名和密码，保存后系统会重新连接并执行数据库自愈初始化。
+4. 连接成功后使用默认管理员账户登录；普通员工账户可由管理员在“员工管理”中创建。

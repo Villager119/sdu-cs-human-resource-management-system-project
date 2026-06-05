@@ -1,8 +1,10 @@
 #include "AttendBoardWidget.h"
 #include "../../widgets/CommonDelegates.h"
+#include "../../widgets/PaginationBar.h"
 #include "../../utils/Toast.h"
 #include "../../utils/DbUtils.h"
 #include "../../utils/CsvExport.h"
+#include "../../services/AttendanceService.h"
 #include "../../core/Constants.h"
 #include "../../core/GlobalEvents.h"
 #include "../../core/SessionManager.h"
@@ -39,6 +41,12 @@ AttendBoardWidget::AttendBoardWidget(int empId, const QString &role, QWidget *pa
     m_endDateFilter->setDate(QDate::currentDate());
     filterLayout->addWidget(m_endDateFilter);
 
+    filterLayout->addWidget(new QLabel("范围:", this));
+    m_scopeFilter = new QComboBox(this);
+    m_scopeFilter->addItem("我的记录", "mine");
+    m_scopeFilter->addItem("全部员工", "all");
+    filterLayout->addWidget(m_scopeFilter);
+
     filterLayout->addWidget(new QLabel("姓名:", this));
     m_nameFilter = new QLineEdit(this);
     m_nameFilter->setPlaceholderText("搜索姓名...");
@@ -47,7 +55,7 @@ AttendBoardWidget::AttendBoardWidget(int empId, const QString &role, QWidget *pa
 
     filterLayout->addWidget(new QLabel("状态:", this));
     m_statusFilter = new QComboBox(this);
-    m_statusFilter->addItems({"全部状态", "正常", "迟到", "早退", "缺卡", "请假"});
+    m_statusFilter->addItems({"全部状态", "正常", "迟到", "早退", "迟到/早退", "缺卡", "请假"});
     filterLayout->addWidget(m_statusFilter);
 
     QPushButton *btnQuery = new QPushButton("查询", this);
@@ -112,9 +120,28 @@ AttendBoardWidget::AttendBoardWidget(int empId, const QString &role, QWidget *pa
     m_attTable->setItemDelegateForColumn(5, new AttendanceStatusDelegate(m_attTable));
     l->addWidget(m_attTable, 1);
 
+    m_pagination = new PaginationBar(20, this);
+    l->addWidget(m_pagination);
+
     connect(btnQuery, &QPushButton::clicked, this, &AttendBoardWidget::filterAttendance);
     connect(btnReset, &QPushButton::clicked, this, &AttendBoardWidget::resetFilters);
     connect(btnExport, &QPushButton::clicked, this, &AttendBoardWidget::exportCsv);
+    connect(m_scopeFilter, &QComboBox::currentIndexChanged, this, [this](int) {
+        filterAttendance();
+    });
+    connect(m_pagination, &PaginationBar::pageChanged, this, [this](int) {
+        QString pageError;
+        const QString filter = pagedFilter(&pageError);
+        if (!pageError.isEmpty()) {
+            Toast::show(this, "读取考勤分页数据失败：" + pageError, Toast::Warning);
+            return;
+        }
+        m_attModel->setFilter(filter);
+        m_attModel->setSort(2, Qt::DescendingOrder);
+        if (!m_attModel->select()) {
+            Toast::show(this, "加载考勤列表失败：" + m_attModel->lastError().text(), Toast::Warning);
+        }
+    });
 }
 
 void AttendBoardWidget::refresh()
@@ -124,11 +151,94 @@ void AttendBoardWidget::refresh()
 
 void AttendBoardWidget::filterAttendance()
 {
+    QString backfillError;
+    const bool ownScope = m_scopeFilter && m_scopeFilter->currentData().toString() == "mine";
+    const int backfillEmpId = ownScope ? m_empId : 0;
+    if (!AttendanceService().backfillAttendanceRange(m_startDateFilter->date(), m_endDateFilter->date(),
+                                                     &backfillError, backfillEmpId)) {
+        Toast::show(this, "考勤状态回填失败：" + backfillError, Toast::Warning);
+    }
+
+    if (m_pagination) {
+        QString countError;
+        m_pagination->refresh();
+        const int total = filteredAttendanceCount(&countError);
+        if (!countError.isEmpty()) {
+            Toast::show(this, "统计考勤记录失败：" + countError, Toast::Warning);
+            return;
+        }
+        m_pagination->setTotalRecords(total);
+    }
+    QString pageError;
+    const QString filter = pagedFilter(&pageError);
+    if (!pageError.isEmpty()) {
+        Toast::show(this, "读取考勤分页数据失败：" + pageError, Toast::Warning);
+        return;
+    }
+    m_attModel->setFilter(filter);
+    m_attModel->setSort(2, Qt::DescendingOrder);
+    if (!m_attModel->select()) {
+        Toast::show(this, "加载考勤列表失败：" + m_attModel->lastError().text(), Toast::Warning);
+    }
+}
+
+void AttendBoardWidget::resetFilters()
+{
+    m_startDateFilter->setDate(QDate(QDate::currentDate().year(), QDate::currentDate().month(), 1));
+    m_endDateFilter->setDate(QDate::currentDate());
+    m_scopeFilter->setCurrentIndex(0);
+    m_nameFilter->clear();
+    m_statusFilter->setCurrentIndex(0);
+    filterAttendance();
+}
+
+void AttendBoardWidget::exportCsv()
+{
+    QString path = QFileDialog::getSaveFileName(this, "导出考勤报表", "考勤报表.csv", "CSV文件 (*.csv)");
+    if (path.isEmpty()) return;
+
+    QSqlQuery query;
+    query.prepare(QString("SELECT employees.name, attendances.att_date, attendances.clock_in, "
+                          "attendances.clock_out, attendances.status, attendances.remark "
+                          "FROM attendances "
+                          "JOIN employees ON employees.emp_id=attendances.emp_id "
+                          "WHERE %1 "
+                          "ORDER BY attendances.att_date DESC, attendances.att_id DESC")
+                      .arg(baseFilter()));
+    if (!query.exec()) {
+        Toast::show(this, "导出考勤报表失败：" + query.lastError().text(), Toast::Error);
+        query.finish();
+        return;
+    }
+
+    QList<QStringList> rows;
+    while (query.next()) {
+        rows << QStringList{
+            query.value(0).toString(),
+            query.value(1).toString(),
+            query.value(2).toString(),
+            query.value(3).toString(),
+            query.value(4).toString(),
+            query.value(5).toString()
+        };
+    }
+    query.finish();
+
+    exportRowsToCSVAsync({"员工", "日期", "签到时间", "签退时间", "状态", "备注"}, rows, path, this);
+    emit logRequested("导出考勤报表", path);
+}
+
+QString AttendBoardWidget::baseFilter() const
+{
     QStringList conds;
 
-    QString start = m_startDateFilter->date().toString("yyyy-MM-dd");
-    QString end = m_endDateFilter->date().toString("yyyy-MM-dd");
+    const QString start = m_startDateFilter->date().toString("yyyy-MM-dd");
+    const QString end = m_endDateFilter->date().toString("yyyy-MM-dd");
     conds << QString("attendances.att_date BETWEEN '%1' AND '%2'").arg(start, end);
+
+    if (m_scopeFilter && m_scopeFilter->currentData().toString() == "mine") {
+        conds << QString("attendances.emp_id=%1").arg(m_empId);
+    }
 
     if (!m_nameFilter->text().trimmed().isEmpty()) {
         QString namePattern = m_nameFilter->text().trimmed();
@@ -141,25 +251,57 @@ void AttendBoardWidget::filterAttendance()
         status.replace("'", "''");
         conds << QString("attendances.status = '%1'").arg(status);
     }
-
-    m_attModel->setFilter(conds.join(" AND "));
-    m_attModel->select();
+    return conds.join(" AND ");
 }
 
-void AttendBoardWidget::resetFilters()
+QString AttendBoardWidget::pagedFilter(QString *errorText) const
 {
-    m_startDateFilter->setDate(QDate(QDate::currentDate().year(), QDate::currentDate().month(), 1));
-    m_endDateFilter->setDate(QDate::currentDate());
-    m_nameFilter->clear();
-    m_statusFilter->setCurrentIndex(0);
-    filterAttendance();
+    if (errorText) errorText->clear();
+    const QString filter = baseFilter();
+    const int pageSize = 20;
+    const int offset = m_pagination ? (m_pagination->currentPage() - 1) * pageSize : 0;
+
+    QSqlQuery query;
+    query.prepare(QString("SELECT attendances.att_id FROM attendances WHERE %1 "
+                          "ORDER BY attendances.att_date DESC, attendances.att_id DESC "
+                          "LIMIT %2 OFFSET %3")
+                      .arg(filter)
+                      .arg(pageSize)
+                      .arg(offset));
+
+    QStringList ids;
+    if (query.exec()) {
+        while (query.next()) {
+            ids << query.value(0).toString();
+        }
+    } else if (errorText) {
+        *errorText = query.lastError().text();
+    }
+    query.finish();
+
+    if (ids.isEmpty()) {
+        return "1=0";
+    }
+    return QString("%1 AND attendances.att_id IN (%2)").arg(filter, ids.join(","));
 }
 
-void AttendBoardWidget::exportCsv()
+int AttendBoardWidget::filteredAttendanceCount(QString *errorText) const
 {
-    QString path = QFileDialog::getSaveFileName(this, "导出考勤报表", "考勤报表.csv", "CSV文件 (*.csv)");
-    if (path.isEmpty()) return;
+    if (errorText) errorText->clear();
+    QString filter = baseFilter();
+    QSqlQuery query;
+    if (filter.isEmpty()) {
+        query.prepare("SELECT COUNT(*) FROM attendances");
+    } else {
+        query.prepare("SELECT COUNT(*) FROM attendances WHERE " + filter);
+    }
 
-    exportModelToCSVAsync(m_attModel, path, this);
-    emit logRequested("导出考勤报表", path);
+    int total = 0;
+    if (query.exec() && query.next()) {
+        total = query.value(0).toInt();
+    } else if (errorText) {
+        *errorText = query.lastError().text();
+    }
+    query.finish();
+    return total;
 }

@@ -29,6 +29,10 @@ private:
     QWidget *createAttendanceTable();
     void setupTimerAndConnections();
     void applyPermissionVisibility();
+    void loadAttendancePage(bool resetPage = false);
+    QString currentMonthBaseFilter() const;
+    QString currentMonthPagedFilter(QString *errorText = nullptr) const;
+    int currentMonthAttendanceCount(QString *errorText = nullptr) const;
 
     int m_empId;
     QString m_role;
@@ -40,6 +44,7 @@ private:
     QPushButton *m_btnClockOut;
     QTableView *m_attTable;
     QSqlRelationalTableModel *m_attModel;
+    class PaginationBar *m_pagination = nullptr;
     QTimer *m_clockTimer;
 };
 

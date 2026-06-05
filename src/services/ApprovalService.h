@@ -30,12 +30,12 @@ private:
     bool updateLeaveStatus(int requestId, bool approved, const QString &comment, int reviewerId, QString *errorText);
     bool updateMakeupStatus(int makeupId, bool approved, const QString &comment, int reviewerId, QString *errorText);
     bool hasApprovedLeaveOverlap(int employeeId, const QDate &startDate, const QDate &endDate, int excludeRequestId, QString *errorText) const;
+    bool hasApprovedLeaveOnDate(int employeeId, const QDate &date, QString *errorText) const;
     bool applyMakeupToAttendance(int makeupId, int employeeId, QString *errorText);
     bool attendanceRecordFor(int employeeId, const QString &date, int *attendanceId) const;
     bool updateAttendanceTime(int attendanceId, const QString &typeRaw, const QString &time, QString *errorText);
     bool createAttendanceRecord(int employeeId, const QString &date, const QString &typeRaw,
                                 const QString &time, QString *errorText);
-    bool refreshAttendanceStatus(int attendanceId, QString *errorText);
 
     QSqlDatabase m_db;
 };

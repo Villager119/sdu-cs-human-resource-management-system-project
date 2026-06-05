@@ -24,9 +24,9 @@ private:
     std::function<void(const QString&, const QString&)> m_log;
     std::function<void(int, const QString&, const QString&)> m_notify;
 
-    AttendBoardWidget *m_boardWidget;
-    AttendApprovalWidget *m_approvalWidget;
-    ShiftSettingsWidget *m_settingsWidget;
+    AttendBoardWidget *m_boardWidget = nullptr;
+    AttendApprovalWidget *m_approvalWidget = nullptr;
+    ShiftSettingsWidget *m_settingsWidget = nullptr;
 };
 
 #endif // ATTENDMANAGETAB_H

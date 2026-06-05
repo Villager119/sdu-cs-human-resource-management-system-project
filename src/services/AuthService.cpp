@@ -22,7 +22,8 @@ AuthService::LoginResult AuthService::authenticate(const QString &account, const
 
     QSqlQuery query(m_db);
     query.prepare("SELECT emp_id,name,role FROM employees "
-                  "WHERE (name=:account OR phone=:account) AND password_hash=:password");
+                  "WHERE (name=:account OR phone=:account) "
+                  "AND password_hash=:password AND status='在职'");
     query.bindValue(":account", account);
     query.bindValue(":password", hashPassword(password));
 
@@ -30,10 +31,17 @@ AuthService::LoginResult AuthService::authenticate(const QString &account, const
         result.dbError = true;
         result.errorMessage = query.lastError().text();
     } else if (query.next()) {
-        result.success = true;
-        result.empId = query.value("emp_id").toInt();
-        result.empName = query.value("name").toString();
-        result.role = query.value("role").toString();
+        const int empId = query.value("emp_id").toInt();
+        const QString empName = query.value("name").toString();
+        const QString role = query.value("role").toString();
+        if (query.next()) {
+            result.errorMessage = "账号匹配到多个在职员工，请使用手机号登录或联系管理员清理重复姓名";
+        } else {
+            result.success = true;
+            result.empId = empId;
+            result.empName = empName;
+            result.role = role;
+        }
     }
     query.finish();
     return result;

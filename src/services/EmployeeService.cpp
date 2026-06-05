@@ -5,6 +5,7 @@
 #include <QCryptographicHash>
 #include <QDate>
 #include <QRegularExpression>
+#include <QSqlError>
 #include <QSqlQuery>
 
 EmployeeService::EmployeeService(const QSqlDatabase &db)
@@ -44,6 +45,10 @@ bool EmployeeService::validateEmployeeRecord(const EmployeeRecord &record, int d
     if (!QRegularExpression("^\\d{11}$").match(record.phone).hasMatch()) {
         return fail("联系电话格式不正确（必须为 11 位数字）");
     }
+    QString phoneError;
+    if (!phoneAvailableForEmployee(record.phone, record.employeeId, &phoneError)) {
+        return fail(phoneError);
+    }
 
     if (record.department.isEmpty()) return fail("所属部门不能为空");
     if (!departmentExists(record.department)) {
@@ -54,6 +59,14 @@ bool EmployeeService::validateEmployeeRecord(const EmployeeRecord &record, int d
     if (record.position.isEmpty()) return fail("岗位不能为空");
     if (record.title.isEmpty()) return fail("职称不能为空");
     if (!roleExists(record.role)) return fail(QString("系统角色 '%1' 在系统中不存在").arg(record.role));
+
+    bool shiftOk = false;
+    const int shiftId = record.shiftId.toInt(&shiftOk);
+    if (!record.shiftId.toString().trimmed().isEmpty()) {
+        if (!shiftOk || shiftId <= 0 || !shiftExists(shiftId)) {
+            return fail("班次ID无效，请选择系统中存在的班次");
+        }
+    }
 
     const QStringList validStatus = {
         HR::EmpStatus::ACTIVE,
@@ -127,6 +140,46 @@ bool EmployeeService::roleExists(const QString &role) const
     const bool exists = query.exec() && query.next() && query.value(0).toInt() > 0;
     query.finish();
     return exists;
+}
+
+bool EmployeeService::shiftExists(int shiftId) const
+{
+    QSqlQuery query(m_db);
+    query.prepare("SELECT COUNT(*) FROM shifts WHERE shift_id=?");
+    query.addBindValue(shiftId);
+
+    const bool exists = query.exec() && query.next() && query.value(0).toInt() > 0;
+    query.finish();
+    return exists;
+}
+
+bool EmployeeService::phoneAvailableForEmployee(const QString &phone, int employeeId, QString *errorMessage) const
+{
+    QSqlQuery query(m_db);
+    query.prepare("SELECT emp_id, name FROM employees WHERE phone=? AND emp_id<>? LIMIT 1");
+    query.addBindValue(phone.trimmed());
+    query.addBindValue(employeeId > 0 ? employeeId : 0);
+
+    if (!query.exec()) {
+        if (errorMessage) {
+            *errorMessage = "校验联系电话唯一性失败: " + query.lastError().text();
+        }
+        query.finish();
+        return false;
+    }
+
+    if (query.next()) {
+        if (errorMessage) {
+            *errorMessage = QString("联系电话已被员工 %1（编号 %2）使用")
+                .arg(query.value(1).toString())
+                .arg(query.value(0).toInt());
+        }
+        query.finish();
+        return false;
+    }
+
+    query.finish();
+    return true;
 }
 
 EmployeeService::JobSalaryStandard EmployeeService::jobSalaryStandard(const QString &department,

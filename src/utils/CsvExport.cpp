@@ -101,6 +101,17 @@ void exportModelToCSVAsync(QAbstractItemModel *model, const QString &filePath,
     if (filePath.isEmpty() || !model) return;
 
     CsvData csvData = serializeModelData(model, skipCols);
+    exportRowsToCSVAsync(csvData.headers, csvData.rows, filePath, parent);
+}
+
+void exportRowsToCSVAsync(const QStringList &headers, const QList<QStringList> &rows,
+                          const QString &filePath, QWidget *parent)
+{
+    if (filePath.isEmpty()) return;
+
+    CsvData csvData;
+    csvData.headers = headers;
+    csvData.rows = rows;
 
     auto *progress = new QProgressDialog("正在导出数据，请稍候...", QString(), 0, 0, parent);
     progress->setWindowTitle("正在导出");

@@ -4,9 +4,16 @@
 #include <QSqlError>
 #include <QSqlQuery>
 
+#include <algorithm>
+
 PayrollService::PayrollService(const QSqlDatabase &db)
     : m_db(db)
 {
+}
+
+static bool payrollWorkday(const QDate &date)
+{
+    return date.isValid() && date.dayOfWeek() >= 1 && date.dayOfWeek() <= 5;
 }
 
 bool PayrollService::payrollExists(const QString &month)
@@ -29,7 +36,7 @@ PayrollService::Result PayrollService::calculateMonth(const QString &month, bool
     const double workDays = loadWorkDaysPerMonth();
     const QList<TaxItem> taxItems = loadTaxItems();
     const double taxThreshold = loadTaxThreshold();
-    const QList<ActiveEmployee> activeEmployees = loadActiveEmployees();
+    const QList<ActiveEmployee> activeEmployees = loadActiveEmployees(month);
 
     if (!m_db.transaction()) {
         return fail(month, "启动薪酬核算事务失败: " + m_db.lastError().text());
@@ -47,7 +54,7 @@ PayrollService::Result PayrollService::calculateMonth(const QString &month, bool
     for (const auto &emp : activeEmployees) {
         QString insertError;
         const int leaveDays = leaveDaysForEmployee(emp.empId, month);
-        const double leaveDeduction = (emp.baseSalary / workDays) * leaveDays;
+        const double leaveDeduction = std::min((emp.baseSalary / workDays) * leaveDays, emp.baseSalary);
         const double performanceBonus = performanceBonusForEmployee(emp.empId, month, emp.baseSalary);
 
         if (!insertPayrollRow(emp.empId, month, emp.baseSalary, leaveDeduction,
@@ -119,12 +126,21 @@ double PayrollService::loadTaxThreshold()
     return threshold;
 }
 
-QList<PayrollService::ActiveEmployee> PayrollService::loadActiveEmployees()
+QList<PayrollService::ActiveEmployee> PayrollService::loadActiveEmployees(const QString &month)
 {
     QList<ActiveEmployee> employees;
+    const QDate monthStart = QDate::fromString(month + "-01", "yyyy-MM-dd");
+    if (!monthStart.isValid()) {
+        return employees;
+    }
+    const QString monthEnd = monthStart.addMonths(1).addDays(-1).toString("yyyy-MM-dd");
+
     QSqlQuery query(m_db);
 
-    query.exec("SELECT emp_id, base_salary FROM employees WHERE status='在职'");
+    query.prepare("SELECT emp_id, base_salary FROM employees "
+                  "WHERE status='在职' AND (hire_date IS NULL OR hire_date<=?)");
+    query.addBindValue(monthEnd);
+    query.exec();
     while (query.next()) {
         employees.append({query.value(0).toInt(), query.value(1).toDouble()});
     }
@@ -135,22 +151,37 @@ QList<PayrollService::ActiveEmployee> PayrollService::loadActiveEmployees()
 int PayrollService::leaveDaysForEmployee(int empId, const QString &month)
 {
     const QDate monthStart = QDate::fromString(month + "-01", "yyyy-MM-dd");
+    if (!monthStart.isValid()) {
+        return 0;
+    }
+    const QDate monthEnd = monthStart.addMonths(1).addDays(-1);
     const QString monthStartStr = monthStart.toString("yyyy-MM-dd");
-    const QString monthEndStr = monthStart.addMonths(1).addDays(-1).toString("yyyy-MM-dd");
+    const QString monthEndStr = monthEnd.toString("yyyy-MM-dd");
 
     QSqlQuery query(m_db);
-    query.prepare("SELECT SUM(DATEDIFF(LEAST(end_date, ?), GREATEST(start_date, ?)) + 1) "
+    query.prepare("SELECT start_date, end_date "
                   "FROM leave_requests "
                   "WHERE emp_id=? AND status='已同意' AND start_date <= ? AND end_date >= ?");
-    query.addBindValue(monthEndStr);
-    query.addBindValue(monthStartStr);
     query.addBindValue(empId);
     query.addBindValue(monthEndStr);
     query.addBindValue(monthStartStr);
 
     int days = 0;
-    if (query.exec() && query.next()) {
-        days = query.value(0).toInt();
+    if (query.exec()) {
+        while (query.next()) {
+            QDate start = query.value(0).toDate();
+            QDate end = query.value(1).toDate();
+            if (!start.isValid() || !end.isValid()) {
+                continue;
+            }
+            if (start < monthStart) start = monthStart;
+            if (end > monthEnd) end = monthEnd;
+            for (QDate date = start; date <= end; date = date.addDays(1)) {
+                if (payrollWorkday(date)) {
+                    ++days;
+                }
+            }
+        }
     }
     query.finish();
     return days;
@@ -159,7 +190,8 @@ int PayrollService::leaveDaysForEmployee(int empId, const QString &month)
 double PayrollService::performanceBonusForEmployee(int empId, const QString &month, double baseSalary)
 {
     QSqlQuery query(m_db);
-    query.prepare("SELECT score FROM performance_scores WHERE emp_id=? AND eval_month=?");
+    query.prepare("SELECT score FROM performance_scores "
+                  "WHERE emp_id=? AND eval_month=? AND status='已发布'");
     query.addBindValue(empId);
     query.addBindValue(month);
 
@@ -216,8 +248,8 @@ bool PayrollService::insertPayrollRow(int empId, const QString &month, double ba
     else if (taxable > 0) tax = taxable * 0.03;
     if (tax < 0) tax = 0;
 
-    const double net = baseSalary - leaveDeduction + performanceBonus
-                       - pension - medical - unemployment - housing - tax;
+    const double net = std::max(0.0, baseSalary - leaveDeduction + performanceBonus
+                                      - pension - medical - unemployment - housing - tax);
 
     QSqlQuery query(m_db);
     query.prepare("INSERT INTO payroll(emp_id,month,base_salary,leave_deduction,"

@@ -24,15 +24,21 @@ private slots:
     void exportCsv();
 
 private:
+    QString baseFilter() const;
+    QString pagedFilter(QString *errorText = nullptr) const;
+    int filteredAttendanceCount(QString *errorText = nullptr) const;
+
     int m_empId;
     QString m_role;
 
     QDateEdit *m_startDateFilter;
     QDateEdit *m_endDateFilter;
     QLineEdit *m_nameFilter;
+    QComboBox *m_scopeFilter;
     QComboBox *m_statusFilter;
     QTableView *m_attTable;
     QSqlRelationalTableModel *m_attModel;
+    class PaginationBar *m_pagination = nullptr;
 };
 
 #endif // ATTENDBOARDWIDGET_H

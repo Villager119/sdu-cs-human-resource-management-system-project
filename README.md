@@ -13,8 +13,7 @@ cmake -B build -S . -G "MinGW Makefiles" `
 
 cmake --build build
 
-# 如命令行直接运行缺少 Qt/MinGW 运行时 DLL，可先临时补充 PATH
-$env:PATH = "D:\QT\6.5.3\mingw_64\bin;C:\msys64\ucrt64\bin;$env:PATH"
+# Windows 构建后默认调用 windeployqt 部署 Qt 运行时，可用启动烟测快速检查
 build\HRMS.exe --test
 ```
 
@@ -54,7 +53,10 @@ build\HRMS.exe --test
 9. **代码可维护性整理**：
    - 认证、员工、考勤、审批、薪酬、绩效、组织、权限、通知和审计等业务逻辑抽取到 `src/services/`，UI 类主要负责交互与展示。
    - 数据库连接、迁移辅助和表结构初始化拆分到 `src/db/`，`DbUtils` 保留兼容入口，降低后续维护成本。
+   - 抽取 `DbQuery`、`SqlFilterBuilder` 和 `PayrollCalculator`，统一临时查询、表格筛选条件和薪酬计算规则，减少散落在 UI/服务层中的重复逻辑。
    - 抽取 `UiStyles` 复用公共界面样式，减少重复 QSS 字符串。
+10. **Windows 运行时部署优化**：
+   - CMake 在 Windows 下默认启用 `HRMS_DEPLOY_QT_RUNTIME`，构建后调用 `windeployqt` 将 Qt DLL 与插件复制到可执行文件目录，降低 `Qt6Sql.dll` 等运行时依赖缺失概率。
 
 ---
 
@@ -77,6 +79,7 @@ build\HRMS.exe --test
 | [`docs/SAD正式稿.md`](docs/SAD正式稿.md) | 架构视图、质量属性、架构决策和维护风险 |
 | [`docs/可行性分析报告.md`](docs/可行性分析报告.md) | 技术选型、方案对比和课程设计可行性论证 |
 | [`docs/CASE工具调研.md`](docs/CASE工具调研.md) | CASE/配置管理工具调研材料 |
+| [`docs/项目进度与工作跟踪表.md`](docs/项目进度与工作跟踪表.md) | 周进度、成员分工、当前维护阶段与交付物跟踪 |
 
 ---
 
@@ -106,11 +109,10 @@ HRMS/
 ├── style.qss                # 全局样式表 (美化控件视觉)
 ├── docs/                    # 项目设计与实验文档
 │   ├── SRS正式稿.md         # 软件需求规格说明书 (包含 E-R图、DFD图、用例图)
-│   ├── SAD初稿.md           # 软件架构设计说明书 (ISO/IEC/IEEE 42010)
+│   ├── SAD正式稿.md         # 软件架构设计说明书 (ISO/IEC/IEEE 42010)
 │   ├── 可行性分析报告.md    # 可行性研究报告
 │   ├── CASE工具调研.md      # CASE 工具调研材料
-│   ├── 项目进度与工作跟踪表.md # 项目周进度、成员分工与交付物跟踪
-│   └── 源码布局优化方案.md  # 源码分层边界与后续拆分建议
+│   └── 项目进度与工作跟踪表.md # 项目周进度、成员分工与交付物跟踪
 └── src/                     # C++ 源代码
     ├── main.cpp             # 程序入口：初始化数据库连接、检测表结构、调出登录窗口
     ├── core/                # 核心机制与全局状态
@@ -140,6 +142,7 @@ HRMS/
     │   ├── AttendanceService.h/cpp   # 打卡、请假申请、补卡申请
     │   ├── ApprovalService.h/cpp     # 请假/补卡审批
     │   ├── PayrollService.h/cpp      # 月度薪酬核算
+    │   ├── PayrollCalculator.h       # 薪酬计算纯函数：计薪月份、绩效奖金、请假扣款、个税等
     │   ├── RbacService.h/cpp         # 角色与权限维护
     │   └── ...                       # 员工、绩效、组织、通知、审计、信息变更服务
     ├── widgets/             # 自定义通用 UI 控件
@@ -155,6 +158,8 @@ HRMS/
     │   └── DbSchema.h/cpp            # 17 张表初始化、默认数据和迁移编排
     └── utils/               # 工具类
         ├── DbUtils.h/cpp             # 数据库兼容入口，转发到 src/db/ 实现
+        ├── DbQuery.h                 # 临时 SQL 查询执行与错误收集辅助
+        ├── SqlFilterBuilder.h        # QSqlTableModel 筛选条件构造辅助
         ├── CsvExport.h/cpp           # CSV 导出工具
         ├── UiStyles.h/cpp            # 公共界面样式工具
         ├── MessageHelper.h           # 消息弹窗工具
@@ -214,6 +219,7 @@ cmake --build build
 
 ### 运行说明
 1. 编译完成后，双击 `./build/HRMS.exe` 启动。
-2. 若首次启动或数据库配置错误，登录窗口会显示数据库未连接提示。
-3. 点击 **服务器设置**，输入 MySQL 主机 IP、端口、用户名和密码，保存后系统会重新连接并执行数据库自愈初始化。
-4. 连接成功后使用默认管理员账户登录；普通员工账户可由管理员在“员工管理”中创建。
+2. Windows 下默认在构建后执行 `windeployqt`，会把 Qt 运行时 DLL 和插件复制到可执行文件目录；若关闭 `HRMS_DEPLOY_QT_RUNTIME` 或旧构建目录仍缺 DLL，再临时补充 `D:\QT\6.5.3\mingw_64\bin` 与 `C:\msys64\ucrt64\bin` 到 `PATH`。
+3. 若首次启动或数据库配置错误，登录窗口会显示数据库未连接提示。
+4. 点击 **服务器设置**，输入 MySQL 主机 IP、端口、用户名和密码，保存后系统会重新连接并执行数据库自愈初始化。
+5. 连接成功后使用默认管理员账户登录；普通员工账户可由管理员在“员工管理”中创建。

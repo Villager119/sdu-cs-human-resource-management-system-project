@@ -2,6 +2,7 @@
 #include "../services/PayrollService.h"
 #include "../utils/CsvExport.h"
 #include "../utils/DbUtils.h"
+#include "../utils/SqlFilterBuilder.h"
 #include "../core/GlobalEvents.h"
 #include "../core/SessionManager.h"
 #include <QVBoxLayout>
@@ -36,7 +37,7 @@ PayrollTab::PayrollTab(int empId, const QString &role,
     m_model->setHeaderData(12, Qt::Horizontal, "结算发薪日期");
 
     if (!SessionManager::instance()->hasPermission("calculate_payroll"))
-        m_model->setFilter(QString("payroll.emp_id=%1").arg(m_empId));
+        m_model->setFilter(SqlFilter::equalsInt("payroll.emp_id", m_empId));
 
     m_table = new QTableView;
     m_table->setModel(m_model);
@@ -108,7 +109,13 @@ void PayrollTab::calculate()
     const QString month = QDate::currentDate().toString("yyyy-MM");
     PayrollService service;
 
-    const bool exists = service.payrollExists(month);
+    QString existsError;
+    const bool exists = service.payrollExists(month, &existsError);
+    if (!existsError.isEmpty()) {
+        QMessageBox::critical(this, "核算失败", "检查已有工资条失败: " + existsError);
+        restoreCalcButton();
+        return;
+    }
     if (exists) {
         const int r = QMessageBox::question(this, "重新核算确认",
             month + " 月份的工资已存在核算记录。\n重新核算将覆盖原有数据，是否确定继续？",
@@ -153,23 +160,17 @@ void PayrollTab::filterPayroll()
 {
     QStringList conds;
     if (!SessionManager::instance()->hasPermission("calculate_payroll")) {
-        conds << QString("payroll.emp_id = %1").arg(m_empId);
+        conds << SqlFilter::equalsInt("payroll.emp_id", m_empId);
     }
     if (m_monthCombo->currentIndex() > 0) {
-        QString month = m_monthCombo->currentText();
-        month.replace("'", "''");
-        conds << QString("payroll.month = '%1'").arg(month);
+        conds << SqlFilter::equals("payroll.month", m_monthCombo->currentText());
     }
     if (m_employeeNameEdit && !m_employeeNameEdit->text().trimmed().isEmpty()) {
-        QString name = m_employeeNameEdit->text().trimmed();
-        name.replace("\\", "\\\\");
-        name.replace("'", "''");
-        name.replace("%", "\\%");
-        name.replace("_", "\\_");
-        conds << QString("payroll.emp_id IN (SELECT emp_id FROM employees WHERE name LIKE '%%1%' ESCAPE '\\\\')")
-                     .arg(name);
+        conds << SqlFilter::inSubquery(
+            "payroll.emp_id",
+            "SELECT emp_id FROM employees WHERE " + SqlFilter::contains("name", m_employeeNameEdit->text().trimmed()));
     }
-    m_model->setFilter(conds.isEmpty() ? "" : conds.join(" AND "));
+    m_model->setFilter(SqlFilter::andAll(conds));
     m_model->select();
 }
 

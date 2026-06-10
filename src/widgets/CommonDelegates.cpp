@@ -1,4 +1,5 @@
 #include "CommonDelegates.h"
+#include "../core/Constants.h"
 #include "../core/SessionManager.h"
 #include <QPainter>
 #include <QEvent>
@@ -55,22 +56,22 @@ void AttendanceStatusDelegate::paint(QPainter *painter, const QStyleOptionViewIt
     }
 
     QColor bgColor, textColor;
-    if (status == "正常") {
+    if (status == HR::AttStatus::NORMAL) {
         bgColor = QColor(0xdc, 0xfc, 0xe7); // Light Green
         textColor = QColor(0x15, 0x80, 0x3d);
-    } else if (status == "迟到") {
+    } else if (status == HR::AttStatus::LATE) {
         bgColor = QColor(0xfe, 0xf3, 0xc7); // Light Yellow
         textColor = QColor(0xb4, 0x53, 0x09);
-    } else if (status == "早退") {
+    } else if (status == HR::AttStatus::EARLY) {
         bgColor = QColor(0xfe, 0xe2, 0xe2); // Light Red
         textColor = QColor(0xb9, 0x1c, 0x1c);
-    } else if (status == "迟到/早退") {
+    } else if (status == HR::AttStatus::LATE_EARLY) {
         bgColor = QColor(0xff, 0xed, 0xd5); // Light Orange
         textColor = QColor(0xc2, 0x41, 0x0c);
-    } else if (status == "缺卡") {
+    } else if (status == HR::AttStatus::MISSING) {
         bgColor = QColor(0xf1, 0xf5, 0xf9); // Light Gray
         textColor = QColor(0x47, 0x55, 0x69);
-    } else if (status == "请假") {
+    } else if (status == HR::AttStatus::LEAVE) {
         bgColor = QColor(0xdb, 0xea, 0xfe); // Light Blue
         textColor = QColor(0x1d, 0x4e, 0xd8);
     } else {
@@ -122,18 +123,18 @@ void RequestStatusDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
     }
 
     QColor bgColor, textColor;
-    if (status == "待审批" || status == "审批中") {
+    if (status == HR::LeaveStatus::PENDING || status == "审批中") {
         bgColor = QColor(0xfe, 0xf3, 0xc7); // Light Yellow
         textColor = QColor(0xb4, 0x53, 0x09);
-        status = "待审批";
-    } else if (status == "已同意" || status == "已通过" || status == "已同意补卡") {
+        status = HR::LeaveStatus::PENDING;
+    } else if (status == HR::LeaveStatus::APPROVED || status == "已通过" || status == "已同意补卡") {
         bgColor = QColor(0xdc, 0xfc, 0xe7); // Light Green
         textColor = QColor(0x15, 0x80, 0x3d);
-        status = "已同意";
-    } else if (status == "已拒绝" || status == "已驳回") {
+        status = HR::LeaveStatus::APPROVED;
+    } else if (status == HR::LeaveStatus::REJECTED || status == "已驳回") {
         bgColor = QColor(0xfe, 0xe2, 0xe2); // Light Red
         textColor = QColor(0xb9, 0x1c, 0x1c);
-        status = "已拒绝";
+        status = HR::LeaveStatus::REJECTED;
     } else {
         bgColor = QColor(0xf1, 0xf5, 0xf9);
         textColor = QColor(0x47, 0x55, 0x69);
@@ -252,7 +253,7 @@ void PerformanceStatusDelegate::paint(QPainter *painter, const QStyleOptionViewI
         opt.state &= ~QStyle::State_Selected;
     }
 
-    bool isPublished = (status == "已发布");
+    bool isPublished = (status == HR::PerformanceStatus::PUBLISHED);
 
     int trackWidth = 56;
     int trackHeight = 22;
@@ -304,7 +305,9 @@ bool PerformanceStatusDelegate::editorEvent(QEvent *event, QAbstractItemModel *m
                 return false;
             }
             QString currentStatus = index.data(Qt::DisplayRole).toString();
-            QString newStatus = (currentStatus == "已发布") ? "未发布" : "已发布";
+            QString newStatus = (currentStatus == HR::PerformanceStatus::PUBLISHED)
+                ? HR::PerformanceStatus::UNPUBLISHED
+                : HR::PerformanceStatus::PUBLISHED;
 
             int row = index.row();
             int scoreId = model->index(row, 0).data().toInt();
@@ -347,15 +350,15 @@ void ProfileChangeDelegate::paint(QPainter *painter, const QStyleOptionViewItem 
 
         // Draw background pill/badge
         QColor bgColor, textColor;
-        if (status == "待审批" || status == "审批中") {
+        if (status == HR::LeaveStatus::PENDING || status == "审批中") {
             bgColor = QColor(0xea, 0xb3, 0x08); // Yellow
             textColor = QColor(0xff, 0xff, 0xff);
             status = "审批中";
-        } else if (status == "已同意" || status == "已通过") {
+        } else if (status == HR::LeaveStatus::APPROVED || status == "已通过") {
             bgColor = QColor(0x22, 0xc5, 0x5e); // Green
             textColor = QColor(0xff, 0xff, 0xff);
             status = "已通过";
-        } else if (status == "已拒绝" || status == "已驳回") {
+        } else if (status == HR::LeaveStatus::REJECTED || status == "已驳回") {
             bgColor = QColor(0xef, 0x44, 0x44); // Red
             textColor = QColor(0xff, 0xff, 0xff);
             status = "已驳回";

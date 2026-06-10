@@ -1,5 +1,6 @@
 #include "DbSchema.h"
 #include "DbMigration.h"
+#include "../core/Constants.h"
 
 #include <QDate>
 #include <QDebug>
@@ -7,6 +8,22 @@
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QStringList>
+
+namespace {
+
+bool execSchemaStep(QSqlDatabase &db, QSqlQuery &query, const QString &sql, const char *context)
+{
+    if (!query.exec(sql)) {
+        qDebug() << context << query.lastError().text();
+        query.finish();
+        db.rollback();
+        return false;
+    }
+    query.finish();
+    return true;
+}
+
+}
 
 bool initDatabaseSchema()
 {
@@ -16,7 +33,10 @@ bool initDatabaseSchema()
         return false;
     }
 
-    db.transaction();
+    if (!db.transaction()) {
+        qDebug() << "Failed to start database schema initialization transaction:" << db.lastError().text();
+        return false;
+    }
     QSqlQuery q;
 
     // 1. roles
@@ -291,103 +311,142 @@ bool initDatabaseSchema()
     }
 
     // Seed default roles
-    q.exec("INSERT IGNORE INTO roles (role_name) VALUES ('admin'), ('user')");
-    q.finish();
+    if (!execSchemaStep(db, q, "INSERT IGNORE INTO roles (role_name) VALUES ('admin'), ('user')",
+                        "Failed to seed default roles:")) {
+        return false;
+    }
 
     // Seed default permissions
-    q.exec("INSERT IGNORE INTO permissions (permission_key, permission_name) VALUES "
-           "('view_dashboard', '查看仪表盘'),"
-           "('manage_employees', '管理员工信息'),"
-           "('request_profile_change', '申请信息变更'),"
-           "('approve_profile_change', '审批信息变更'),"
-           "('apply_leave_makeup', '打卡与补签'),"
-           "('apply_leave', '请假申请'),"
-           "('approve_leave', '审批请假'),"
-           "('approve_makeup', '审批补卡'),"
-           "('manage_shifts', '管理班次设置'),"
-           "('view_personal_payroll', '查看个人工资条'),"
-           "('calculate_payroll', '核算发放工资'),"
-           "('view_personal_performance', '查看个人绩效'),"
-           "('evaluate_performance', '评估绩效'),"
-           "('manage_org', '组织架构管理'),"
-           "('view_audit_logs', '查看审计日志'),"
-           "('manage_rbac', '管理角色权限'),"
-           "('manage_tax_config', '社保比例配置'),"
-           "('view_reports', '查看统计报表')");
-    q.finish();
+    if (!execSchemaStep(db, q,
+                        "INSERT IGNORE INTO permissions (permission_key, permission_name) VALUES "
+                        "('view_dashboard', '查看仪表盘'),"
+                        "('manage_employees', '管理员工信息'),"
+                        "('request_profile_change', '申请信息变更'),"
+                        "('approve_profile_change', '审批信息变更'),"
+                        "('apply_leave_makeup', '打卡与补签'),"
+                        "('apply_leave', '请假申请'),"
+                        "('approve_leave', '审批请假'),"
+                        "('approve_makeup', '审批补卡'),"
+                        "('manage_shifts', '管理班次设置'),"
+                        "('view_personal_payroll', '查看个人工资条'),"
+                        "('calculate_payroll', '核算发放工资'),"
+                        "('view_personal_performance', '查看个人绩效'),"
+                        "('evaluate_performance', '评估绩效'),"
+                        "('manage_org', '组织架构管理'),"
+                        "('view_audit_logs', '查看审计日志'),"
+                        "('manage_rbac', '管理角色权限'),"
+                        "('manage_tax_config', '社保比例配置'),"
+                        "('view_reports', '查看统计报表')",
+                        "Failed to seed default permissions:")) {
+        return false;
+    }
 
     // Seed default role-permission mappings for 'user' role
-    q.exec("INSERT IGNORE INTO role_permissions (role_id, permission_id) "
-           "SELECT (SELECT role_id FROM roles WHERE role_name='user'), permission_id "
-           "FROM permissions WHERE permission_key IN "
-           "('view_dashboard', 'request_profile_change', 'apply_leave_makeup', "
-           "'apply_leave', 'view_personal_payroll', 'view_personal_performance')");
-    q.finish();
+    if (!execSchemaStep(db, q,
+                        "INSERT IGNORE INTO role_permissions (role_id, permission_id) "
+                        "SELECT (SELECT role_id FROM roles WHERE role_name='user'), permission_id "
+                        "FROM permissions WHERE permission_key IN "
+                        "('view_dashboard', 'request_profile_change', 'apply_leave_makeup', "
+                        "'apply_leave', 'view_personal_payroll', 'view_personal_performance')",
+                        "Failed to seed user role permissions:")) {
+        return false;
+    }
 
     // Seed default role-permission mappings for 'admin' role
-    q.exec("INSERT IGNORE INTO role_permissions (role_id, permission_id) "
-           "SELECT (SELECT role_id FROM roles WHERE role_name='admin'), permission_id "
-           "FROM permissions");
-    q.finish();
+    if (!execSchemaStep(db, q,
+                        "INSERT IGNORE INTO role_permissions (role_id, permission_id) "
+                        "SELECT (SELECT role_id FROM roles WHERE role_name='admin'), permission_id "
+                        "FROM permissions",
+                        "Failed to seed admin role permissions:")) {
+        return false;
+    }
 
     // Seed the standard shift with a stable primary key; employee defaults reference shift_id=1.
-    q.exec("INSERT IGNORE INTO shifts (shift_id, shift_name, start_time, end_time) "
-           "VALUES (1, '标准班', '09:00:00', '18:00:00')");
-    q.finish();
+    if (!execSchemaStep(db, q,
+                        "INSERT IGNORE INTO shifts (shift_id, shift_name, start_time, end_time) "
+                        "VALUES (1, '标准班', '09:00:00', '18:00:00')",
+                        "Failed to seed standard shift:")) {
+        return false;
+    }
 
     // Seed common departments and job salary standards
-    q.exec("INSERT IGNORE INTO departments (dept_name) VALUES ('技术部'), ('人事部'), ('财务部'), ('行政部')");
-    q.finish();
-    q.exec("INSERT IGNORE INTO departments (dept_name) "
-           "SELECT DISTINCT department FROM employees WHERE department IS NOT NULL AND department!=''");
-    q.finish();
-    q.exec("INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
-           "SELECT dept_id, '开发工程师', '初级', 7000.00, 11000.00, 9000.00 FROM departments WHERE dept_name='技术部'");
-    q.finish();
-    q.exec("INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
-           "SELECT dept_id, '开发工程师', '中级', 11000.00, 18000.00, 14000.00 FROM departments WHERE dept_name='技术部'");
-    q.finish();
-    q.exec("INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
-           "SELECT dept_id, '开发工程师', '高级', 18000.00, 30000.00, 22000.00 FROM departments WHERE dept_name='技术部'");
-    q.finish();
-    q.exec("INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
-           "SELECT dept_id, '人力资源专员', '初级', 5000.00, 8000.00, 6500.00 FROM departments WHERE dept_name='人事部'");
-    q.finish();
-    q.exec("INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
-           "SELECT dept_id, '人力资源专员', '中级', 8000.00, 12000.00, 9500.00 FROM departments WHERE dept_name='人事部'");
-    q.finish();
-    q.exec("INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
-           "SELECT dept_id, '财务会计', '初级', 5000.00, 8000.00, 6500.00 FROM departments WHERE dept_name='财务部'");
-    q.finish();
-    q.exec("INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
-           "SELECT dept_id, '行政专员', '初级', 4500.00, 7000.00, 5500.00 FROM departments WHERE dept_name='行政部'");
-    q.finish();
-    q.exec("INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
-           "SELECT dept_id, '行政专员', '中级', 8000.00, 12000.00, 9500.00 FROM departments WHERE dept_name='行政部'");
-    q.finish();
-    q.exec("INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
-           "SELECT d.dept_id, e.position, e.title, "
-           "GREATEST(e.base_salary * 0.8, 1), e.base_salary * 1.2, e.base_salary "
-           "FROM employees e "
-           "JOIN departments d ON d.dept_name=e.department "
-           "WHERE e.department IS NOT NULL AND e.department!='' "
-           "AND e.position IS NOT NULL AND e.position!='' "
-           "AND e.title IS NOT NULL AND e.title!='' "
-           "AND e.base_salary > 0");
-    q.finish();
+    const QList<QPair<QString, const char *>> seedStatements = {
+        {"INSERT IGNORE INTO departments (dept_name) VALUES ('技术部'), ('人事部'), ('财务部'), ('行政部')",
+         "Failed to seed default departments:"},
+        {"INSERT IGNORE INTO departments (dept_name) "
+         "SELECT DISTINCT department FROM employees WHERE department IS NOT NULL AND department!=''",
+         "Failed to seed departments from employees:"},
+        {"INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
+         "SELECT dept_id, '开发工程师', '初级', 7000.00, 11000.00, 9000.00 FROM departments WHERE dept_name='技术部'",
+         "Failed to seed tech junior salary standard:"},
+        {"INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
+         "SELECT dept_id, '开发工程师', '中级', 11000.00, 18000.00, 14000.00 FROM departments WHERE dept_name='技术部'",
+         "Failed to seed tech middle salary standard:"},
+        {"INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
+         "SELECT dept_id, '开发工程师', '高级', 18000.00, 30000.00, 22000.00 FROM departments WHERE dept_name='技术部'",
+         "Failed to seed tech senior salary standard:"},
+        {"INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
+         "SELECT dept_id, '人力资源专员', '初级', 5000.00, 8000.00, 6500.00 FROM departments WHERE dept_name='人事部'",
+         "Failed to seed HR junior salary standard:"},
+        {"INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
+         "SELECT dept_id, '人力资源专员', '中级', 8000.00, 12000.00, 9500.00 FROM departments WHERE dept_name='人事部'",
+         "Failed to seed HR middle salary standard:"},
+        {"INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
+         "SELECT dept_id, '财务会计', '初级', 5000.00, 8000.00, 6500.00 FROM departments WHERE dept_name='财务部'",
+         "Failed to seed finance salary standard:"},
+        {"INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
+         "SELECT dept_id, '行政专员', '初级', 4500.00, 7000.00, 5500.00 FROM departments WHERE dept_name='行政部'",
+         "Failed to seed admin junior salary standard:"},
+        {"INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
+         "SELECT dept_id, '行政专员', '中级', 8000.00, 12000.00, 9500.00 FROM departments WHERE dept_name='行政部'",
+         "Failed to seed admin middle salary standard:"},
+        {"INSERT IGNORE INTO job_salary_standards (dept_id, position, title, min_salary, max_salary, default_salary) "
+         "SELECT d.dept_id, e.position, e.title, "
+         "GREATEST(e.base_salary * 0.8, 1), e.base_salary * 1.2, e.base_salary "
+         "FROM employees e "
+         "JOIN departments d ON d.dept_name=e.department "
+         "WHERE e.department IS NOT NULL AND e.department!='' "
+         "AND e.position IS NOT NULL AND e.position!='' "
+         "AND e.title IS NOT NULL AND e.title!='' "
+         "AND e.base_salary > 0",
+         "Failed to seed salary standards from employees:"}
+    };
+    for (const auto &statement : seedStatements) {
+        if (!execSchemaStep(db, q, statement.first, statement.second)) {
+            return false;
+        }
+    }
 
     // Seed default salary configs
-    q.exec("INSERT IGNORE INTO salary_config (item_name, rate_personal) VALUES "
-           "('养老保险', 0.0800), ('医疗保险', 0.0200), ('失业保险', 0.0050),"
-           "('工伤保险', 0.0000), ('生育保险', 0.0000), ('住房公积金', 0.1200)");
-    q.finish();
+    if (!execSchemaStep(db, q,
+                        "INSERT IGNORE INTO salary_config (item_name, rate_personal) VALUES "
+                        "('养老保险', 0.0800), ('医疗保险', 0.0200), ('失业保险', 0.0050),"
+                        "('工伤保险', 0.0000), ('生育保险', 0.0000), ('住房公积金', 0.1200)",
+                        "Failed to seed default salary configs:")) {
+        return false;
+    }
 
     // Seed default system settings
-    q.exec("INSERT IGNORE INTO system_settings (key_name, value) VALUES ('work_days_per_month', '21.75'), ('tax_threshold', '5000')");
+    q.prepare("INSERT IGNORE INTO system_settings (key_name, value) VALUES (?, ?), (?, ?)");
+    q.addBindValue(HR::Config::WORK_DAYS);
+    q.addBindValue("21.75");
+    q.addBindValue(HR::Config::TAX_THRESHOLD);
+    q.addBindValue("5000");
+    if (!q.exec()) {
+        qDebug() << "Failed to seed default system settings:" << q.lastError().text();
+        q.finish();
+        db.rollback();
+        return false;
+    }
     q.finish();
 
     // Check if employees is empty. If so, seed initial admin user (admin / admin1)
-    q.exec("SELECT COUNT(*) FROM employees");
+    if (!q.exec("SELECT COUNT(*) FROM employees")) {
+        qDebug() << "Failed to count employees before admin seed:" << q.lastError().text();
+        q.finish();
+        db.rollback();
+        return false;
+    }
     bool employeesEmpty = false;
     if (q.next() && q.value(0).toInt() == 0) {
         employeesEmpty = true;

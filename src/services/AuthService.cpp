@@ -1,6 +1,7 @@
 #include "AuthService.h"
 
 #include "AuditService.h"
+#include "../core/Constants.h"
 
 #include <QCryptographicHash>
 #include <QSqlError>
@@ -23,9 +24,10 @@ AuthService::LoginResult AuthService::authenticate(const QString &account, const
     QSqlQuery query(m_db);
     query.prepare("SELECT emp_id,name,role FROM employees "
                   "WHERE (name=:account OR phone=:account) "
-                  "AND password_hash=:password AND status='在职'");
+                  "AND password_hash=:password AND status=:status");
     query.bindValue(":account", account);
     query.bindValue(":password", hashPassword(password));
+    query.bindValue(":status", HR::EmpStatus::ACTIVE);
 
     if (!query.exec()) {
         result.dbError = true;
@@ -94,10 +96,11 @@ AuthService::RecoveryIdentity AuthService::verifyRecoveryIdentity(int empId, con
 
     QSqlQuery query(m_db);
     query.prepare("SELECT emp_id, name FROM employees "
-                  "WHERE emp_id = :emp_id AND name = :name AND phone = :phone AND status = '在职'");
+                  "WHERE emp_id = :emp_id AND name = :name AND phone = :phone AND status = :status");
     query.bindValue(":emp_id", empId);
     query.bindValue(":name", name);
     query.bindValue(":phone", phone);
+    query.bindValue(":status", HR::EmpStatus::ACTIVE);
 
     if (!query.exec()) {
         result.dbError = true;

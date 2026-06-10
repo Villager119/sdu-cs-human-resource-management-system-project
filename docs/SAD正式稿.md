@@ -2,8 +2,8 @@
 
 > **标准符合性声明**：本说明书参考软件架构描述的最新国际标准 **ISO/IEC/IEEE 42010:2011(E)** 进行编写，旨在从多视角、多维度系统地描述系统架构设计，确保利益相关者的架构关注点得到全面解决。
 >
-> **版本**：V1.5 (改进稿)
-> **日期**：2026-06-05
+> **版本**：V1.6 (维护稿)
+> **日期**：2026-06-10
 > **项目代号**：HRMS
 
 ---
@@ -29,6 +29,7 @@
 
 | 版本 | 日期 | 主要变更 |
 | :--- | :--- | :--- |
+| V1.6 | 2026-06-10 | 同步服务层鲁棒性重构；补充 `DbQuery`、`SqlFilterBuilder`、`PayrollCalculator` 与 Windows 运行时部署说明；说明移除独立自动化验证目标后的验证边界。 |
 | V1.5 | 2026-06-05 | 同步 `src/db/` 数据库基础设施拆分；修正启动流程；补充质量属性场景、验证清单与维护风险。 |
 | V1.4 | 2026-05-30 | 完善组织架构、RBAC、QODBC 连接隔离、图表与异步导出等架构说明。 |
 
@@ -71,7 +72,7 @@ graph TD
 ### 1.4 参考标准
 
 * **ISO/IEC/IEEE 42010:2011(E)** — Systems and software engineering — Architecture description.
-- **HRMS 软件需求规格说明书 (SRS) V3.4** — 包含核心需求、数据定义与当前源码文件清单。
+- **HRMS 软件需求规格说明书 (SRS) V3.5** — 包含核心需求、数据定义与当前源码文件清单。
 
 ---
 
@@ -123,7 +124,7 @@ graph TD
 系统在核心架构上严格遵循 **模型-视图 (Model-View)** 模式。通过继承 Qt 内置的模型类，与 QTableView 等视图控件进行绑定。
 
 1. **View 层 (视图)**：由各 `ui/` 和 `tabs/` 类实现，负责控件渲染与用户交互。
-2. **Service 层 (业务服务)**：由 `src/services/` 中的 `AuthService`、`AttendanceService`、`ApprovalService`、`PayrollService`、`RbacService` 等类承载，封装认证、审批、薪酬核算、组织管理、通知与审计等数据库业务逻辑，降低 UI 类职责。
+2. **Service 层 (业务服务)**：由 `src/services/` 中的 `AuthService`、`AttendanceService`、`ApprovalService`、`PayrollService`、`PerformanceService`、`OrgService`、`RbacService` 等类承载，封装认证、审批、薪酬核算、绩效、组织管理、通知与审计等数据库业务逻辑。近期维护中，服务层进一步通过 `DbQuery` 统一临时查询错误处理，通过 `PayrollCalculator` 承载可独立推理的薪酬计算规则，降低 UI 类职责和隐式失败风险。
 3. **Model 层 (模型)**：使用 `QSqlTableModel` 和 `QSqlRelationalTableModel` 承载，处理内存中与 MySQL 表对应的数据缓冲及事务修改。
 4. **Delegate 层 (委托)**：使用自定义的 `ComboDelegate` 在表格单元格中嵌入下拉框控件，规范输入。
 5. **全局事件总线 (EventBus)**：`GlobalEvents` 实现了**观察者模式**。它作为解耦器，任何 Tab 完成提交修改（如审批请假、修改员工信息等）后发射 `dataChanged` 或 `auditRefresh` 信号，其他独立 Tab 监听此信号自动拉取最新数据，避免了 Tab 组件间的强指针依赖。
@@ -148,6 +149,8 @@ classDiagram
 
     class Utils {
         +CsvExport
+        +DbQuery
+        +SqlFilterBuilder
         +UiStyles
         +MessageHelper
         +UnsavedChangesGuard
@@ -166,6 +169,7 @@ classDiagram
         +AttendanceService
         +ApprovalService
         +PayrollService
+        +PayrollCalculator
         +PerformanceService
         +OrgService
         +RbacService
@@ -220,6 +224,7 @@ classDiagram
     Tabs_Business --> Utils : "使用工具库"
     Tabs_Finance --> Utils : "使用工具库"
     Services --> Database : "连接隔离/迁移辅助"
+    Services --> Utils : "查询执行/筛选条件辅助"
     Tabs_Business --> Widgets_Custom : "绑定组件与表格委托"
     Tabs_Finance --> Widgets_Custom : "绑定组件与表格委托"
     
@@ -627,13 +632,13 @@ graph TD
 
 | 质量属性 | 场景刺激 | 架构响应 | 主要实现位置 / 证据 |
 | :--- | :--- | :--- | :--- |
-| 可维护性 [M-1] | 后续新增业务模块或调整数据库初始化逻辑 | UI、服务、数据库基础设施分层；数据库连接、迁移辅助和建表编排拆到 `src/db/` | `src/services/`、`src/db/DbConnection.*`、`src/db/DbMigration.*`、`src/db/DbSchema.*` |
-| 数据一致性 [D-1] | 管理员重新核算某月工资，中途任一员工写入失败 | 删除旧工资条与写入新工资条处于同一事务，失败时整体回滚 | `PayrollService` 的月度核算事务 |
+| 可维护性 [M-1] | 后续新增业务模块或调整数据库初始化逻辑 | UI、服务、数据库基础设施分层；数据库连接、迁移辅助和建表编排拆到 `src/db/`；临时查询、筛选条件和薪酬计算规则抽为小型辅助模块 | `src/services/`、`src/db/DbConnection.*`、`src/db/DbMigration.*`、`src/db/DbSchema.*`、`src/utils/DbQuery.h`、`src/utils/SqlFilterBuilder.h`、`src/services/PayrollCalculator.h` |
+| 数据一致性 [D-1] | 管理员重新核算某月工资，中途任一员工写入失败或配置读取失败 | 读取月份、配置、税率、员工、请假和绩效数据时失败即停止；删除旧工资条与写入新工资条处于同一事务，失败时整体回滚 | `PayrollService` 的月度核算事务与 `PayrollCalculator` |
 | 并发安全 [D-1] | 两个客户端同时编辑同一员工记录 | `version` 乐观锁校验旧版本，冲突时阻止覆盖并提示刷新 | `OptimisticSqlTableModel`、`employees.version` |
 | 响应性能 [P-1] | 大量员工数据导出 CSV | 主线程只提取模型数据，磁盘写入交给 `QtConcurrent` 后台执行 | `CsvExport`、`QFutureWatcher` |
 | QODBC 稳定性 [U-1] | 多个 `QSqlTableModel` 和后台轮询同时访问数据库 | 长生命周期模型使用克隆连接，临时查询显式 `finish()` 释放结果 | `DbConnection::createClonedDatabaseConnection()` 与各 Tab 模型初始化 |
 | 安全性 [S-1] | 普通员工尝试访问管理员菜单或数据 | 侧边栏/子页签 UI 过滤 + SQL 按当前用户绑定数据范围 | `SessionManager`、`MainWindow`、各业务 Tab 查询过滤 |
-| 可部署性 [U-1] | 新环境首次启动或旧数据库缺少新增字段 | `initDatabaseSchema()` 幂等建表、补列、补索引并插入默认数据 | `DbSchema` 与 `DbMigration` |
+| 可部署性 [U-1] | 新环境首次启动、旧数据库缺少新增字段或可执行文件目录缺少 Qt 运行时 | `initDatabaseSchema()` 幂等建表、补列、补索引并插入默认数据；Windows 构建后默认调用 `windeployqt` 部署 Qt DLL 与插件 | `DbSchema`、`DbMigration`、`CMakeLists.txt` 中的 `HRMS_DEPLOY_QT_RUNTIME` |
 
 ---
 
@@ -655,12 +660,13 @@ graph TD
 - **折中理由**：如果不冗余姓名，在员工姓名修改后，历史日志关联查询出的姓名会被错误地更新为新值（导致历史追溯失真）；且审计日志页面需要高频读取并以极快速度进行数据绑定。使用多表外键联查 (Join) 在日志数量极大时会导致查询响应时间变慢。因此，反规范化设计能有效折中解决**可审计性 (Auditability)** 与 **性能 [P-1]** 的诉求。
 - **二层架构下的服务层边界**：系统没有引入独立后端服务，`src/services/` 仍运行在 Qt 客户端进程内。该服务层并不改变 C/S 部署形态，而是用于集中业务规则、事务和临时 SQL 查询，使 UI 类保持交互职责，降低后续维护成本。
 - **数据库基础设施拆分**：原集中在 `DbUtils` 中的连接、迁移辅助与建表编排已拆分到 `src/db/DbConnection.*`、`src/db/DbMigration.*` 和 `src/db/DbSchema.*`。`src/utils/DbUtils.*` 保留为兼容入口，既避免全项目 include 大面积变更，又让数据库职责边界更清晰。
+- **小型辅助模块的边界**：`DbQuery` 不替代所有 SQL 封装，只负责临时查询的执行和错误上报；`SqlFilterBuilder` 仅构造 `QSqlTableModel::setFilter()` 所需的 SQL 片段；`PayrollCalculator` 保持纯计算职责，不直接访问数据库。这样既提升鲁棒性，又避免过早引入大型仓储层或 ORM。
 
 ---
 
 ## 5. 架构决策与决策合理性说明 (Architecture Rationale)
 
-在 HRMS 的架构开发中，围绕系统的环境约束和核心质量指标，我们做出了以下八个关键技术决策，并在此处给出其合理性理由解释。
+在 HRMS 的架构开发中，围绕系统的环境约束和核心质量指标，我们做出了以下十个关键技术决策，并在此处给出其合理性理由解释。
 
 ### 决策 1：选用二层 C/S 直连架构，摒弃三层 (B/S 或带有 Java/Go 后端的 C/S) 架构
 
@@ -735,6 +741,27 @@ graph TD
   - **降低重构风险 [U-1]**：保留兼容入口后，现有 include 不需要同步迁移，避免产生大面积机械改动。
   - **便于后续演进 [M-1]**：若后续继续做数据库版本化迁移，可在 `DbMigration` 基础上扩展迁移记录表或版本号机制。
 
+### 决策 9：将临时查询、筛选条件与薪酬计算规则工具化
+
+* **问题描述**：服务层和 Tab 页面中存在大量临时查询、表格过滤条件拼接和薪酬计算细节。如果这些逻辑继续散落在各处，容易出现查询失败后静默使用默认值、过滤条件拼接不一致、工资公式难以审查等问题。
+- **架构决策**：
+  1. 使用 `DbQuery` 统一临时 SQL 的执行结果和错误信息返回，让服务层在关键读操作失败时能够 fail-fast。
+  2. 使用 `SqlFilterBuilder` 生成 `QSqlTableModel::setFilter()` 片段，避免页面层手写字符串拼接。
+  3. 使用 `PayrollCalculator` 承载计薪月份解析、工作日折算、绩效奖金、请假扣款、五险一金和个人所得税等纯计算规则。
+- **决策合理性**：
+  - **正确性 [D-1]**：薪酬核算依赖的员工、绩效、请假、配置和税率数据一旦读取失败，应立即返回错误而不是继续用 0 或空值生成错误工资条。
+  - **可读性 [M-1]**：查询执行、筛选字符串和工资公式各有清晰入口，后续审查薪酬规则时无需穿透整段数据库事务代码。
+  - **重构风险可控 [U-1]**：这些辅助模块均为头文件级小组件，不改变 UI 与数据库的整体架构，不引入额外运行时依赖。
+
+### 决策 10：Windows 构建后自动部署 Qt 运行时依赖
+
+* **问题描述**：在 Qt Creator 外直接运行 `HRMS.exe` 时，如果可执行文件目录缺少 `Qt6Sql.dll`、平台插件或 MinGW 运行时，程序会在启动前失败，用户看到的只是系统级 DLL 缺失提示，无法进入登录窗口或服务器设置流程。
+- **架构决策**：在 `CMakeLists.txt` 中保留 Windows 专用选项 `HRMS_DEPLOY_QT_RUNTIME`，默认开启。构建 `HRMS` 后调用 Qt 自带 `windeployqt` 将 Qt DLL 与插件复制到目标目录；如果 `windeployqt` 不存在，则给出构建警告，允许维护者用 PATH 方式兜底。
+- **决策合理性**：
+  - **可部署性 [U-1]**：把运行时依赖部署纳入构建后步骤，减少手动复制 DLL 或临时修改 PATH 的出错概率。
+  - **兼容性 [M-1]**：该逻辑只作用于 Windows 构建，且可通过 `-DHRMS_DEPLOY_QT_RUNTIME=OFF` 关闭，不影响非 Windows 环境或开发者自定义部署流程。
+  - **问题定位清晰**：构建期若找不到 `windeployqt` 会直接告警，比运行时才暴露 `Qt6Sql.dll` 缺失更容易排查。
+
 ---
 
 ## 6. 架构验证与后续维护建议
@@ -744,8 +771,8 @@ graph TD
 | 验证项 | 推荐命令 / 操作 | 通过标准 |
 | :--- | :--- | :--- |
 | 构建完整性 | `cmake --build build` | CMake 配置、自动 MOC/UIC、编译和链接全部通过 |
-| 启动烟测 | `build\HRMS.exe --test` | 程序可完成启动链路并在测试计时器触发后正常退出 |
-| 运行时依赖 | 临时补充 Qt/MinGW 路径后执行烟测 | 若直接运行缺少运行时 DLL，应补充 `D:\QT\6.5.3\mingw_64\bin` 和 `C:\msys64\ucrt64\bin` 到 PATH |
+| 启动烟测 | `build\HRMS.exe --test` | 程序可完成启动链路并在烟测计时器触发后正常退出 |
+| 运行时依赖 | Windows 构建后检查可执行文件目录并执行烟测 | 默认通过 `windeployqt` 部署 Qt DLL 与插件；若关闭部署或旧构建目录仍缺 DLL，再补充 Qt/MinGW 路径到 `PATH` |
 | 数据库初始化 | 首次连接空库或旧库启动 | 自动创建 17 张表、补齐字段/唯一键/索引、插入默认角色权限和 admin 账号 |
 | 权限隔离 | admin/user 分别登录 | 普通员工不可见管理菜单，管理员可访问审批、薪酬、组织和 RBAC |
 | 数据同步 | 多客户端或多窗口修改数据 | 审计日志轮询触发 `GlobalEvents` 刷新，不长期停留在旧数据 |
@@ -756,11 +783,11 @@ graph TD
 - **二层 C/S 直连数据库**：系统适合课设、局域网或小规模办公场景，不适合直接暴露到公网或承载高并发移动端访问。
 - **迁移未版本化**：当前数据库迁移采用幂等检查方式，适合字段补齐和默认数据插入；若后续出现复杂数据转换，应引入显式迁移版本表。
 - **UI 层仍存在直接 SQL 查询**：部分统计页和表格页仍直接查询数据库，后续可按模块逐步沉到服务层或查询 helper 中。
-- **自动烟测覆盖有限**：`--test` 主要验证启动链路，不能替代人工点击审批、导出、核算和图表刷新流程。
+- **启动烟测覆盖有限**：`--test` 主要验证启动链路，不能替代人工点击审批、导出、核算和图表刷新流程；当前仓库未保留独立自动化验证目标。
 
 ### 6.3 后续演进顺序
 
 1. **仪表盘拆分**：将 `DashboardTab` 中的统计 SQL 与图表构建拆出 `DashboardQueries` 和 `DashboardCharts`，降低首页大文件维护成本。
 2. **员工页拆分**：将部门/角色/班次/岗位职称候选项与导出逻辑从 `EmployeeTab` 中拆出，保留页面装配和交互流程。
 3. **数据库迁移版本化**：在当前 `DbMigration` 基础上增加迁移记录表，记录已执行迁移编号，提升长期升级可追溯性。
-4. **测试用例补齐**：优先补覆盖薪酬核算、审批回写、员工乐观锁和 RBAC 菜单隔离的最小自动化验证。
+4. **回归验证补齐**：若后续重新引入自动化验证，优先覆盖薪酬核算、审批回写、员工乐观锁和 RBAC 菜单隔离；当前阶段以构建验证、启动烟测和人工业务流检查为主。

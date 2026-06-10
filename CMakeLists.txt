@@ -10,6 +10,56 @@ set(CMAKE_AUTORCC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Sql Network Charts Concurrent)
 
+if(WIN32)
+    option(HRMS_DEPLOY_QT_RUNTIME "Deploy Qt runtime files after Windows builds" ON)
+endif()
+
+function(hrms_qt_runtime_paths out_qt_bin_dir out_qt_plugins_dir out_compiler_bin_dir)
+    get_target_property(qt_core_location Qt6::Core IMPORTED_LOCATION)
+    if(NOT qt_core_location)
+        get_target_property(qt_core_location Qt6::Core IMPORTED_LOCATION_RELEASE)
+    endif()
+    if(NOT qt_core_location)
+        get_target_property(qt_core_location Qt6::Core LOCATION)
+    endif()
+
+    if(NOT qt_core_location)
+        message(FATAL_ERROR "Unable to locate Qt6::Core runtime library")
+    endif()
+
+    get_filename_component(qt_bin_dir "${qt_core_location}" DIRECTORY)
+    get_filename_component(qt_prefix_dir "${qt_bin_dir}" DIRECTORY)
+    get_filename_component(compiler_bin_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
+
+    set(${out_qt_bin_dir} "${qt_bin_dir}" PARENT_SCOPE)
+    set(${out_qt_plugins_dir} "${qt_prefix_dir}/plugins" PARENT_SCOPE)
+    set(${out_compiler_bin_dir} "${compiler_bin_dir}" PARENT_SCOPE)
+endfunction()
+
+function(hrms_deploy_qt_runtime target_name)
+    if(NOT WIN32 OR NOT HRMS_DEPLOY_QT_RUNTIME)
+        return()
+    endif()
+
+    hrms_qt_runtime_paths(qt_bin_dir qt_plugins_dir compiler_bin_dir)
+    find_program(HRMS_WINDEPLOYQT_EXECUTABLE NAMES windeployqt HINTS "${qt_bin_dir}")
+    if(NOT HRMS_WINDEPLOYQT_EXECUTABLE)
+        message(WARNING "windeployqt was not found; ${target_name} may require Qt bin in PATH at runtime")
+        return()
+    endif()
+
+    add_custom_command(TARGET ${target_name} POST_BUILD
+        COMMAND "${HRMS_WINDEPLOYQT_EXECUTABLE}"
+            --no-translations
+            --no-system-d3d-compiler
+            --no-opengl-sw
+            --compiler-runtime
+            "$<TARGET_FILE:${target_name}>"
+        COMMENT "Deploying Qt runtime for ${target_name}"
+        VERBATIM
+    )
+endfunction()
+
 set(PROJECT_SOURCES
     src/main.cpp
     src/ui/LoginWindow.cpp src/ui/LoginWindow.h src/ui/LoginWindow.ui
@@ -33,6 +83,7 @@ set(PROJECT_SOURCES
     src/tabs/attend_manage/ShiftSettingsWidget.cpp src/tabs/attend_manage/ShiftSettingsWidget.h
     src/tabs/OrgTab.cpp src/tabs/OrgTab.h
     src/tabs/RbacTab.cpp src/tabs/RbacTab.h
+    src/services/PayrollCalculator.h
     src/services/PayrollService.cpp src/services/PayrollService.h
     src/services/EmployeeService.cpp src/services/EmployeeService.h
     src/services/ApprovalService.cpp src/services/ApprovalService.h
@@ -55,8 +106,10 @@ set(PROJECT_SOURCES
     src/db/DbMigration.cpp src/db/DbMigration.h
     src/db/DbSchema.cpp src/db/DbSchema.h
     src/utils/CsvExport.cpp src/utils/CsvExport.h
+    src/utils/DbQuery.h
     src/utils/DbUtils.cpp src/utils/DbUtils.h
     src/utils/MessageHelper.h
+    src/utils/SqlFilterBuilder.h
     src/utils/UnsavedChangesGuard.h
     src/utils/UiStyles.cpp src/utils/UiStyles.h
     src/core/Logger.cpp src/core/Logger.h
@@ -68,3 +121,5 @@ add_executable(HRMS ${PROJECT_SOURCES})
 
 target_link_libraries(HRMS PRIVATE
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Sql Qt6::Network Qt6::Charts Qt6::Concurrent)
+
+hrms_deploy_qt_runtime(HRMS)

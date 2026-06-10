@@ -1,42 +1,71 @@
 #include "PayrollService.h"
 
+#include "../core/Constants.h"
+#include "../utils/DbQuery.h"
+
 #include <QDate>
+#include <QHash>
+#include <QSet>
 #include <QSqlError>
 #include <QSqlQuery>
-
-#include <algorithm>
 
 PayrollService::PayrollService(const QSqlDatabase &db)
     : m_db(db)
 {
 }
 
-static bool payrollWorkday(const QDate &date)
+bool PayrollService::payrollExists(const QString &month, QString *errorText)
 {
-    return date.isValid() && date.dayOfWeek() >= 1 && date.dayOfWeek() <= 5;
-}
+    DbQuery::clearError(errorText);
 
-bool PayrollService::payrollExists(const QString &month)
-{
     QSqlQuery check(m_db);
-    check.prepare("SELECT COUNT(*) FROM payroll WHERE month=?");
-    check.addBindValue(month);
-
-    bool exists = false;
-    if (check.exec() && check.next() && check.value(0).toInt() > 0) {
-        exists = true;
+    if (!DbQuery::execPrepared(check, "SELECT COUNT(*) FROM payroll WHERE month=?", {month}, errorText)) {
+        return false;
     }
+
+    const bool exists = check.next() && check.value(0).toInt() > 0;
     check.finish();
     return exists;
 }
 
 PayrollService::Result PayrollService::calculateMonth(const QString &month, bool overwriteExisting)
 {
+    QString loadError;
+    QDate monthStart;
+    if (!PayrollCalc::parseMonth(month, &monthStart, &loadError)) {
+        return fail(month, loadError);
+    }
+
     const QString today = QDate::currentDate().toString("yyyy-MM-dd");
-    const double workDays = loadWorkDaysPerMonth();
-    const QList<TaxItem> taxItems = loadTaxItems();
-    const double taxThreshold = loadTaxThreshold();
-    const QList<ActiveEmployee> activeEmployees = loadActiveEmployees(month);
+    double workDays = PayrollCalc::DefaultWorkDaysPerMonth;
+    if (!loadWorkDaysPerMonth(&workDays, &loadError)) {
+        return fail(month, "读取月计薪天数失败: " + loadError);
+    }
+
+    QList<PayrollCalc::TaxItem> taxItems;
+    if (!loadTaxItems(&taxItems, &loadError)) {
+        return fail(month, "读取社保/公积金配置失败: " + loadError);
+    }
+
+    double taxThreshold = PayrollCalc::DefaultTaxThreshold;
+    if (!loadTaxThreshold(&taxThreshold, &loadError)) {
+        return fail(month, "读取个税起征点失败: " + loadError);
+    }
+
+    QList<ActiveEmployee> activeEmployees;
+    if (!loadActiveEmployees(monthStart, &activeEmployees, &loadError)) {
+        return fail(month, "读取在职员工失败: " + loadError);
+    }
+
+    QHash<int, int> leaveDaysByEmployee;
+    if (!loadLeaveDaysByEmployee(monthStart, &leaveDaysByEmployee, &loadError)) {
+        return fail(month, "读取请假扣款数据失败: " + loadError);
+    }
+
+    QHash<int, double> performanceScoresByEmployee;
+    if (!loadPerformanceScoresByEmployee(month, &performanceScoresByEmployee, &loadError)) {
+        return fail(month, "读取绩效奖金数据失败: " + loadError);
+    }
 
     if (!m_db.transaction()) {
         return fail(month, "启动薪酬核算事务失败: " + m_db.lastError().text());
@@ -53,12 +82,16 @@ PayrollService::Result PayrollService::calculateMonth(const QString &month, bool
     int generatedCount = 0;
     for (const auto &emp : activeEmployees) {
         QString insertError;
-        const int leaveDays = leaveDaysForEmployee(emp.empId, month);
-        const double leaveDeduction = std::min((emp.baseSalary / workDays) * leaveDays, emp.baseSalary);
-        const double performanceBonus = performanceBonusForEmployee(emp.empId, month, emp.baseSalary);
+        PayrollCalc::Input input;
+        input.baseSalary = emp.baseSalary;
+        input.leaveDays = leaveDaysByEmployee.value(emp.empId, 0);
+        input.performanceScore = performanceScoresByEmployee.value(emp.empId, 0.0);
+        input.workDaysPerMonth = workDays;
+        input.taxThreshold = taxThreshold;
+        input.taxItems = taxItems;
+        const PayrollCalc::Breakdown breakdown = PayrollCalc::calculate(input);
 
-        if (!insertPayrollRow(emp.empId, month, emp.baseSalary, leaveDeduction,
-                              performanceBonus, taxItems, taxThreshold, today, &insertError)) {
+        if (!insertPayrollRow(emp.empId, month, emp.baseSalary, breakdown, today, &insertError)) {
             m_db.rollback();
             return fail(month, "写入工资条时出错: " + insertError);
         }
@@ -86,193 +119,191 @@ PayrollService::Result PayrollService::fail(const QString &month, const QString 
     return result;
 }
 
-double PayrollService::loadWorkDaysPerMonth()
+bool PayrollService::loadWorkDaysPerMonth(double *workDays, QString *errorText)
 {
+    DbQuery::clearError(errorText);
     QSqlQuery query(m_db);
-    double workDays = 21.75;
+    double result = PayrollCalc::DefaultWorkDaysPerMonth;
 
-    if (query.exec("SELECT value FROM system_settings WHERE key_name='work_days_per_month'") && query.next()) {
+    if (!DbQuery::execPrepared(query, "SELECT value FROM system_settings WHERE key_name=?",
+                               {HR::Config::WORK_DAYS}, errorText)) {
+        return false;
+    }
+    if (query.next()) {
         const double configured = query.value(0).toDouble();
         if (configured > 0) {
-            workDays = configured;
+            result = configured;
         }
     }
     query.finish();
-    return workDays;
+    if (workDays) *workDays = result;
+    return true;
 }
 
-QList<PayrollService::TaxItem> PayrollService::loadTaxItems()
+bool PayrollService::loadTaxItems(QList<PayrollCalc::TaxItem> *taxItems, QString *errorText)
 {
-    QList<TaxItem> taxItems;
+    DbQuery::clearError(errorText);
+    if (taxItems) taxItems->clear();
+
     QSqlQuery query(m_db);
 
-    query.exec("SELECT item_name, rate_personal FROM salary_config WHERE enabled=1");
+    if (!DbQuery::exec(query, "SELECT item_name, rate_personal FROM salary_config WHERE enabled=1", errorText)) {
+        return false;
+    }
     while (query.next()) {
-        taxItems.append({query.value(0).toString(), query.value(1).toDouble()});
+        if (taxItems) taxItems->append({query.value(0).toString(), query.value(1).toDouble()});
     }
     query.finish();
-    return taxItems;
+    return true;
 }
 
-double PayrollService::loadTaxThreshold()
+bool PayrollService::loadTaxThreshold(double *taxThreshold, QString *errorText)
 {
+    DbQuery::clearError(errorText);
     QSqlQuery query(m_db);
-    double threshold = 5000;
+    double threshold = PayrollCalc::DefaultTaxThreshold;
 
-    if (query.exec("SELECT value FROM system_settings WHERE key_name='tax_threshold'") && query.next()) {
+    if (!DbQuery::execPrepared(query, "SELECT value FROM system_settings WHERE key_name=?",
+                               {HR::Config::TAX_THRESHOLD}, errorText)) {
+        return false;
+    }
+    if (query.next()) {
         threshold = query.value(0).toDouble();
     }
     query.finish();
-    return threshold;
+    if (taxThreshold) *taxThreshold = threshold;
+    return true;
 }
 
-QList<PayrollService::ActiveEmployee> PayrollService::loadActiveEmployees(const QString &month)
+bool PayrollService::loadActiveEmployees(const QDate &monthStart, QList<ActiveEmployee> *employees,
+                                         QString *errorText)
 {
-    QList<ActiveEmployee> employees;
-    const QDate monthStart = QDate::fromString(month + "-01", "yyyy-MM-dd");
+    DbQuery::clearError(errorText);
+    if (employees) employees->clear();
+
     if (!monthStart.isValid()) {
-        return employees;
+        DbQuery::setError(errorText, PayrollCalc::invalidMonthMessage());
+        return false;
     }
     const QString monthEnd = monthStart.addMonths(1).addDays(-1).toString("yyyy-MM-dd");
 
     QSqlQuery query(m_db);
 
-    query.prepare("SELECT emp_id, base_salary FROM employees "
-                  "WHERE status='在职' AND (hire_date IS NULL OR hire_date<=?)");
-    query.addBindValue(monthEnd);
-    query.exec();
+    if (!DbQuery::execPrepared(query,
+                               "SELECT emp_id, base_salary FROM employees "
+                               "WHERE status=? AND (hire_date IS NULL OR hire_date<=?)",
+                               {HR::EmpStatus::ACTIVE, monthEnd}, errorText)) {
+        return false;
+    }
     while (query.next()) {
-        employees.append({query.value(0).toInt(), query.value(1).toDouble()});
+        if (employees) employees->append({query.value(0).toInt(), query.value(1).toDouble()});
     }
     query.finish();
-    return employees;
+    return true;
 }
 
-int PayrollService::leaveDaysForEmployee(int empId, const QString &month)
+bool PayrollService::loadLeaveDaysByEmployee(const QDate &monthStart, QHash<int, int> *leaveDaysByEmployee,
+                                             QString *errorText)
 {
-    const QDate monthStart = QDate::fromString(month + "-01", "yyyy-MM-dd");
+    DbQuery::clearError(errorText);
+    if (leaveDaysByEmployee) leaveDaysByEmployee->clear();
+
     if (!monthStart.isValid()) {
-        return 0;
+        DbQuery::setError(errorText, PayrollCalc::invalidMonthMessage());
+        return false;
     }
     const QDate monthEnd = monthStart.addMonths(1).addDays(-1);
     const QString monthStartStr = monthStart.toString("yyyy-MM-dd");
     const QString monthEndStr = monthEnd.toString("yyyy-MM-dd");
 
     QSqlQuery query(m_db);
-    query.prepare("SELECT start_date, end_date "
-                  "FROM leave_requests "
-                  "WHERE emp_id=? AND status='已同意' AND start_date <= ? AND end_date >= ?");
-    query.addBindValue(empId);
-    query.addBindValue(monthEndStr);
-    query.addBindValue(monthStartStr);
+    if (!DbQuery::execPrepared(query,
+                               "SELECT emp_id, start_date, end_date "
+                               "FROM leave_requests "
+                               "WHERE status=? AND start_date <= ? AND end_date >= ?",
+                               {HR::LeaveStatus::APPROVED, monthEndStr, monthStartStr},
+                               errorText)) {
+        return false;
+    }
 
-    int days = 0;
-    if (query.exec()) {
-        while (query.next()) {
-            QDate start = query.value(0).toDate();
-            QDate end = query.value(1).toDate();
-            if (!start.isValid() || !end.isValid()) {
-                continue;
-            }
-            if (start < monthStart) start = monthStart;
-            if (end > monthEnd) end = monthEnd;
-            for (QDate date = start; date <= end; date = date.addDays(1)) {
-                if (payrollWorkday(date)) {
-                    ++days;
-                }
+    QHash<int, QSet<qint64>> workdaysByEmployee;
+    while (query.next()) {
+        const int empId = query.value(0).toInt();
+        QDate start = query.value(1).toDate();
+        QDate end = query.value(2).toDate();
+        if (!start.isValid() || !end.isValid()) {
+            continue;
+        }
+        if (start < monthStart) start = monthStart;
+        if (end > monthEnd) end = monthEnd;
+        for (QDate date = start; date <= end; date = date.addDays(1)) {
+            if (PayrollCalc::isWorkday(date)) {
+                workdaysByEmployee[empId].insert(date.toJulianDay());
             }
         }
     }
     query.finish();
-    return days;
+
+    if (leaveDaysByEmployee) {
+        for (auto it = workdaysByEmployee.cbegin(); it != workdaysByEmployee.cend(); ++it) {
+            leaveDaysByEmployee->insert(it.key(), it.value().size());
+        }
+    }
+    return true;
 }
 
-double PayrollService::performanceBonusForEmployee(int empId, const QString &month, double baseSalary)
+bool PayrollService::loadPerformanceScoresByEmployee(const QString &month,
+                                                     QHash<int, double> *scoresByEmployee,
+                                                     QString *errorText)
 {
-    QSqlQuery query(m_db);
-    query.prepare("SELECT score FROM performance_scores "
-                  "WHERE emp_id=? AND eval_month=? AND status='已发布'");
-    query.addBindValue(empId);
-    query.addBindValue(month);
+    DbQuery::clearError(errorText);
+    if (scoresByEmployee) scoresByEmployee->clear();
 
-    double bonus = 0.0;
-    if (query.exec() && query.next()) {
-        const double score = query.value(0).toDouble();
-        if (score >= 90) {
-            bonus = baseSalary * 0.10;
-        } else if (score >= 70) {
-            bonus = baseSalary * 0.05;
+    QSqlQuery query(m_db);
+    if (!DbQuery::execPrepared(query,
+                               "SELECT emp_id, score FROM performance_scores "
+                               "WHERE eval_month=? AND status=?",
+                               {month, HR::PerformanceStatus::PUBLISHED}, errorText)) {
+        return false;
+    }
+
+    while (query.next()) {
+        if (scoresByEmployee) {
+            scoresByEmployee->insert(query.value(0).toInt(), query.value(1).toDouble());
         }
     }
     query.finish();
-    return bonus;
+    return true;
 }
 
 bool PayrollService::deletePayrollRows(const QString &month, QString *errorText)
 {
     QSqlQuery query(m_db);
-    query.prepare("DELETE FROM payroll WHERE month=?");
-    query.addBindValue(month);
-
-    const bool ok = query.exec();
-    if (!ok && errorText) {
-        *errorText = query.lastError().text();
-    }
-    query.finish();
-    return ok;
+    return DbQuery::execPreparedAndFinish(query, "DELETE FROM payroll WHERE month=?", {month}, errorText);
 }
 
 bool PayrollService::insertPayrollRow(int empId, const QString &month, double baseSalary,
-                                      double leaveDeduction, double performanceBonus,
-                                      const QList<TaxItem> &taxItems, double taxThreshold,
+                                      const PayrollCalc::Breakdown &breakdown,
                                       const QString &issueDate, QString *errorText)
 {
-    double pension = 0;
-    double medical = 0;
-    double unemployment = 0;
-    double housing = 0;
-    for (const auto &item : taxItems) {
-        const double value = baseSalary * item.rate;
-        if (item.name == "养老保险") pension = value;
-        else if (item.name == "医疗保险") medical = value;
-        else if (item.name == "失业保险") unemployment = value;
-        else if (item.name == "住房公积金") housing = value;
-    }
-
-    const double taxable = baseSalary - leaveDeduction + performanceBonus
-                           - pension - medical - unemployment - housing - taxThreshold;
-    double tax = 0;
-    if (taxable > 25000) tax = taxable * 0.25 - 2660;
-    else if (taxable > 12000) tax = taxable * 0.20 - 1410;
-    else if (taxable > 3000) tax = taxable * 0.10 - 210;
-    else if (taxable > 0) tax = taxable * 0.03;
-    if (tax < 0) tax = 0;
-
-    const double net = std::max(0.0, baseSalary - leaveDeduction + performanceBonus
-                                      - pension - medical - unemployment - housing - tax);
-
     QSqlQuery query(m_db);
-    query.prepare("INSERT INTO payroll(emp_id,month,base_salary,leave_deduction,"
-                  "performance_bonus,pension,medical,unemployment,housing_fund,"
-                  "income_tax,net_salary,issue_date) "
-                  "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)");
-    query.addBindValue(empId);
-    query.addBindValue(month);
-    query.addBindValue(baseSalary);
-    query.addBindValue(leaveDeduction);
-    query.addBindValue(performanceBonus);
-    query.addBindValue(pension);
-    query.addBindValue(medical);
-    query.addBindValue(unemployment);
-    query.addBindValue(housing);
-    query.addBindValue(tax);
-    query.addBindValue(net);
-    query.addBindValue(issueDate);
-
-    const bool ok = query.exec();
-    if (!ok && errorText) {
-        *errorText = query.lastError().text();
-    }
-    query.finish();
-    return ok;
+    return DbQuery::execPreparedAndFinish(
+        query,
+        "INSERT INTO payroll(emp_id,month,base_salary,leave_deduction,"
+        "performance_bonus,pension,medical,unemployment,housing_fund,"
+        "income_tax,net_salary,issue_date) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+        {empId,
+         month,
+         baseSalary,
+         breakdown.leaveDeduction,
+         breakdown.performanceBonus,
+         breakdown.pension,
+         breakdown.medical,
+         breakdown.unemployment,
+         breakdown.housing,
+         breakdown.incomeTax,
+         breakdown.netSalary,
+         issueDate},
+        errorText);
 }

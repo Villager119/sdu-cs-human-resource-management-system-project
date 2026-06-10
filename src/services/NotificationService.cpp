@@ -1,5 +1,7 @@
 #include "NotificationService.h"
 
+#include "../core/Constants.h"
+
 #include <QSqlQuery>
 
 NotificationService::NotificationService(const QSqlDatabase &db)
@@ -24,7 +26,10 @@ QList<int> NotificationService::activeAdminIds() const
 {
     QList<int> employeeIds;
     QSqlQuery query(m_db);
-    query.exec("SELECT emp_id FROM employees WHERE role='admin' AND status='在职'");
+    query.prepare("SELECT emp_id FROM employees WHERE role=? AND status=?");
+    query.addBindValue(HR::Role::ADMIN);
+    query.addBindValue(HR::EmpStatus::ACTIVE);
+    query.exec();
     while (query.next()) {
         employeeIds.append(query.value(0).toInt());
     }
@@ -40,8 +45,9 @@ QList<int> NotificationService::activeUserIdsWithPermission(const QString &permi
                   "INNER JOIN roles r ON e.role = r.role_name "
                   "INNER JOIN role_permissions rp ON r.role_id = rp.role_id "
                   "INNER JOIN permissions p ON rp.permission_id = p.permission_id "
-                  "WHERE p.permission_key=? AND e.status='在职'");
+                  "WHERE p.permission_key=? AND e.status=?");
     query.addBindValue(permissionKey);
+    query.addBindValue(HR::EmpStatus::ACTIVE);
     query.exec();
     while (query.next()) {
         employeeIds.append(query.value(0).toInt());

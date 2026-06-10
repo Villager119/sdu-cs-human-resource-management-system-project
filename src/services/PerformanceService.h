@@ -53,7 +53,7 @@ public:
 
 private:
     Result fail(const QString &message) const;
-    bool scoreExists(int employeeId, const QString &month) const;
+    bool scoreExists(int employeeId, const QString &month, bool *exists, QString *errorText) const;
 
     QSqlDatabase m_db;
 };

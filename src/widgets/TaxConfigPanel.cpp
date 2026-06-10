@@ -1,4 +1,5 @@
 #include "TaxConfigPanel.h"
+#include "../core/Constants.h"
 #include "../utils/DbUtils.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -69,11 +70,15 @@ void TaxConfigPanel::save()
 void TaxConfigPanel::loadSettings()
 {
     QSqlQuery q;
-    q.exec("SELECT value FROM system_settings WHERE key_name='work_days_per_month'");
+    q.prepare("SELECT value FROM system_settings WHERE key_name=?");
+    q.addBindValue(HR::Config::WORK_DAYS);
+    q.exec();
     m_savedWorkDays = q.next() ? q.value(0).toString() : QStringLiteral("21.75");
     q.finish();
 
-    q.exec("SELECT value FROM system_settings WHERE key_name='tax_threshold'");
+    q.prepare("SELECT value FROM system_settings WHERE key_name=?");
+    q.addBindValue(HR::Config::TAX_THRESHOLD);
+    q.exec();
     m_savedTaxThreshold = q.next() ? q.value(0).toString() : QStringLiteral("5000");
     q.finish();
 
@@ -133,8 +138,9 @@ bool TaxConfigPanel::saveInternal(bool showMessage)
 
     QString err;
     QSqlQuery q(db);
-    q.prepare("INSERT INTO system_settings (key_name, value) VALUES ('work_days_per_month', ?) "
+    q.prepare("INSERT INTO system_settings (key_name, value) VALUES (?, ?) "
               "ON DUPLICATE KEY UPDATE value=VALUES(value)");
+    q.addBindValue(HR::Config::WORK_DAYS);
     q.addBindValue(m_workDaysEdit->text().trimmed());
     if (!q.exec()) {
         err = "保存月工作天数失败: " + q.lastError().text();
@@ -142,8 +148,9 @@ bool TaxConfigPanel::saveInternal(bool showMessage)
     q.finish();
 
     if (err.isEmpty()) {
-        q.prepare("INSERT INTO system_settings (key_name, value) VALUES ('tax_threshold', ?) "
+        q.prepare("INSERT INTO system_settings (key_name, value) VALUES (?, ?) "
                   "ON DUPLICATE KEY UPDATE value=VALUES(value)");
+        q.addBindValue(HR::Config::TAX_THRESHOLD);
         q.addBindValue(m_taxThresholdEdit->text().trimmed());
         if (!q.exec()) {
             err = "保存个税起征点失败: " + q.lastError().text();

@@ -5,6 +5,7 @@
 #include "../services/EmployeeService.h"
 #include "../utils/CsvExport.h"
 #include "../utils/DbUtils.h"
+#include "../utils/SqlFilterBuilder.h"
 #include "../core/Constants.h"
 #include "../core/GlobalEvents.h"
 #include <QVBoxLayout>
@@ -591,43 +592,31 @@ QString EmployeeTab::employeeBaseFilter() const
 {
     QStringList cond;
     if (m_deptCombo->currentIndex() > 0) {
-        QString value = m_deptCombo->currentText();
-        value.replace("'", "''");
-        cond << QString("department='%1'").arg(value);
+        cond << SqlFilter::equals("department", m_deptCombo->currentText());
     }
     if (m_statusCombo->currentIndex() > 0) {
-        QString value = m_statusCombo->currentText();
-        value.replace("'", "''");
-        cond << QString("status='%1'").arg(value);
+        cond << SqlFilter::equals("status", m_statusCombo->currentText());
     }
     if (m_maritalCombo->currentIndex() > 0) {
-        QString value = m_maritalCombo->currentText();
-        value.replace("'", "''");
-        cond << QString("marital_status='%1'").arg(value);
+        cond << SqlFilter::equals("marital_status", m_maritalCombo->currentText());
     }
     if (m_eduCombo->currentIndex() > 0) {
-        QString value = m_eduCombo->currentText();
-        value.replace("'", "''");
-        cond << QString("education='%1'").arg(value);
+        cond << SqlFilter::equals("education", m_eduCombo->currentText());
     }
     if (!m_posSearch->text().isEmpty()) {
-        QString escaped = m_posSearch->text().trimmed();
-        escaped.replace("'", "''");
-        cond << QString("(position LIKE '%%1%' OR title LIKE '%%1%')").arg(escaped);
+        cond << SqlFilter::containsAny({"position", "title"}, m_posSearch->text().trimmed());
     }
     if (!m_nameSearch->text().isEmpty()) {
-        QString escaped = m_nameSearch->text().trimmed();
-        escaped.replace("'", "''");
-        cond << QString("name LIKE '%%1%'").arg(escaped);
+        cond << SqlFilter::contains("name", m_nameSearch->text().trimmed());
     }
-    return cond.join(" AND ");
+    return SqlFilter::andAll(cond);
 }
 
 QString EmployeeTab::employeePagedFilter(QString *errorText) const
 {
     if (errorText) errorText->clear();
     QString filter = employeeBaseFilter();
-    if (filter.isEmpty()) filter = "1=1";
+    if (filter.isEmpty()) filter = SqlFilter::alwaysTrue();
 
     const int pageSize = 20;
     const int offset = m_pagination ? (m_pagination->currentPage() - 1) * pageSize : 0;
@@ -649,16 +638,16 @@ QString EmployeeTab::employeePagedFilter(QString *errorText) const
     query.finish();
 
     if (ids.isEmpty()) {
-        return "1=0";
+        return SqlFilter::alwaysFalse();
     }
-    return QString("%1 AND emp_id IN (%2)").arg(filter, ids.join(","));
+    return SqlFilter::andAll({filter, QString("emp_id IN (%1)").arg(ids.join(","))});
 }
 
 int EmployeeTab::filteredEmployeeCount(QString *errorText) const
 {
     if (errorText) errorText->clear();
     QString filter = employeeBaseFilter();
-    if (filter.isEmpty()) filter = "1=1";
+    if (filter.isEmpty()) filter = SqlFilter::alwaysTrue();
 
     QSqlQuery query;
     query.prepare("SELECT COUNT(*) FROM employees WHERE " + filter);
@@ -814,7 +803,7 @@ void EmployeeTab::exportCSV()
     if (path.isEmpty()) return;
 
     QString filter = employeeBaseFilter();
-    if (filter.isEmpty()) filter = "1=1";
+    if (filter.isEmpty()) filter = SqlFilter::alwaysTrue();
 
     QSqlQuery query;
     query.prepare(QString("SELECT emp_id,name,gender,phone,department,role,base_salary,hire_date,"

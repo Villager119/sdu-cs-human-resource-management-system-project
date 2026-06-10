@@ -1,5 +1,9 @@
 # 一、可视化 & UML 建模工具深度剖析
 
+## 项目适配补充（2026-06-10）
+
+结合 HRMS 当前代码与文档交付状态，项目实际采用 **Git + CMake + Qt Creator/Qt Designer + Markdown/Mermaid** 的轻量级 CASE 组合：Git 用于配置管理与变更追踪，CMake 统一 Qt6 构建与 Windows 运行时部署，Qt Designer 支撑 `.ui` 界面维护，Mermaid 直接嵌入 SRS/SAD 用于 E-R 图、流程图、架构图和甘特图表达。该组合不引入商业 CASE 工具授权成本，适合课程设计规模，也便于后续在代码审查和文档同步时保持低维护成本。
+
 ## 1. Microsoft Visio
 
 **用途**

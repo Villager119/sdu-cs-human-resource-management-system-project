@@ -1,7 +1,7 @@
 # 人力资源管理系统 — 软件需求规格说明书 (SRS)
 
-> 版本：V3.3
-> 日期：2026-05-30
+> 版本：V3.5
+> 日期：2026-06-10
 > 项目代号：HRMS
 
 ---
@@ -21,7 +21,7 @@
 
 本文档旨在完整定义 **人力资源管理系统 (HRMS)** 的软件需求规格。目标读者包括：
 
-- **开发人员**：作为编码与单元测试的依据
+- **开发人员**：作为编码、联调与验收检查的依据
 - **课程指导教师**：作为评审与打分的参考基线
 - **后续维护者**：作为系统修改与扩展的需求溯源
 
@@ -883,16 +883,18 @@ graph LR
 - 数据库迁移采用幂等设计（`CREATE TABLE IF NOT EXISTS`、`SHOW COLUMNS` 检查后 `ALTER TABLE ADD COLUMN`）
 - 全局事件总线解耦跨模块刷新逻辑
 - 主要业务规则从 UI 类抽取到 `src/services/`：`AuthService` 负责登录/改密/找回密码，`PayrollService` 负责薪酬事务核算，`AttendanceService` 与 `ApprovalService` 负责考勤申请和审批，`RbacService` 与 `OrgService` 负责权限和组织管理。
+- 临时查询、表格筛选条件和薪酬计算规则分别由 `DbQuery`、`SqlFilterBuilder`、`PayrollCalculator` 承载，减少手写 SQL 片段和隐式默认值。
 - 公共界面样式抽取到 `UiStyles`，减少重复 QSS 字符串，统一审批/申请类页面视觉风格
 - 可编辑页面实现统一未保存变更拦截，切换侧边栏或子标签页时对员工、组织、社保配置、权限、班次和绩效评分等保存型操作弹出保存/不保存/取消确认。
 
 #### NFR-5：可靠性
-- 数据库连接失败时程序终止并打印错误信息
+- 数据库连接失败时程序仍进入登录窗口，显示“数据库未连接”状态，并允许用户通过服务器设置重新填写连接参数后重试。
 - 数据修改采用 `OnManualSubmit` 策略，用户可撤销未提交的误操作
 - 薪酬核算使用数据库事务（`transaction`/`commit`/`rollback`）
-- 重复核算当月工资前弹出二次确认；删除当月旧工资条与写入新工资条处于同一事务内，任一员工写入失败则整体回滚
+- 重复核算当月工资前弹出二次确认；读取月份、配置、税率、员工、请假和绩效数据失败时立即返回错误；删除当月旧工资条与写入新工资条处于同一事务内，任一员工写入失败则整体回滚
 - 扩展字段添加前检查列是否存在，防止重复迁移报错
 - 长生命周期 SQL Model 与后台轮询使用独立克隆数据库连接，临时查询读取完成后显式释放语句结果，降低 QODBC 函数序列错误风险
+- Windows 构建后默认执行 `windeployqt` 部署 Qt DLL 与插件，降低直接运行时 `Qt6Sql.dll` 等依赖缺失的概率
 
 ### 3.4 数据需求
 
@@ -1110,22 +1112,21 @@ erDiagram
 ```
 main() 启动
   │
+  ├── 初始化日志并加载 style.qss（多路径查找）
   ├── 读取 config.ini（多路径查找）
-  ├── 尝试自动登录（若存在 [AutoLogin] 配置）
   ├── 连接 MySQL (QODBC)
-  │     ├── 失败 → 打印错误，return -1
-  │     └── 成功 ↓
+  │     ├── 失败 → 记录错误，继续显示 LoginWindow(setDbConnected(false))
+  │     └── 成功 → initDatabaseSchema() 自动建表/迁移/默认数据初始化
   │
   ├── 显示 LoginWindow
-  │     ├── 输入账号+密码 + 记住密码
-  │     ├── 可打开 ServerSettingsDialog 修改数据库连接
+  │     ├── 输入账号+密码 + 记住密码/自动登录配置
+  │     ├── 可打开 ServerSettingsDialog 修改数据库连接并触发重连
   │     └── SQL 查询匹配（SHA-256 哈希比对）
   │           ├── 无结果 → "账号或密码错误"
   │           └── 有结果 → new MainWindow(empId, role)
   │                         → 显示 MainWindow, 关闭 LoginWindow
   │
   └── MainWindow
-        ├── 自动建表迁移（17 张表 + 字段扩展）
         ├── 查询当前用户姓名
         ├── 写入登录日志（audit_logs）
         ├── 初始化 GlobalEvents 信号连接
@@ -1160,7 +1161,7 @@ graph TD
 
 | 文件 | 说明 |
 |------|------|
-| `main.cpp` | 入口：读取 config.ini、连接数据库、自动登录、启动 LoginWindow |
+| `main.cpp` | 入口：初始化日志与样式、读取 config.ini、连接数据库、执行建表迁移、启动 LoginWindow |
 | `src/ui/LoginWindow.h/cpp` | 登录窗口：输入采集、记住密码、登录结果提示，认证逻辑委托给 AuthService |
 | `src/ui/MainWindow.h/cpp` | 主窗口：8 项可折叠侧边栏导航、通知铃铛闪烁、系统菜单、状态栏、全局事件连接 |
 | `src/ui/ServerSettingsDialog.h/cpp` | 服务器设置对话框：局域网扫描、连接测试、配置保存 |
@@ -1180,10 +1181,11 @@ graph TD
 | `src/services/EmployeeService.h/cpp` | 员工服务：员工行校验、默认密码、状态流转、部门/角色存在性校验、岗位薪资标准校验 |
 | `src/services/AttendanceService.h/cpp` | 考勤服务：打卡、班次读取、请假申请、补卡申请 |
 | `src/services/ApprovalService.h/cpp` | 审批服务：请假审批、补卡审批、审批意见记录及考勤记录回写 |
-| `src/services/PayrollService.h/cpp` | 薪酬服务：月度工资事务核算、五险一金、个税、绩效奖金 |
-| `src/services/PerformanceService.h/cpp` | 绩效服务：员工候选、评分保存、评分详情查询 |
+| `src/services/PayrollService.h/cpp` | 薪酬服务：月度工资事务核算、配置读取校验、请假/绩效数据预加载、失败回滚 |
+| `src/services/PayrollCalculator.h` | 薪酬计算辅助：计薪月份、工作日、绩效奖金、请假扣款、五险一金和个税纯计算 |
+| `src/services/PerformanceService.h/cpp` | 绩效服务：员工候选、评分保存、评分详情查询、分值范围校验与重复评分处理 |
 | `src/services/ProfileChangeService.h/cpp` | 信息变更服务：申请提交、字段白名单、审批更新与审批意见记录 |
-| `src/services/OrgService.h/cpp` | 组织服务：部门详情、保存、删除、主管候选、员工数统计与岗位薪资标准维护 |
+| `src/services/OrgService.h/cpp` | 组织服务：部门详情、保存、删除、主管候选、员工数统计、删除保护与岗位薪资标准维护 |
 | `src/services/RbacService.h/cpp` | 权限服务：角色维护、权限加载、角色权限事务保存 |
 | `src/services/NotificationService.h/cpp` | 通知服务：通知写入、未读统计、标记已读、按权限查找接收人 |
 | `src/services/AuditService.h/cpp` | 审计服务：审计日志写入与最大日志编号轮询 |
@@ -1200,15 +1202,17 @@ graph TD
 | `src/db/DbMigration.h/cpp` | 数据库迁移辅助：字段补齐、索引创建等幂等操作 |
 | `src/db/DbSchema.h/cpp` | 数据库结构初始化：17 表建表、默认数据与迁移编排 |
 | `src/utils/DbUtils.h/cpp` | 数据库兼容入口：保留历史 include，转发到 `src/db/` 实现 |
+| `src/utils/DbQuery.h` | 临时 SQL 查询辅助：统一执行状态、错误信息与结果读取入口 |
+| `src/utils/SqlFilterBuilder.h` | 表格筛选辅助：集中生成 `QSqlTableModel::setFilter()` 所需 SQL 片段 |
 | `src/utils/CsvExport.h/cpp` | CSV 导出工具（UTF-8 BOM） |
 | `src/utils/UiStyles.h/cpp` | 公共界面样式工具，复用申请/审批页面按钮、表格、输入控件 QSS |
 | `src/utils/MessageHelper.h` | 消息弹窗工具，统一常用确认、提示和错误提示入口 |
 | `src/utils/UnsavedChangesGuard.h` | 未保存变更拦截接口，供主窗口在切换页面时统一提示保存 |
 | `src/utils/Toast.h` | Toast 通知提示组件（纯头文件，4 种类型 + 淡入淡出动画） |
-| `CMakeLists.txt` | CMake 构建配置 (Qt6 Core/Gui/Widgets/Sql/Charts/Network/Concurrent) |
+| `CMakeLists.txt` | CMake 构建配置 (Qt6 Core/Gui/Widgets/Sql/Charts/Network/Concurrent)，Windows 下默认通过 `windeployqt` 部署 Qt 运行时 |
 | `config.ini` | 数据库连接配置 + 自动登录配置（演示环境可保留；生产环境不建议纳入版本控制） |
 | `style.qss` | 全局样式表（~390 行，浅石板灰主题 + 动态属性选择器） |
 
 ---
 
-*本文档基于对全部源码文件的审查编写。V3.4 更新于 2026-06-05，反映当前代码库完整功能状态（18 项功能、17 张数据表、10 种统计图表、8 项侧边栏导航、含可折叠侧边栏、岗位薪资标准、审批意见留痕、工资条按姓名查询、统一未保存变更拦截、饼图高区分度配色、可视化组织架构图、QODBC 连接隔离、公共 UI 样式工具、客户端服务层重构与 `src/db/` 数据库基础设施拆分）。*
+*本文档基于对全部源码文件的审查编写。V3.5 更新于 2026-06-10，反映当前代码库完整功能状态（18 项功能、17 张数据表、10 种统计图表、8 项侧边栏导航、含可折叠侧边栏、岗位薪资标准、审批意见留痕、工资条按姓名查询、统一未保存变更拦截、饼图高区分度配色、可视化组织架构图、QODBC 连接隔离、公共 UI 样式工具、客户端服务层重构、`src/db/` 数据库基础设施拆分、服务层查询/筛选/薪酬计算辅助与 Windows 运行时部署）。当前仓库未保留独立自动化验证目标，验证以构建、启动烟测和人工业务流程检查为主。*

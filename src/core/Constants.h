@@ -31,6 +31,10 @@ namespace HR {
         inline const QString MISSING = "缺卡";
         inline const QString LEAVE   = "请假";
     }
+    namespace PerformanceStatus {
+        inline const QString PUBLISHED = "已发布";
+        inline const QString UNPUBLISHED = "未发布";
+    }
     namespace Config {
         inline const QString WORK_DAYS = "work_days_per_month";
         inline const QString TAX_THRESHOLD = "tax_threshold";

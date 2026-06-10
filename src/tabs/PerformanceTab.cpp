@@ -3,8 +3,10 @@
 #include "../widgets/CommonDelegates.h"
 #include "../services/PerformanceService.h"
 #include "../utils/DbUtils.h"
+#include "../utils/SqlFilterBuilder.h"
 #include "../core/SessionManager.h"
 #include "../core/GlobalEvents.h"
+#include "../core/Constants.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -53,9 +55,13 @@ PerformanceTab::PerformanceTab(int empId, const QString &role,
     m_deptFilter->addItem("全部部门");
     {
         QSqlQuery dq;
-        dq.exec("SELECT DISTINCT department FROM employees WHERE department IS NOT NULL AND department != '' AND status='在职'");
-        while (dq.next()) {
-            m_deptFilter->addItem(dq.value(0).toString());
+        dq.prepare("SELECT DISTINCT department FROM employees "
+                   "WHERE department IS NOT NULL AND department != '' AND status=?");
+        dq.addBindValue(HR::EmpStatus::ACTIVE);
+        if (dq.exec()) {
+            while (dq.next()) {
+                m_deptFilter->addItem(dq.value(0).toString());
+            }
         }
         dq.finish();
     }
@@ -180,30 +186,30 @@ void PerformanceTab::filterScores()
 
     // Check permission - employees only see published scores for themselves
     if (!SessionManager::instance()->hasPermission("evaluate_performance")) {
-        conds << QString("performance_scores.emp_id = %1").arg(m_empId);
-        conds << "performance_scores.status = '已发布'";
+        conds << SqlFilter::equalsInt("performance_scores.emp_id", m_empId);
+        conds << SqlFilter::equals("performance_scores.status", HR::PerformanceStatus::PUBLISHED);
     }
 
     // Month filter
     if (m_monthFilter->currentIndex() > 0) {
-        conds << QString("performance_scores.eval_month = '%1'").arg(m_monthFilter->currentText());
+        conds << SqlFilter::equals("performance_scores.eval_month", m_monthFilter->currentText());
     }
 
     // Name search (fuzzy)
     if (!m_nameFilter->text().trimmed().isEmpty()) {
-        QString namePat = m_nameFilter->text().trimmed();
-        namePat.replace("'", "''");
-        conds << QString("performance_scores.emp_id IN (SELECT emp_id FROM employees WHERE name LIKE '%%1%')").arg(namePat);
+        conds << SqlFilter::inSubquery(
+            "performance_scores.emp_id",
+            "SELECT emp_id FROM employees WHERE " + SqlFilter::contains("name", m_nameFilter->text().trimmed()));
     }
 
     // Department filter
     if (m_deptFilter->currentIndex() > 0) {
-        QString dept = m_deptFilter->currentText();
-        dept.replace("'", "''");
-        conds << QString("performance_scores.emp_id IN (SELECT emp_id FROM employees WHERE department = '%1')").arg(dept);
+        conds << SqlFilter::inSubquery(
+            "performance_scores.emp_id",
+            "SELECT emp_id FROM employees WHERE " + SqlFilter::equals("department", m_deptFilter->currentText()));
     }
 
-    m_model->setFilter(conds.join(" AND "));
+    m_model->setFilter(SqlFilter::andAll(conds));
     m_model->select();
 }
 

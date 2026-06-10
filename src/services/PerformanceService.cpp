@@ -1,5 +1,8 @@
 #include "PerformanceService.h"
 
+#include "../core/Constants.h"
+#include "../utils/DbQuery.h"
+
 #include <QRegularExpression>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -13,7 +16,10 @@ QList<PerformanceService::EmployeeOption> PerformanceService::activeEmployees() 
 {
     QList<EmployeeOption> employees;
     QSqlQuery query(m_db);
-    query.exec("SELECT emp_id, name FROM employees WHERE status='在职'");
+    if (!DbQuery::execPrepared(query, "SELECT emp_id, name FROM employees WHERE status=?",
+                               {HR::EmpStatus::ACTIVE})) {
+        return employees;
+    }
     while (query.next()) {
         employees.append({query.value(0).toInt(), query.value(1).toString()});
     }
@@ -25,11 +31,14 @@ PerformanceService::ScoreDetail PerformanceService::scoreDetail(int scoreId) con
 {
     ScoreDetail detail;
     QSqlQuery query(m_db);
-    query.prepare("SELECT emp_id, eval_month, attitude, capability, teamwork, innovation, comment "
-                  "FROM performance_scores WHERE score_id = ?");
-    query.addBindValue(scoreId);
+    if (!DbQuery::execPrepared(query,
+                               "SELECT emp_id, eval_month, attitude, capability, teamwork, innovation, comment "
+                               "FROM performance_scores WHERE score_id = ?",
+                               {scoreId})) {
+        return detail;
+    }
 
-    if (query.exec() && query.next()) {
+    if (query.next()) {
         detail.found = true;
         detail.employeeId = query.value(0).toInt();
         detail.month = query.value(1).toString();
@@ -45,8 +54,17 @@ PerformanceService::ScoreDetail PerformanceService::scoreDetail(int scoreId) con
 
 PerformanceService::Result PerformanceService::saveScore(const ScoreInput &input)
 {
+    if (input.employeeId <= 0) {
+        return fail("请选择员工");
+    }
     if (input.month.isEmpty()) {
         return fail("请输入考核月份");
+    }
+    if (input.attitude < 0 || input.attitude > 25 ||
+        input.capability < 0 || input.capability > 25 ||
+        input.teamwork < 0 || input.teamwork > 25 ||
+        input.innovation < 0 || input.innovation > 25) {
+        return fail("单项评分必须在 0 到 25 分之间");
     }
 
     QRegularExpression re("^\\d{4}-(0[1-9]|1[0-2])$");
@@ -55,12 +73,16 @@ PerformanceService::Result PerformanceService::saveScore(const ScoreInput &input
     }
 
     const int total = input.attitude + input.capability + input.teamwork + input.innovation;
-    const bool exists = scoreExists(input.employeeId, input.month);
+    bool exists = false;
+    QString errorText;
+    if (!scoreExists(input.employeeId, input.month, &exists, &errorText)) {
+        return fail("校验绩效记录是否存在失败: " + errorText);
+    }
 
     QSqlQuery query(m_db);
     if (exists) {
         query.prepare("UPDATE performance_scores SET attitude=?, capability=?, teamwork=?, innovation=?, "
-                      "score=?, comment=?, status='已发布', evaluator=?, created_at=NOW() "
+                      "score=?, comment=?, status=?, evaluator=?, created_at=CURRENT_TIMESTAMP "
                       "WHERE emp_id=? AND eval_month=?");
         query.addBindValue(input.attitude);
         query.addBindValue(input.capability);
@@ -68,13 +90,14 @@ PerformanceService::Result PerformanceService::saveScore(const ScoreInput &input
         query.addBindValue(input.innovation);
         query.addBindValue(total);
         query.addBindValue(input.comment);
+        query.addBindValue(HR::PerformanceStatus::PUBLISHED);
         query.addBindValue(input.evaluator);
         query.addBindValue(input.employeeId);
         query.addBindValue(input.month);
     } else {
         query.prepare("INSERT INTO performance_scores(emp_id, eval_month, attitude, capability, teamwork, "
                       "innovation, score, comment, status, evaluator) "
-                      "VALUES(?,?,?,?,?,?,?,?,'已发布',?)");
+                      "VALUES(?,?,?,?,?,?,?,?,?,?)");
         query.addBindValue(input.employeeId);
         query.addBindValue(input.month);
         query.addBindValue(input.attitude);
@@ -83,15 +106,14 @@ PerformanceService::Result PerformanceService::saveScore(const ScoreInput &input
         query.addBindValue(input.innovation);
         query.addBindValue(total);
         query.addBindValue(input.comment);
+        query.addBindValue(HR::PerformanceStatus::PUBLISHED);
         query.addBindValue(input.evaluator);
     }
 
-    const bool ok = query.exec();
-    const QString errorText = query.lastError().text();
-    query.finish();
-    if (!ok) {
+    if (!DbQuery::execCurrent(query, &errorText)) {
         return fail(errorText);
     }
+    query.finish();
 
     Result result;
     result.success = true;
@@ -115,14 +137,20 @@ PerformanceService::Result PerformanceService::fail(const QString &message) cons
     return result;
 }
 
-bool PerformanceService::scoreExists(int employeeId, const QString &month) const
+bool PerformanceService::scoreExists(int employeeId, const QString &month, bool *exists, QString *errorText) const
 {
+    if (exists) {
+        *exists = false;
+    }
     QSqlQuery query(m_db);
-    query.prepare("SELECT COUNT(*) FROM performance_scores WHERE emp_id=? AND eval_month=?");
-    query.addBindValue(employeeId);
-    query.addBindValue(month);
-
-    const bool exists = query.exec() && query.next() && query.value(0).toInt() > 0;
+    if (!DbQuery::execPrepared(query,
+                               "SELECT COUNT(*) FROM performance_scores WHERE emp_id=? AND eval_month=?",
+                               {employeeId, month}, errorText)) {
+        return false;
+    }
+    if (query.next() && exists) {
+        *exists = query.value(0).toInt() > 0;
+    }
     query.finish();
-    return exists;
+    return true;
 }

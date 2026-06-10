@@ -47,6 +47,10 @@ public:
 private:
     Result fail(const QString &message) const;
     void bindNullableInt(QSqlQuery &query, const QVariant &value) const;
+    bool loadDepartmentDetail(int departmentId, DepartmentDetail *detail, QString *errorText) const;
+    bool loadActiveEmployeeCountInDepartment(const QString &departmentName, int *count, QString *errorText) const;
+    bool reparentChildDepartments(int departmentId, QString *errorText) const;
+    bool deleteDepartmentRow(int departmentId, QString *errorText) const;
     bool wouldCreateParentCycle(int departmentId, int parentId, QString *errorText) const;
     int parentIdForDepartment(int departmentId, bool *ok) const;
 
